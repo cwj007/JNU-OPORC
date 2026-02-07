@@ -230,6 +230,7 @@ class WeiboNote(Base):
     shared_count = Column(Text)
     note_url = Column(Text)
     source_keyword = Column(Text, default='')
+    top_id = Column(Text, default='')
     pictures = Column(Text, default='')
     video_url = Column(Text, default='')
 

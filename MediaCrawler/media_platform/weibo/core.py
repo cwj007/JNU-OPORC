@@ -50,7 +50,7 @@ from proxy.proxy_ip_pool import IpInfoModel, create_ip_pool
 from store import weibo as weibo_store
 from tools import utils
 from tools.cdp_browser import CDPBrowserManager
-from var import crawler_type_var, source_keyword_var
+from var import crawler_type_var, source_keyword_var, top_id_var
 
 from .client import WeiboClient
 from .exception import DataFetchError
@@ -391,9 +391,13 @@ class WeiboCrawler(AbstractCrawler):
                         target_sections = sections
                 
                 # 汇总所选板块的所有 ID
-                selected_ids = []
+                selected_info: List[Tuple[str, str]] = []  # [(note_id, top_id), ...]
                 for section in target_sections:
-                    selected_ids.extend(top_to_ids[section])
+                    # 提取 top_id (即 URL 中的 q 参数)
+                    match = re.search(r'q=([^&]+)', section)
+                    top_id = match.group(1) if match else section
+                    for note_id in top_to_ids[section]:
+                        selected_info.append((note_id, top_id))
                 
                 # 如果选择了板块，再次询问是否限制每个板块的帖子数
                 if target_sections:
@@ -404,29 +408,33 @@ class WeiboCrawler(AbstractCrawler):
                         try:
                             limit = int(limit_choice.strip())
                             # 重新过滤每个板块的 ID
-                            all_ids = []
+                            all_info = []
                             for section in target_sections:
-                                all_ids.extend(top_to_ids[section][:limit])
+                                match = re.search(r'q=([^&]+)', section)
+                                top_id = match.group(1) if match else section
+                                for note_id in top_to_ids[section][:limit]:
+                                    all_info.append((note_id, top_id))
                         except:
-                            all_ids = selected_ids
+                            all_info = selected_info
                     else:
-                        all_ids = selected_ids
+                        all_info = selected_info
                 
-                utils.logger.info(f"[WeiboCrawler.get_specified_notes] 已筛选出 {len(all_ids)} 个帖子 ID 准备爬取。")
+                utils.logger.info(f"[WeiboCrawler.get_specified_notes] 已筛选出 {len(all_info)} 个帖子 ID 准备爬取。")
                 print("="*50 + "\n")
             else:
                 utils.logger.warning("[WeiboCrawler.get_specified_notes] 未能加载到任何已提取的 ID。")
                 return
         
-        if not all_ids:
+        if not all_info:
             utils.logger.warning("[WeiboCrawler.get_specified_notes] 没有待爬取的指定 ID")
             return
 
-        utils.logger.info(f"[WeiboCrawler.get_specified_notes] 开始顺序爬取，总计 {len(all_ids)} 个帖子")
+        utils.logger.info(f"[WeiboCrawler.get_specified_notes] 开始顺序爬取，总计 {len(all_info)} 个帖子")
 
         # 3. 顺序爬取：一个 ID 完成后再开始下一个
-        for i, note_id in enumerate(all_ids, 1):
-            utils.logger.info(f"[WeiboCrawler.get_specified_notes] 正在处理第 {i}/{len(all_ids)} 个帖子: {note_id}")
+        for i, (note_id, top_id) in enumerate(all_info, 1):
+            top_id_var.set(top_id)  # 设置当前帖子的 top_id
+            utils.logger.info(f"[WeiboCrawler.get_specified_notes] 正在处理第 {i}/{len(all_info)} 个帖子: {note_id}, top_id: {top_id}")
             
             # 获取帖子详情
             note_item = await self.get_note_info_task(note_id)

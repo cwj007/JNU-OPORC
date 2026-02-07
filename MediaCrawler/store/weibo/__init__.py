@@ -25,7 +25,7 @@
 import re
 from typing import List
 
-from var import source_keyword_var
+from var import source_keyword_var, top_id_var
 
 from .weibo_store_media import *
 from ._store_impl import *
@@ -120,6 +120,7 @@ async def update_weibo_note(note_item: Dict):
         "profile_url": user_info.get("profile_url", ""),
         "avatar": user_info.get("profile_image_url", ""),
         "source_keyword": source_keyword_var.get(),
+        "top_id": top_id_var.get(),
     }
     utils.logger.info(f"[store.weibo.update_weibo_note] weibo note id:{note_id}, title:{save_content_item.get('content')[:24]} ...")
     await WeibostoreFactory.create_store().store_content(content_item=save_content_item)
