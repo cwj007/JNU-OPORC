@@ -1,0 +1,7 @@
+2026/02/06-21:33:28.107 9da8 Reusing MANIFEST e:\JNU-OPORC\MediaCrawler\browser_data\wb_user_data_dir\Default\Local Storage\leveldb/MANIFEST-000001
+2026/02/06-21:33:28.117 9da8 Recovering log #55
+2026/02/06-21:33:28.117 9da8 Level-0 table #59: started
+2026/02/06-21:33:28.126 9da8 Level-0 table #59: 88065 bytes OK
+2026/02/06-21:33:28.126 9da8 Recovering log #58
+2026/02/06-21:33:28.129 9da8 Reusing old log e:\JNU-OPORC\MediaCrawler\browser_data\wb_user_data_dir\Default\Local Storage\leveldb/000058.log 
+2026/02/06-21:33:28.131 9da8 Delete type=0 #55
