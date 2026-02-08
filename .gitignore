@@ -183,6 +183,6 @@ database/*.db
 # 新增：忽略模型权重和输出目录
 model_weights/
 output/trendradar/index.html
-trendradar/main.py
 Transformers/output/
 Trendradar/output/
+MediaCrawler/data/
