@@ -85,6 +85,18 @@ class WeiboCsvStoreImplement(AbstractStore):
         """
         await self.writer.write_to_csv(item_type="comments", item=comment_item)
 
+    async def check_content_exists(self, note_id: str) -> bool:
+        """
+        Check if note_id exists in CSV
+        """
+        return await self.writer.check_id_exists_in_csv(item_type="contents", record_id=note_id, id_field="note_id")
+
+    async def check_comment_exists(self, comment_id: str, note_id: str = None) -> bool:
+        """
+        Check if comment_id exists in CSV
+        """
+        return await self.writer.check_id_exists_in_csv(item_type="comments", record_id=comment_id, id_field="comment_id")
+
     async def store_creator(self, creator: Dict):
         """
         Weibo creator CSV storage implementation
@@ -126,6 +138,17 @@ class WeiboDbStoreImplement(AbstractStore):
                 session.add(db_note)
             await session.commit()
 
+    async def check_content_exists(self, note_id: str) -> bool:
+        """
+        Check if the content exists in the DB
+        :param note_id: note id
+        :return: True if exists, False otherwise
+        """
+        async with get_session() as session:
+            stmt = select(WeiboNote).where(WeiboNote.note_id == int(note_id))
+            res = await session.execute(stmt)
+            return res.scalar_one_or_none() is not None
+
     async def store_comment(self, comment_item: Dict):
         """
         Weibo content DB storage implementation
@@ -158,6 +181,17 @@ class WeiboDbStoreImplement(AbstractStore):
                 db_comment = WeiboNoteComment(**comment_item)
                 session.add(db_comment)
             await session.commit()
+
+    async def check_comment_exists(self, comment_id: str, note_id: str = None) -> bool:
+        """
+        Check if the comment exists in the DB
+        :param comment_id: comment id
+        :return: True if exists, False otherwise
+        """
+        async with get_session() as session:
+            stmt = select(WeiboNoteComment).where(WeiboNoteComment.comment_id == int(comment_id))
+            res = await session.execute(stmt)
+            return res.scalar_one_or_none() is not None
 
     async def store_creator(self, creator: Dict):
         """
@@ -216,6 +250,20 @@ class WeiboJsonStoreImplement(AbstractStore):
         note_id = comment_item.get("note_id")
         await self.writer.write_single_item_to_json(item_type="comments", item=comment_item, record_id=note_id)
 
+    async def check_content_exists(self, note_id: str) -> bool:
+        """
+        Check if note_id exists in JSON
+        """
+        return await self.writer.check_id_exists_in_json(item_type="contents", record_id=note_id)
+
+    async def check_comment_exists(self, comment_id: str, note_id: str = None) -> bool:
+        """
+        Check if comment_id exists in JSON
+        """
+        if not note_id:
+            return False
+        return await self.writer.check_id_exists_in_json(item_type="comments", record_id=note_id, check_id=comment_id, id_field="comment_id")
+
     async def store_creator(self, creator: Dict):
         """
         creator JSON storage implementation
@@ -258,6 +306,15 @@ class WeiboMongoStoreImplement(AbstractStore):
         )
         utils.logger.info(f"[WeiboMongoStoreImplement.store_content] Saved note {note_id} to MongoDB")
 
+    async def check_content_exists(self, note_id: str) -> bool:
+        """
+        Check if the content exists in MongoDB
+        :param note_id: note id
+        :return: True if exists, False otherwise
+        """
+        result = await self.mongo_store.db[f"weibo_contents"].find_one({"note_id": note_id})
+        return result is not None
+
     async def store_comment(self, comment_item: Dict):
         """
         Store comment to MongoDB
@@ -274,6 +331,15 @@ class WeiboMongoStoreImplement(AbstractStore):
             data=comment_item
         )
         utils.logger.info(f"[WeiboMongoStoreImplement.store_comment] Saved comment {comment_id} to MongoDB")
+
+    async def check_comment_exists(self, comment_id: str, note_id: str = None) -> bool:
+        """
+        Check if the comment exists in MongoDB
+        :param comment_id: comment id
+        :return: True if exists, False otherwise
+        """
+        result = await self.mongo_store.db[f"weibo_comments"].find_one({"comment_id": comment_id})
+        return result is not None
 
     async def store_creator(self, creator_item: Dict):
         """

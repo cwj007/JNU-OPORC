@@ -50,6 +50,33 @@ class WeibostoreFactory:
         return store_class()
 
 
+async def check_content_exists(note_id: str) -> bool:
+    """
+    Check if weibo note exists
+    Args:
+        note_id:
+
+    Returns:
+
+    """
+    store = WeibostoreFactory.create_store()
+    return await store.check_content_exists(note_id)
+
+
+async def check_comment_exists(comment_id: str, note_id: str = None) -> bool:
+    """
+    Check if weibo comment exists
+    Args:
+        comment_id:
+        note_id:
+
+    Returns:
+
+    """
+    store = WeibostoreFactory.create_store()
+    return await store.check_comment_exists(comment_id, note_id)
+
+
 async def batch_update_weibo_notes(note_list: List[Dict]):
     """
     Batch update weibo notes
@@ -123,7 +150,11 @@ async def update_weibo_note(note_item: Dict):
         "top_id": top_id_var.get(),
     }
     utils.logger.info(f"[store.weibo.update_weibo_note] weibo note id:{note_id}, title:{save_content_item.get('content')[:24]} ...")
-    await WeibostoreFactory.create_store().store_content(content_item=save_content_item)
+    store = WeibostoreFactory.create_store()
+    if await store.check_content_exists(note_id):
+        utils.logger.info(f"[store.weibo.update_weibo_note] weibo note id:{note_id} already exists, skip ...")
+        return
+    await store.store_content(content_item=save_content_item)
 
 
 async def batch_update_weibo_note_comments(note_id: str, comments: List[Dict]):
@@ -198,7 +229,11 @@ async def update_weibo_note_comment(note_id: str, comment_item: Dict):
         "avatar": user_info.get("profile_image_url", ""),
     }
     utils.logger.info(f"[store.weibo.update_weibo_note_comment] Weibo note comment: {comment_id}, content: {save_comment_item.get('content', '')[:24]} ...")
-    await WeibostoreFactory.create_store().store_comment(comment_item=save_comment_item)
+    store = WeibostoreFactory.create_store()
+    if await store.check_comment_exists(comment_id):
+        utils.logger.info(f"[store.weibo.update_weibo_note_comment] Weibo note comment id:{comment_id} already exists, skip ...")
+        return
+    await store.store_comment(comment_item=save_comment_item)
 
 
 async def update_weibo_note_image(picid: str, pic_content, extension_file_name, save_path: str = None, save_name: str = None):

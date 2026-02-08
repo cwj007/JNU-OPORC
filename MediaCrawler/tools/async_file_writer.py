@@ -55,6 +55,57 @@ class AsyncFileWriter:
                     await writer.writeheader()
                 await writer.writerow(item)
 
+    async def check_id_exists_in_csv(self, item_type: str, record_id: str, id_field: str = "note_id") -> bool:
+        """
+        Check if record_id exists in CSV file
+        """
+        file_path = self._get_file_path('csv', item_type)
+        if not os.path.exists(file_path):
+            return False
+        
+        async with self.lock:
+            async with aiofiles.open(file_path, mode='r', encoding='utf-8-sig') as f:
+                content = await f.read()
+                if not content:
+                    return False
+                # Simple string search might be faster but less accurate
+                # For better accuracy, use csv.DictReader
+                import io
+                f_obj = io.StringIO(content)
+                reader = csv.DictReader(f_obj)
+                for row in reader:
+                    if str(row.get(id_field)) == str(record_id):
+                        return True
+        return False
+
+    async def check_id_exists_in_json(self, item_type: str, record_id: str = None, check_id: str = None, id_field: str = "comment_id") -> bool:
+        """
+        Check if record_id exists in JSON file, or if check_id exists within the JSON file
+        """
+        file_path = self._get_file_path('json', item_type, record_id)
+        if not os.path.exists(file_path):
+            return False
+        
+        if check_id:
+            async with self.lock:
+                async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                    try:
+                        content = await f.read()
+                        if content:
+                            data = json.loads(content)
+                            if isinstance(data, list):
+                                for item in data:
+                                    if str(item.get(id_field)) == str(check_id):
+                                        return True
+                            elif isinstance(data, dict):
+                                if str(data.get(id_field)) == str(check_id):
+                                    return True
+                    except json.JSONDecodeError:
+                        pass
+            return False
+        
+        return True
+
     async def write_single_item_to_json(self, item: Dict, item_type: str, record_id: str = None):
         file_path = self._get_file_path('json', item_type, record_id)
         async with self.lock:

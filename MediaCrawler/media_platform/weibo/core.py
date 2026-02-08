@@ -101,7 +101,26 @@ class WeiboCrawler(AbstractCrawler):
 
 
             self.context_page = await self.browser_context.new_page()  # 在浏览器上下文中创建一个新页面
-            await self.context_page.goto(self.index_url)  # 访问微博主页
+            
+            # 优先访问移动端主页，PC 端主页 (www.weibo.com) 经常会由于反爬导致 ERR_CONNECTION_CLOSED
+            async def goto_with_retry(url, max_retries=3):
+                for i in range(max_retries):
+                    try:
+                        utils.logger.info(f"[WeiboCrawler.start] Visiting {url} (attempt {i+1}/{max_retries}) ...")
+                        await self.context_page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                        return True
+                    except Exception as e:
+                        utils.logger.warning(f"[WeiboCrawler.start] Visit {url} failed: {e}")
+                        if i < max_retries - 1:
+                            await asyncio.sleep(2)
+                return False
+
+            if not await goto_with_retry(self.mobile_index_url):
+                utils.logger.warning(f"[WeiboCrawler.start] Visiting mobile index failed after retries, trying PC index as fallback...")
+                if not await goto_with_retry(self.index_url):
+                    utils.logger.error(f"[WeiboCrawler.start] Both mobile and PC index failed after retries.")
+                    # 如果都失败了，不一定要退出，后面 login 逻辑还会尝试
+            
             await asyncio.sleep(2)  # 等待 2 秒，让页面加载
 
 
@@ -197,8 +216,13 @@ class WeiboCrawler(AbstractCrawler):
                         if mblog:
                             note_id = mblog.get("bid") or mblog.get("id")
                             note_id_list.append(note_id)  # 将帖子 ID 添加到列表
-                            await weibo_store.update_weibo_note(note_item)  # 更新/保存微博帖子到存储
-                            await self.get_note_images(mblog)  # 获取并保存帖子中的图片
+
+                            # 检查帖子是否已存在
+                            if await weibo_store.check_content_exists(note_id):
+                                utils.logger.info(f"[WeiboCrawler.search] weibo note id:{note_id} already exists, skip writing and image download ...")
+                            else:
+                                await weibo_store.update_weibo_note(note_item)  # 更新/保存微博帖子到存储
+                                await self.get_note_images(mblog)  # 获取并保存帖子中的图片
 
                 page += 1  # 翻页
 
@@ -343,10 +367,14 @@ class WeiboCrawler(AbstractCrawler):
         获取指定 ID 的微博帖子信息（支持交互式选择和顺序爬取）
         :return:
         """
+        all_info: List[Tuple[str, str]] = []  # [(note_id, top_id), ...]
+
         # 1. 优先获取命令行指定的 ID（存入 WEIBO_CREATOR_ID_LIST）
         if config.IS_CLI_SPECIFIED_ID:
             all_ids = list(config.WEIBO_CREATOR_ID_LIST)
             utils.logger.info(f"[WeiboCrawler.get_specified_notes] 使用命令行指定的 ID: {all_ids}")
+            # 命令行指定的 ID 没有对应的 top_id，传空
+            all_info = [(nid, "") for nid in all_ids]
         else:
             all_ids = []
             utils.logger.info("[WeiboCrawler.get_specified_notes] 未在命令行指定 ID，准备从已提取的文件加载...")
@@ -436,18 +464,24 @@ class WeiboCrawler(AbstractCrawler):
             top_id_var.set(top_id)  # 设置当前帖子的 top_id
             utils.logger.info(f"[WeiboCrawler.get_specified_notes] 正在处理第 {i}/{len(all_info)} 个帖子: {note_id}, top_id: {top_id}")
             
+            # 检查帖子是否已存在
+            note_exists = await weibo_store.check_content_exists(note_id)
+            
             # 获取帖子详情
             note_item = await self.get_note_info_task(note_id)
             if note_item:
                 mblog = note_item.get("mblog", {})
-                await weibo_store.update_weibo_note(note_item)
                 
-                # 获取并保存帖子中的图片 (如果开启了该功能)
-                if config.ENABLE_GET_MEIDAS:
-                    # 获取帖子中的图片 (mblog 中包含图片列表)
-                    await self.get_note_images(mblog)
+                if not note_exists:
+                    await weibo_store.update_weibo_note(note_item)
+                    # 获取并保存帖子中的图片 (如果开启了该功能)
+                    if config.ENABLE_GET_MEIDAS:
+                        # 获取帖子中的图片 (mblog 中包含图片列表)
+                        await self.get_note_images(mblog)
+                else:
+                    utils.logger.info(f"[WeiboCrawler.get_specified_notes] weibo note id:{note_id} already exists, skip writing and image download ...")
                 
-                # 获取该帖子的评论（传递详情以避免重复请求）
+                # 始终获取该帖子的评论（除非配置关闭）
                 if config.ENABLE_GET_COMMENTS:
                     await self.get_note_comments(note_id, note_item)
             
@@ -532,15 +566,27 @@ class WeiboCrawler(AbstractCrawler):
 
             # 创建一个包装回调函数，在保存评论后尝试抓取图片
             async def save_comments_with_images(note_id: str, comment_list: List[Dict]):
+                # 检查评论是否已经存在，如果存在则跳过
+                filtered_comment_list = []
+                for comment in comment_list:
+                    comment_id = str(comment.get("id"))
+                    if await weibo_store.check_comment_exists(comment_id, note_id=note_id):
+                        utils.logger.info(f"[WeiboCrawler.save_comments_with_images] Weibo comment id:{comment_id} already exists, skip save and image download ...")
+                        continue
+                    filtered_comment_list.append(comment)
+
+                if not filtered_comment_list:
+                    return
+
                 # 保存评论数据
-                await weibo_store.batch_update_weibo_note_comments(note_id, comment_list)
+                await weibo_store.batch_update_weibo_note_comments(note_id, filtered_comment_list)
                 
                 # 如果开启了媒体抓取，则尝试下载评论中的图片
                 if config.ENABLE_GET_MEIDAS:
                     # 根据 SAVE_DATA_OPTION 动态生成存储路径: data/weibo/{save_option}/{note_id}/imgs
                     save_option = config.SAVE_DATA_OPTION
                     save_path = f"data/weibo/{save_option}/{note_id}/imgs"
-                    for comment in comment_list:
+                    for comment in filtered_comment_list:
                         # 提取图片列表，支持单图(pic)和多图(pics)
                         comment_pics = []
                         if comment.get("pic"):
@@ -699,9 +745,16 @@ class WeiboCrawler(AbstractCrawler):
                     # 如果开启了全文抓取，则先批量处理
                     updated_note_list = await self.batch_get_notes_full_text(note_list)
                     for note_item in updated_note_list:
-                        await weibo_store.update_weibo_note(note_item)  # 保存帖子
-                        if config.ENABLE_GET_MEIDAS:
-                            await self.get_note_images(note_item.get("mblog", {}))  # 保存图片
+                        mblog = note_item.get("mblog", {})
+                        note_id = mblog.get("bid") or mblog.get("id")
+                        
+                        # 检查帖子是否已存在
+                        if await weibo_store.check_content_exists(note_id):
+                            utils.logger.info(f"[WeiboCrawler.get_creators_and_notes] weibo note id:{note_id} already exists, skip writing and image download ...")
+                        else:
+                            await weibo_store.update_weibo_note(note_item)  # 保存帖子
+                            if config.ENABLE_GET_MEIDAS:
+                                await self.get_note_images(mblog)  # 保存图片
 
                 # 获取该创作者的所有微博信息
                 all_notes_list = await self.wb_client.get_all_notes_by_creator_id(

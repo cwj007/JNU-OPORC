@@ -134,6 +134,10 @@ class ExcelStoreBase(AbstractStore):
         self.contacts_sheet = None
         self.dynamics_sheet = None
 
+        # Memory cache for deduplication
+        self.seen_content_ids = set()
+        self.seen_comment_ids = set()
+
         # Generate filename
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.filename = self.data_dir / f"{platform}_{crawler_type}_{timestamp}.xlsx"
@@ -250,7 +254,14 @@ class ExcelStoreBase(AbstractStore):
 
         # Get ID from various possible field names
         content_id = content_item.get('note_id') or content_item.get('aweme_id') or content_item.get('video_id') or content_item.get('content_id') or 'N/A'
+        self.seen_content_ids.add(str(content_id))
         utils.logger.info(f"[ExcelStoreBase] Stored content to Excel: {content_id}")
+
+    async def check_content_exists(self, note_id: str) -> bool:
+        """
+        Check if note_id exists in current Excel session
+        """
+        return str(note_id) in self.seen_content_ids
 
     async def store_comment(self, comment_item: Dict):
         """
@@ -270,7 +281,15 @@ class ExcelStoreBase(AbstractStore):
         # Write data row
         self._write_row(self.comments_sheet, comment_item, headers)
 
-        utils.logger.info(f"[ExcelStoreBase] Stored comment to Excel: {comment_item.get('comment_id', 'N/A')}")
+        comment_id = comment_item.get('comment_id', 'N/A')
+        self.seen_comment_ids.add(str(comment_id))
+        utils.logger.info(f"[ExcelStoreBase] Stored comment to Excel: {comment_id}")
+
+    async def check_comment_exists(self, comment_id: str) -> bool:
+        """
+        Check if comment_id exists in current Excel session
+        """
+        return str(comment_id) in self.seen_comment_ids
 
     async def store_creator(self, creator: Dict):
         """

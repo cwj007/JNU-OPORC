@@ -93,6 +93,23 @@ class AbstractStore(ABC):
     async def store_comment(self, comment_item: Dict):
         pass
 
+    async def check_content_exists(self, note_id: str) -> bool:
+        """
+        Check if the content exists in the storage
+        :param note_id: note id
+        :return: True if exists, False otherwise
+        """
+        return False
+
+    async def check_comment_exists(self, comment_id: str, note_id: str = None) -> bool:
+        """
+        Check if the comment exists in the storage
+        :param comment_id: comment id
+        :param note_id: note id (optional, used by some storage backends like JSON)
+        :return: True if exists, False otherwise
+        """
+        return False
+
     # TODO support all platform
     # only xhs is supported, so @abstractmethod is commented
     @abstractmethod

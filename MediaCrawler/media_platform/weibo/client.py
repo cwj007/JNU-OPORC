@@ -390,22 +390,29 @@ class WeiboClient(ProxyRefreshMixin):
         
         async with httpx.AsyncClient(proxy=self.proxy) as client:
             try:
+                # 尝试通过代理主机下载
                 response = await client.request("GET", final_uri, timeout=self.timeout)
-                if response.status_code != 200:
-                    utils.logger.error(f"[WeiboClient.get_note_image] 请求失败 (HTTP {response.status_code}): {final_uri}")
-                    # 如果代理失败，尝试直接下载原始 URL (有时代理反而不通)
-                    utils.logger.info(f"[WeiboClient.get_note_image] 尝试直接下载原始 URL: {image_url}")
-                    headers = copy.copy(self.headers)
-                    headers["Referer"] = "https://weibo.com/"
-                    resp = await client.request("GET", image_url, headers=headers, timeout=self.timeout)
-                    if resp.status_code == 200:
-                        return resp.content
-                    return None
+                if response.status_code == 200:
+                    return response.content
                 
-                return response.content  # 返回图片二进制数据
-            except httpx.HTTPError as exc:
-                utils.logger.error(f"[DouYinClient.get_aweme_media] {exc.__class__.__name__} for {exc.request.url} - {exc}")
-                return None
+                utils.logger.warning(f"[WeiboClient.get_note_image] 代理下载失败 (HTTP {response.status_code}): {final_uri}")
+            except Exception as exc:
+                utils.logger.warning(f"[WeiboClient.get_note_image] 代理下载发生错误: {exc}")
+            
+            # 如果代理失败或发生错误，尝试直接下载原始 URL
+            try:
+                utils.logger.info(f"[WeiboClient.get_note_image] 尝试直接下载原始 URL: {image_url}")
+                headers = copy.copy(self.headers)
+                headers["Referer"] = "https://weibo.com/"
+                resp = await client.request("GET", image_url, headers=headers, timeout=self.timeout)
+                if resp.status_code == 200:
+                    return resp.content
+                
+                utils.logger.error(f"[WeiboClient.get_note_image] 直接下载原始 URL 失败 (HTTP {resp.status_code}): {image_url}")
+            except Exception as exc:
+                utils.logger.error(f"[WeiboClient.get_note_image] 直接下载原始 URL 发生错误: {exc}")
+                
+            return None
 
     async def get_creator_container_info(self, creator_id: str) -> Dict:
         """
