@@ -2,13 +2,28 @@ import pandas as pd
 import json
 import os
 import httpx
+import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from concurrent.futures import ThreadPoolExecutor
 from ..config import MEDIA_CRAWLER_DATA_DIR, IMAGE_EXTENSIONS
 
 class DataManager:
     def __init__(self):
         self.data_dir = MEDIA_CRAWLER_DATA_DIR
+        self._client = None
+        self._client_lock = threading.Lock()
+
+    def get_client(self):
+        with self._client_lock:
+            if self._client is None:
+                # 缩短超时时间，避免单张图片下载卡死整个流程
+                self._client = httpx.Client(follow_redirects=True, timeout=5.0)
+            return self._client
+
+    def __del__(self):
+        if self._client:
+            self._client.close()
 
     def detect_platform(self, file_path: str) -> str:
         """Identify platform (weibo/zhihu) based on file path."""
@@ -24,15 +39,13 @@ class DataManager:
         if save_path.exists():
             return True
             
-        # 微博图片防盗链处理：使用 i1.wp.com 代理
-        # 参考 MediaCrawler/media_platform/weibo/client.py
+        # 微博图片防盗链处理
         processed_url = url
         if "sinaimg.cn" in url:
             if "://" in url:
                 clean_url = url.split("://", 1)[1]
             else:
                 clean_url = url
-            # 替换为 large 尺寸以获取高清图
             sub_parts = clean_url.split("/")
             if len(sub_parts) >= 3:
                 sub_parts[1] = "large"
@@ -44,25 +57,21 @@ class DataManager:
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
                 'Referer': 'https://weibo.com/'
             }
-            # 使用 httpx 进行同步下载
-            with httpx.Client(follow_redirects=True, timeout=20.0) as client:
-                response = client.get(processed_url, headers=headers)
-                if response.status_code == 200:
-                    with open(save_path, 'wb') as f:
-                        f.write(response.content)
-                    return True
-                else:
-                    print(f"Failed to download {processed_url}, status: {response.status_code}")
+            client = self.get_client()
+            response = client.get(processed_url, headers=headers)
+            if response.status_code == 200:
+                with open(save_path, 'wb') as f:
+                    f.write(response.content)
+                return True
         except Exception as e:
-            print(f"Error downloading {url} via {processed_url}: {e}")
+            pass # 失败则跳过，不影响主流程
         return False
 
     def _find_images(self, platform: str, parent_note_id: str, current_id: str, is_post: bool, pictures_str: Optional[str]) -> List[str]:
         """
-        严格根据图片清洗规则查找或下载图片：
-        1. 文章图片：data/weibo/csv/{note_id}/{note_id}.jpg (单图) 或 {note_id}_1.jpg... (多图)
-        2. 评论图片：始终以 {comment_id}_1.jpg 起始命名，多图按顺序
-        3. 如果路径中已存在图片（包括旧版 /imgs/ 目录），则不再重复下载
+        根据最新的目录规则查找或下载图片：
+        1. 文章图片：data/weibo/csv/{note_id}/imgs/{note_id}/{note_id}.jpg
+        2. 评论图片：data/weibo/csv/{note_id}/imgs/{comment_id}/{comment_id}.jpg
         """
         if not pictures_str or pd.isna(pictures_str):
             return []
@@ -73,101 +82,167 @@ class DataManager:
             return []
             
         images = []
-        # 标准存储目录: MediaCrawler/data/weibo/csv/{note_id}/
-        base_dir = self.data_dir / platform / "csv" / parent_note_id
-        # 旧版兼容目录: MediaCrawler/data/weibo/csv/{note_id}/imgs/
-        legacy_dir = base_dir / "imgs"
+        # 最新标准目录: MediaCrawler/data/weibo/csv/{parent_note_id}/imgs/{current_id}/
+        base_dir = self.data_dir / platform / "csv" / parent_note_id / "imgs" / current_id
         
         for i, url in enumerate(urls):
             # 确定本地文件名规则
-            if is_post:
-                if len(urls) == 1:
-                    img_name_stem = f"{current_id}"
-                else:
-                    img_name_stem = f"{current_id}_{i+1}"
+            if len(urls) == 1:
+                img_name_stem = f"{current_id}"
             else:
-                # 评论始终带序号 _1, _2...
                 img_name_stem = f"{current_id}_{i+1}"
             
-            # 处理后缀名
-            ext = Path(url.split('?')[0]).suffix.lower()
-            if ext not in IMAGE_EXTENSIONS:
-                ext = ".jpg"
-            
+            # 处理后缀名（优先使用 .jpg）
+            ext = ".jpg"
             img_name = f"{img_name_stem}{ext}"
-            
-            # 检查是否已存在（优先检查标准路径，其次检查旧版路径）
             save_path = base_dir / img_name
-            legacy_path = legacy_dir / img_name
             
-            target_path = None
+            # 必须进行校验，如果文件不存在，则不加入列表，防止 VLM 推理时报错
             if save_path.exists():
-                target_path = save_path
-            elif legacy_path.exists():
-                target_path = legacy_path
+                images.append(str(save_path.absolute()))
             else:
-                # 都不存在，则执行下载到标准路径
-                if self._download_image(url, save_path):
-                    target_path = save_path
-            
-            if target_path:
-                images.append(str(target_path.absolute()))
+                # 尝试其他可能的后缀 (png, jpeg)
+                for alt_ext in [".png", ".jpeg", ".JPG"]:
+                    alt_path = base_dir / f"{img_name_stem}{alt_ext}"
+                    if alt_path.exists():
+                        images.append(str(alt_path.absolute()))
+                        break
                 
         return images
 
-    def load_weibo_data(self, posts_file: str, comments_file: str) -> List[Dict[str, Any]]:
+    def load_weibo_data(self, posts_file: str, comments_file: str, existing_ids: set = None) -> List[Dict[str, Any]]:
         """加载微博 CSV 数据并返回扁平化的项目列表。"""
-        # 记录日期，用于后续对比
         date_str = Path(posts_file).stem.split('_')[-1]
         
         posts_df = pd.read_csv(posts_file, on_bad_lines='warn', engine='python', encoding='utf-8-sig')
         comments_df = pd.read_csv(comments_file, on_bad_lines='warn', engine='python', encoding='utf-8-sig')
         
-        # 优化：按 note_id 对评论进行分组
-        comments_by_post = {str(k): g for k, g in comments_df.groupby('note_id')}
+        # 预处理：确保 ID 是字符串
+        posts_df['note_id'] = posts_df['note_id'].astype(str)
+        posts_df = posts_df.where(pd.notnull(posts_df), None)
         
-        flat_items = []
+        comments_df['note_id'] = comments_df['note_id'].astype(str)
+        comments_df['comment_id'] = comments_df['comment_id'].astype(str)
+        comments_df = comments_df.where(pd.notnull(comments_df), None)
         
-        for _, post in posts_df.iterrows():
-            note_id = str(post['note_id'])
-            top_id = str(post.get('top_id', '')) 
-            post_url = post.get('note_url', post.get('url', f"https://m.weibo.cn/detail/{note_id}"))
+        # 1. 处理文章数据 (CPU 并行)
+        print(f"正在读取文章数据 (已处理过的 ID 将被自动跳过)...")
+        
+        post_processed_count = 0
+        def process_post(row_tuple):
+            nonlocal post_processed_count
+            idx, row = row_tuple
+            note_id = str(row['note_id'])
             
-            # 1. 添加文章
-            post_data = {
+            # --- 逻辑去重 (根据已存在文件) ---
+            if existing_ids and f"{note_id}_0" in existing_ids:
+                post_processed_count += 1
+                return None
+                
+            content = row.get('content')
+            pictures_str = row.get('pictures')
+            if not content and not pictures_str:
+                return None
+            images = self._find_images("weibo", note_id, note_id, is_post=True, pictures_str=pictures_str)
+            return {
                 "note_id": note_id,
                 "comment_id": "0",
-                "top_id": top_id,
-                "url": post_url,
-                "content": post.get('content', ''),
-                "author": post.get('nickname', ''),
-                "created_at": post.get('create_date_time', ''),
+                "top_id": str(row.get('top_id')) if row.get('top_id') else None,
+                "url": row.get('note_url', row.get('url', f"https://m.weibo.cn/detail/{note_id}")),
+                "content": content,
+                "author": row.get('nickname'),
+                "created_at": row.get('create_date_time'),
                 "source": "weibo",
                 "type": "post",
-                "images": self._find_images("weibo", note_id, note_id, is_post=True, pictures_str=post.get('pictures', '')),
-                "data_date": date_str # 记录数据日期
+                "images": images,
+                "data_date": date_str,
+                "liked_count": row.get('liked_count', 0),
+                "comments_count": row.get('comments_count', 0),
+                "ip_location": row.get('ip_location', '')
             }
-            flat_items.append(post_data)
-            
-            # 2. 添加相关的评论
-            if note_id in comments_by_post:
-                for _, comment in comments_by_post[note_id].iterrows():
-                    comment_id = str(comment['comment_id'])
-                    flat_items.append({
-                        "note_id": note_id,
-                        "comment_id": comment_id,
-                        "top_id": top_id,
-                        "url": post_url,
-                        "content": comment.get('content', ''),
-                        "author": comment.get('nickname', ''),
-                        "created_at": comment.get('create_date_time', ''),
-                        "source": "weibo",
-                        "type": "comment",
-                        "images": self._find_images("weibo", note_id, comment_id, is_post=False, pictures_str=comment.get('pictures', '')),
-                        "data_date": date_str
-                    })
+
+        posts_list = [None] * len(posts_df)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(process_post, (idx, row)): idx for idx, row in posts_df.iterrows()}
+            for future in futures:
+                idx = futures[future]
+                res = future.result()
+                posts_list[idx] = res
         
-        return flat_items
+        # 过滤掉 None (被跳过或无效的数据)，同时保持原始 CSV 顺序
+        posts_list = [p for p in posts_list if p is not None]
+
+        if post_processed_count > 0:
+            print(f"  - 文章表已跳过 {post_processed_count} 条已处理记录。")
+
+        # 2. 处理评论数据 (CPU 并行)
+        total_raw_comments = len(comments_df)
+        print(f"正在读取 {total_raw_comments} 条评论数据...")
+        
+        comment_processed_count = 0
+        full_posts_content_cache = {str(r['note_id']): r.get('content') for _, r in posts_df.iterrows()}
+        spam_keywords = ["扫码", "加群", "无门槛", "网页链接", "投票", "点击链接", "免费领取"]
+        
+        def process_row(row_tuple):
+            nonlocal comment_processed_count
+            idx, row = row_tuple
+            note_id = str(row['note_id'])
+            comment_id = str(row['comment_id'])
+            
+            # --- 逻辑去重 (根据已存在文件) ---
+            if existing_ids and f"{note_id}_{comment_id}" in existing_ids:
+                comment_processed_count += 1
+                return None
+                
+            content = row.get('content')
+            pictures_str = row.get('pictures')
+            
+            # 1. 严格执行：只有当文字和图片同时为空时才剔除
+            if (content is None or str(content).strip() == "") and (pictures_str is None or str(pictures_str).strip() == ""):
+                return None
+            
+            # 2. 营销/垃圾广告过滤 (长度 < 50 且包含特定关键词)
+            if content and any(kw in str(content) for kw in spam_keywords) and len(str(content)) < 50:
+                return None
+            
+            comment_images = self._find_images("weibo", note_id, comment_id, is_post=False, pictures_str=pictures_str)
+            parent_content = full_posts_content_cache.get(note_id, "")
+            
+            return {
+                "note_id": note_id,
+                "comment_id": comment_id,
+                "top_id": None,
+                "url": row.get('url', f"https://m.weibo.cn/detail/{note_id}"),
+                "content": content,
+                "author": row.get('nickname'),
+                "created_at": row.get('create_date_time'),
+                "source": "weibo",
+                "type": "comment",
+                "images": comment_images,
+                "data_date": date_str,
+                "parent_content": parent_content,
+                "liked_count": row.get('liked_count', 0),
+                "ip_location": row.get('ip_location', '')
+            }
+
+        # 使用固定长度列表并按索引填入，以确保并行处理后依然维持 CSV 原始顺序
+        comments_list = [None] * len(comments_df)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            # 显式传递 idx
+            futures = {executor.submit(process_row, (idx, row)): idx for idx, row in comments_df.iterrows()}
+            for future in futures:
+                idx = futures[future]
+                res = future.result()
+                comments_list[idx] = res
+        
+        # 合并文章和评论，同时保持各自内部的原始顺序
+        final_list = posts_list + [c for c in comments_list if c is not None]
+        
+        if comment_processed_count > 0:
+            print(f"  - 评论表已跳过 {comment_processed_count} 条已处理记录。")
+            
+        print(f"加载完成: 过滤后剩余 {len(final_list)} 条新数据待处理 (已跳过 {len(comments_df) + len(posts_df) - len(final_list)} 条重复或无效数据)")
+        return final_list
 
     def compare_data(self, old_data: List[Dict[str, Any]], new_data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """对比两份数据，检测新增、修改、删除。"""
@@ -199,23 +274,25 @@ class DataManager:
             "deleted": deleted
         }
 
-    def load_json_data(self, json_file: str) -> List[Dict[str, Any]]:
+    def load_json_data(self, json_file: str, existing_ids: set = None) -> List[Dict[str, Any]]:
         """Load unlabelled JSON data for batch processing."""
         with open(json_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+            try:
+                # 尝试加载为标准 JSON 数组
+                data = json.load(f)
+            except json.JSONDecodeError:
+                # 如果失败，尝试按行加载 JSONL
+                f.seek(0)
+                data = [json.loads(line) for line in f if line.strip()]
         
-        platform = self.detect_platform(json_file)
-        
-        # Standardize format if needed
-        standardized = []
-        for item in data:
-            item["source"] = platform
-            if "images" not in item:
-                # Try to find images if note_id is present
-                if "note_id" in item:
-                    item["images"] = self._find_images(platform, str(item["note_id"]), str(item["note_id"]))
-                else:
-                    item["images"] = []
-            standardized.append(item)
+        # --- 提前去重检查 ---
+        if existing_ids:
+            filtered_data = []
+            for item in data:
+                note_id = str(item.get('note_id', ''))
+                comment_id = str(item.get('comment_id', '0'))
+                if f"{note_id}_{comment_id}" not in existing_ids:
+                    filtered_data.append(item)
+            return filtered_data
             
-        return standardized
+        return data

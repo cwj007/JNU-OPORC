@@ -17,7 +17,10 @@ if __name__ == "__main__":
     parser.add_argument("--weibo_posts", type=str)
     parser.add_argument("--weibo_comments", type=str)
     parser.add_argument("--json_file", type=str, help="Path to unlabelled JSON data")
+    parser.add_argument("--batch_size", type=int, default=8, help="Batch size for VLM inference (Recommended 4-8 for 6GB VRAM)")
     parser.add_argument("--limit", type=int, help="Limit number of items to process")
+    parser.add_argument("--process_count", type=int, default=1, help="Total number of parallel processes")
+    parser.add_argument("--process_index", type=int, default=0, help="Index of current process (0 to process_count-1)")
     
     args = parser.parse_args()
     
@@ -39,31 +42,51 @@ if __name__ == "__main__":
     analyzer = MultimodalAnalyzer(vlm)
     data_manager = DataManager()
     exporter = Exporter(LABELED_DATA_FILE)
+    
+    # 获取已存在的数据 ID，用于在加载阶段就进行过滤
+    existing_ids = exporter.get_existing_ids()
+    print(f"检测到 {len(existing_ids)} 条历史标注记录，加载时将自动跳过。")
 
     all_data = []
     if posts_file and comments_file:
-        print(f"Loading Weibo data from {posts_file}...")
-        weibo_data = data_manager.load_weibo_data(posts_file, comments_file)
+        print(f"正在读取微博数据: {Path(posts_file).name} ...")
+        weibo_data = data_manager.load_weibo_data(posts_file, comments_file, existing_ids=existing_ids)
         all_data.extend(weibo_data)
 
     if args.json_file:
-        print(f"Loading JSON data from {args.json_file}...")
-        json_data = data_manager.load_json_data(args.json_file)
+        print(f"正在读取 JSON 数据: {Path(args.json_file).name} ...")
+        json_data = data_manager.load_json_data(args.json_file, existing_ids=existing_ids)
         all_data.extend(json_data)
 
     if not all_data:
-        print("No data loaded. Please check file paths.")
-        sys.exit(1)
+        print(">>> 未发现需要处理的新数据。所有数据可能均已处理完成。")
+        sys.exit(0)
 
     # Apply limit if provided
     if args.limit:
-        print(f"Limiting processing to first {args.limit} items.")
+        print(f"限制处理条数: {args.limit}")
         all_data = all_data[:args.limit]
 
+    # 多进程数据切分
+    if args.process_count > 1:
+        total_items = len(all_data)
+        # 使用简单的分片逻辑：每个进程取 [index::count]
+        all_data = all_data[args.process_index::args.process_count]
+        print(f"多进程模式: 进程 {args.process_index+1}/{args.process_count} 分配了 {len(all_data)}/{total_items} 条数据")
+
     # Process and Analyze
-    print(f"Starting analysis for {len(all_data)} items...")
-    if LABELED_DATA_FILE.exists():
-        LABELED_DATA_FILE.unlink()
+    print(f"\n" + "="*50)
+    print(f"🚀 开始执行多模态分析流水线")
+    if args.process_count > 1:
+        print(f"当前进程  : {args.process_index + 1} / {args.process_count}")
+    print(f"待处理条数: {len(all_data)}")
+    print(f"批次大小  : {args.batch_size}")
+    print("="*50 + "\n")
     
-    analyzer.process_batch(all_data, exporter=exporter)
+    analyzer.process_batch(
+        all_data, 
+        exporter=exporter, 
+        batch_size=args.batch_size, 
+        use_lock=(args.process_count > 1)
+    )
     print(f"Pipeline completed successfully. Results saved to {LABELED_DATA_FILE}")

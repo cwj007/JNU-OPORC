@@ -1,6 +1,12 @@
 import json
 import os
+import sys
 from pathlib import Path
+
+# Add project root to sys.path
+BASE_DIR = Path(__file__).parent.parent
+sys.path.append(str(BASE_DIR))
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -59,7 +65,7 @@ def load_results(date_str: str = None):
             display_groups.append(group)
     
     display_groups.sort(key=lambda x: x["post"].get("created_at", ""), reverse=True)
-    return display_groups
+    return display_groups[:50]  # Limit to 50 latest results for performance
 
 def get_sentiment_trends():
     """计算跨时间维度的情感分布趋势"""
@@ -92,6 +98,14 @@ def get_sentiment_trends():
                 })
     return trends
 
+@app.get("/test-html")
+async def test_html():
+    return HTMLResponse(content="<h1>Hello World</h1>", status_code=200)
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, date: str = None):
     available_dates = get_available_dates()
@@ -100,12 +114,16 @@ async def index(request: Request, date: str = None):
     groups = load_results(date)
     trends = get_sentiment_trends()
     
+    print(f"DEBUG: Rendering index with {len(groups)} groups and {len(trends)} trend points.")
+    
     return templates.TemplateResponse("index.html", {
         "request": request, 
         "groups": groups, 
         "available_dates": available_dates,
         "current_date": current_date,
-        "trends": trends
+        "trends": trends,
+        "post_trends": trends,  # 确保模板中引用的变量存在
+        "comment_trends": []    # 暂时传空
     })
 
 @app.get("/diff")

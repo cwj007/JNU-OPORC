@@ -14,6 +14,9 @@ def test_weibo_loading():
     print(f"Comments: {WEIBO_COMMENTS_FILE}")
     
     dm = DataManager()
+    # Mock download to avoid network errors
+    dm._download_image = lambda url, path: True
+    
     data = dm.load_weibo_data(str(WEIBO_POSTS_FILE), str(WEIBO_COMMENTS_FILE))
     
     if not data:
@@ -31,11 +34,17 @@ def test_weibo_loading():
         print(f"  Comment ID: {item['comment_id']}")
         print(f"  Content: {item['content'][:50]}...")
         
-        # Verify top_id and note_id logic
-        if item['top_id'] == item['note_id']:
-            print("  [Warning] top_id is equal to note_id (Normal if the CSV data has them identical)")
-        else:
-            print("  [Success] top_id and note_id are DIFFERENT")
+        # Verify context injection for comments
+        if item['type'] == 'comment':
+            if 'parent_content' in item:
+                print(f"  [Success] parent_content injected: {item['parent_content'][:30]}...")
+            else:
+                print("  [Error] parent_content MISSING!")
+            
+            if 'parent_images' in item:
+                print(f"  [Success] parent_images injected: {len(item['parent_images'])} images")
+            else:
+                print("  [Error] parent_images MISSING!")
 
 if __name__ == "__main__":
     test_weibo_loading()

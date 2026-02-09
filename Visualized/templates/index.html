@@ -63,15 +63,30 @@
                     <span class="badge bg-primary rounded-pill">当前页 {{ groups|length }} 条数据</span>
                 </div>
 
-                <!-- Trend Chart -->
-                {% if trends %}
-                <div class="trend-card">
-                    <h6 class="mb-3">情感分布趋势 (跨时间维度)</h6>
-                    <div style="height: 250px;">
-                        <canvas id="trendChart"></canvas>
+                <!-- Trend Charts -->
+                <div class="row">
+                    {% if post_trends %}
+                    <div class="col-md-6">
+                        <div class="trend-card">
+                            <h6 class="mb-3">博文情感趋势 (跨时间维度)</h6>
+                            <div style="height: 200px;">
+                                <canvas id="postTrendChart"></canvas>
+                            </div>
+                        </div>
                     </div>
+                    {% endif %}
+                    
+                    {% if comment_trends %}
+                    <div class="col-md-6">
+                        <div class="trend-card">
+                            <h6 class="mb-3">评论情感趋势 (跨时间维度)</h6>
+                            <div style="height: 200px;">
+                                <canvas id="commentTrendChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
                 </div>
-                {% endif %}
 
                 <div class="results-container">
                     {% for group in groups %}
@@ -102,9 +117,9 @@
                                     {% for img in item.image_paths %}
                                         {% if 'MediaCrawler' in img %}
                                             {% set parts = img.split('MediaCrawler') %}
-                                            {% set img_url = '/media' + parts[-1].replace('data', '').replace('\\', '/') %}
+                                            {% set img_url = '/media/' + parts[-1].split('data')[-1].replace('\\', '/').lstrip('/') %}
                                         {% else %}
-                                            {% set img_url = img.replace('data/', '/media/').replace('\\', '/') %}
+                                            {% set img_url = img.replace('data/', '/media/').replace('\\', '/').replace('//', '/') %}
                                         {% endif %}
                                         <a href="{{ img_url }}" target="_blank">
                                             <img src="{{ img_url }}" class="img-preview" style="max-width: 300px;" alt="image">
@@ -123,7 +138,7 @@
                             <div class="col-md-4 border-start">
                                 <div class="mb-2">
                                     <strong>关键词:</strong><br>
-                                    {% for kw in item.keywords %}
+                                    {% for kw in item.sentiment_analysis.keywords %}
                                         <span class="badge keywords-badge">{{ kw }}</span>
                                     {% endfor %}
                                 </div>
@@ -158,9 +173,9 @@
                             {% for img in comm.image_paths %}
                                 {% if 'MediaCrawler' in img %}
                                     {% set parts = img.split('MediaCrawler') %}
-                                    {% set img_url = '/media' + parts[-1].replace('data', '').replace('\\', '/') %}
+                                    {% set img_url = '/media/' + parts[-1].split('data')[-1].replace('\\', '/').lstrip('/') %}
                                 {% else %}
-                                    {% set img_url = img.replace('data/', '/media/').replace('\\', '/') %}
+                                    {% set img_url = img.replace('data/', '/media/').replace('\\', '/').replace('//', '/') %}
                                 {% endif %}
                                 <a href="{{ img_url }}" target="_blank">
                                     <img src="{{ img_url }}" class="img-preview" style="max-width: 100px; max-height: 100px;" alt="comment image">
@@ -185,66 +200,77 @@
                 <p>请运行 main.py 生成标注数据后再刷新页面。</p>
             </div>
             {% endif %}
-        </div>
-    </div>
-
-                </div> <!-- end results-container -->
-            </div> <!-- end main-content -->
-        </div> <!-- end row -->
-    </div> <!-- end container-fluid -->
+        </div> <!-- end results-container -->
+    </div> <!-- end main-content -->
+</div> <!-- end row -->
+</div> <!-- end container-fluid -->
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    {% if trends %}
+    {% if post_trends or comment_trends %}
     <script>
-        const ctx = document.getElementById('trendChart').getContext('2d');
-        const trends = {{ trends | tojson }};
-        
-        new Chart(ctx, {
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    max: 100,
+                    title: { display: true, text: '百分比 (%)' }
+                }
+            },
+            plugins: {
+                legend: { position: 'top', labels: { boxWidth: 12, font: { size: 10 } } }
+            }
+        };
+
+        const createDatasets = (data) => [
+            {
+                label: '正面 (%)',
+                data: data.map(t => t.positive),
+                borderColor: '#28a745',
+                backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                fill: true,
+                tension: 0.3
+            },
+            {
+                label: '中性 (%)',
+                data: data.map(t => t.neutral),
+                borderColor: '#ffc107',
+                backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                fill: true,
+                tension: 0.3
+            },
+            {
+                label: '负面 (%)',
+                data: data.map(t => t.negative),
+                borderColor: '#dc3545',
+                backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                fill: true,
+                tension: 0.3
+            }
+        ];
+
+        {% if post_trends %}
+        new Chart(document.getElementById('postTrendChart').getContext('2d'), {
             type: 'line',
             data: {
-                labels: trends.map(t => t.date),
-                datasets: [
-                    {
-                        label: '正面 (%)',
-                        data: trends.map(t => t.positive),
-                        borderColor: '#28a745',
-                        backgroundColor: 'rgba(40, 167, 69, 0.1)',
-                        fill: true,
-                        tension: 0.3
-                    },
-                    {
-                        label: '中性 (%)',
-                        data: trends.map(t => t.neutral),
-                        borderColor: '#ffc107',
-                        backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                        fill: true,
-                        tension: 0.3
-                    },
-                    {
-                        label: '负面 (%)',
-                        data: trends.map(t => t.negative),
-                        borderColor: '#dc3545',
-                        backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                        fill: true,
-                        tension: 0.3
-                    }
-                ]
+                labels: {{ post_trends | map(attribute='date') | list | tojson }},
+                datasets: createDatasets({{ post_trends | tojson }})
             },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        max: 100,
-                        title: { display: true, text: '百分比 (%)' }
-                    }
-                },
-                plugins: {
-                    legend: { position: 'top' }
-                }
-            }
+            options: commonOptions
         });
+        {% endif %}
+
+        {% if comment_trends %}
+        new Chart(document.getElementById('commentTrendChart').getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: {{ comment_trends | map(attribute='date') | list | tojson }},
+                datasets: createDatasets({{ comment_trends | tojson }})
+            },
+            options: commonOptions
+        });
+        {% endif %}
     </script>
     {% endif %}
 </body>
