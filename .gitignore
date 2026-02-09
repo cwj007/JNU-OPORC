@@ -186,3 +186,78 @@ output/trendradar/index.html
 Transformers/output/
 Trendradar/output/
 MediaCrawler/data/
+# 排除 MediaCrawler/source 目录
+MediaCrawler/source/
+
+# ====== 新增：浏览器缓存和数据文件 ======
+
+# 浏览器缓存目录
+MediaCrawler/browser_data/
+
+# 微博数据目录
+MediaCrawler/data/weibo/csv/
+
+# 浏览器特定缓存文件
+**/Cache/
+**/Cache_Data/
+**/Code Cache/
+**/Local Storage/
+**/Session Storage/
+**/Service Worker/
+**/IndexedDB/
+**/History*
+**/Cookies
+**/Preferences
+**/Favicons
+**/Top Sites
+**/Visited Links
+
+# 浏览器日志和临时文件
+**/LOG
+**/LOG.old
+**/*.pma
+**/*.ldb
+**/MANIFEST-*
+**/todelete_*
+
+# 浏览器缓存目录
+**/GPUCache/
+**/ShaderCache/
+**/Dawn*/
+**/GrShaderCache/
+**/Safe Browsing/
+**/Variations
+**/first_party_sets.db
+**/segmentation_platform/
+**/shared_proto_db/
+**/Extension State/
+**/DIPS
+**/Network Action Predictor
+**/TransportSecurity
+**/WebStorage/
+**/SyncData/
+**/Site Characteristics Database/
+**/component_crx_cache/
+
+# ====== 新增：其他需要忽略的文件类型 ======
+
+# 大型数据文件
+*.db
+*.sqlite
+*.sqlite3
+
+# 临时文件
+*.tmp
+*.temp
+
+# 日志文件
+*.log
+logs/
+
+# 备份文件
+*.bak
+*.backup
+
+# 系统文件
+.DS_Store
+Thumbs.db

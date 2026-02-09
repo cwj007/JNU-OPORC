@@ -583,21 +583,19 @@ class WeiboCrawler(AbstractCrawler):
                 
                 # 如果开启了媒体抓取，则尝试下载评论中的图片
                 if config.ENABLE_GET_MEIDAS:
-                    # 根据 SAVE_DATA_OPTION 动态生成存储路径: data/weibo/{save_option}/{note_id}/imgs
                     save_option = config.SAVE_DATA_OPTION
-                    save_path = f"data/weibo/{save_option}/{note_id}/imgs"
                     for comment in filtered_comment_list:
-                        # 提取图片列表，支持单图(pic)和多图(pics)
-                        comment_pics = []
-                        if comment.get("pic"):
-                            comment_pics.append(comment.get("pic"))
-                        if comment.get("pics"):
-                            comment_pics.extend(comment.get("pics"))
+                        # 提取图片列表：优先使用 pics (多图)，如果没有则使用 pic (单图)
+                        comment_pics = comment.get("pics") or []
+                        if not comment_pics and comment.get("pic"):
+                            comment_pics = [comment.get("pic")]
                         
                         if not comment_pics:
                             continue
 
                         comment_id = str(comment.get("id"))
+                        # 根据 SAVE_DATA_OPTION 动态生成存储路径: data/weibo/{save_option}/{note_id}/imgs/{comment_id}
+                        save_path = f"data/weibo/{save_option}/{note_id}/imgs/{comment_id}"
                         for index, pic in enumerate(comment_pics, 1):
                             # 提取图片 URL，优先提取高清大图 URL (large)，其次是中间尺寸 (mw2000)
                             url = pic.get("large", {}).get("url") or pic.get("mw2000", {}).get("url") or pic.get("url")
@@ -609,7 +607,7 @@ class WeiboCrawler(AbstractCrawler):
                             pid = pic.get("pid") or f"{comment_id}_{index}"
                             
                             if url:
-                                # 构造文件名：comment_id 或 comment_id_index
+                                # 构造文件名：如果是单张图，直接使用 comment_id；如果是多张图，则从 comment_id_1 开始编号
                                 save_name = comment_id if len(comment_pics) == 1 else f"{comment_id}_{index}"
                                 
                                 utils.logger.info(f"[WeiboCrawler.get_note_comments] 正在下载评论图片: {url}")
@@ -680,9 +678,9 @@ class WeiboCrawler(AbstractCrawler):
         
         # 获取 note_id 用于确定存储路径和文件名
         note_id = mblog.get("bid") or mblog.get("id")
-        # 根据 SAVE_DATA_OPTION 动态生成存储路径: data/weibo/{save_option}/{note_id}/imgs
+        # 根据 SAVE_DATA_OPTION 动态生成存储路径: data/weibo/{save_option}/{note_id}/imgs/{note_id}
         save_option = config.SAVE_DATA_OPTION
-        save_path = f"data/weibo/{save_option}/{note_id}/imgs"
+        save_path = f"data/weibo/{save_option}/{note_id}/imgs/{note_id}"
         
         utils.logger.info(f"[WeiboCrawler.get_note_images] 发现帖子 {note_id} 有 {len(pics)} 张图片，准备下载...")
 
@@ -707,7 +705,7 @@ class WeiboCrawler(AbstractCrawler):
             if not url:  # 如果 URL 为空
                 continue
             
-            # 构造文件名：note_id 或 note_id_index
+            # 构造文件名：如果是单张图，直接使用 note_id；如果是多张图，则从 note_id_1 开始编号
             save_name = note_id if len(pics) == 1 else f"{note_id}_{index}"
             
             content = await self.wb_client.get_note_image(url)  # 调用客户端下载图片内容

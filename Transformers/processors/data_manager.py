@@ -1,6 +1,7 @@
 import pandas as pd
 import json
 import os
+import httpx
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from ..config import MEDIA_CRAWLER_DATA_DIR, IMAGE_EXTENSIONS
@@ -18,61 +19,109 @@ class DataManager:
             return "zhihu"
         return "unknown"
 
+    def _download_image(self, url: str, save_path: Path):
+        """如果图片不存在，则通过代理下载。"""
+        if save_path.exists():
+            return True
+            
+        # 微博图片防盗链处理：使用 i1.wp.com 代理
+        # 参考 MediaCrawler/media_platform/weibo/client.py
+        processed_url = url
+        if "sinaimg.cn" in url:
+            if "://" in url:
+                clean_url = url.split("://", 1)[1]
+            else:
+                clean_url = url
+            # 替换为 large 尺寸以获取高清图
+            sub_parts = clean_url.split("/")
+            if len(sub_parts) >= 3:
+                sub_parts[1] = "large"
+            processed_url = f"https://i1.wp.com/{'/'.join(sub_parts)}"
+
+        try:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Referer': 'https://weibo.com/'
+            }
+            # 使用 httpx 进行同步下载
+            with httpx.Client(follow_redirects=True, timeout=20.0) as client:
+                response = client.get(processed_url, headers=headers)
+                if response.status_code == 200:
+                    with open(save_path, 'wb') as f:
+                        f.write(response.content)
+                    return True
+                else:
+                    print(f"Failed to download {processed_url}, status: {response.status_code}")
+        except Exception as e:
+            print(f"Error downloading {url} via {processed_url}: {e}")
+        return False
+
     def _find_images(self, platform: str, parent_note_id: str, current_id: str, is_post: bool, pictures_str: Optional[str]) -> List[str]:
-        """根据新的命名规则查找与帖子或评论关联的本地图片。"""
+        """
+        严格根据图片清洗规则查找或下载图片：
+        1. 文章图片：data/weibo/csv/{note_id}/{note_id}.jpg (单图) 或 {note_id}_1.jpg... (多图)
+        2. 评论图片：始终以 {comment_id}_1.jpg 起始命名，多图按顺序
+        3. 如果路径中已存在图片（包括旧版 /imgs/ 目录），则不再重复下载
+        """
         if not pictures_str or pd.isna(pictures_str):
             return []
+        
+        # 解析 URL 列表
+        urls = [u.strip() for u in str(pictures_str).split(',') if u.strip()]
+        if not urls:
+            return []
             
-        # 图片存储在 data/{platform}/csv/{parent_note_id}/imgs/ 目录下
-        # 使用用户要求的相对路径格式：data\weibo\csv\{note_id}\imgs\{filename}
-        img_rel_dir = Path("data") / platform / "csv" / parent_note_id / "imgs"
-        # 实际磁盘上的绝对路径
-        img_abs_dir = self.data_dir.parent / img_rel_dir
-        
-        if not img_abs_dir.exists():
-            # 兼容性处理：有些可能没在 imgs 子目录下
-            img_rel_dir_alt = Path("data") / platform / "csv" / parent_note_id
-            img_abs_dir_alt = self.data_dir.parent / img_rel_dir_alt
-            if img_abs_dir_alt.exists():
-                img_rel_dir = img_rel_dir_alt
-                img_abs_dir = img_abs_dir_alt
-            else:
-                return []
-
-        # 图片数量可以通过 pictures_str 中逗号分隔的 URL 数量推断
-        num_images = len(str(pictures_str).split(','))
         images = []
+        # 标准存储目录: MediaCrawler/data/weibo/csv/{note_id}/
+        base_dir = self.data_dir / platform / "csv" / parent_note_id
+        # 旧版兼容目录: MediaCrawler/data/weibo/csv/{note_id}/imgs/
+        legacy_dir = base_dir / "imgs"
         
-        if is_post:
-            # 文章图片命名规则：note_id.jpg (单张) 或 note_id_1.jpg, note_id_2.jpg... (多张)
-            if num_images == 1:
-                img_name = f"{current_id}.jpg"
-                img_path = img_abs_dir / img_name
-                if img_path.exists():
-                    images.append(str(img_rel_dir / img_name))
+        for i, url in enumerate(urls):
+            # 确定本地文件名规则
+            if is_post:
+                if len(urls) == 1:
+                    img_name_stem = f"{current_id}"
                 else:
-                    # 备选方案：如果 .jpg 不存在，尝试 _1.jpg
-                    img_name_fallback = f"{current_id}_1.jpg"
-                    if (img_abs_dir / img_name_fallback).exists():
-                        images.append(str(img_rel_dir / img_name_fallback))
+                    img_name_stem = f"{current_id}_{i+1}"
             else:
-                for i in range(1, num_images + 1):
-                    img_name = f"{current_id}_{i}.jpg"
-                    if (img_abs_dir / img_name).exists():
-                        images.append(str(img_rel_dir / img_name))
-        else:
-            # 评论图片命名规则：comment_id_1.jpg, comment_id_2.jpg...
-            for i in range(1, num_images + 1):
-                img_name = f"{current_id}_{i}.jpg"
-                if (img_abs_dir / img_name).exists():
-                    images.append(str(img_rel_dir / img_name))
-                    
+                # 评论始终带序号 _1, _2...
+                img_name_stem = f"{current_id}_{i+1}"
+            
+            # 处理后缀名
+            ext = Path(url.split('?')[0]).suffix.lower()
+            if ext not in IMAGE_EXTENSIONS:
+                ext = ".jpg"
+            
+            img_name = f"{img_name_stem}{ext}"
+            
+            # 检查是否已存在（优先检查标准路径，其次检查旧版路径）
+            save_path = base_dir / img_name
+            legacy_path = legacy_dir / img_name
+            
+            target_path = None
+            if save_path.exists():
+                target_path = save_path
+            elif legacy_path.exists():
+                target_path = legacy_path
+            else:
+                # 都不存在，则执行下载到标准路径
+                if self._download_image(url, save_path):
+                    target_path = save_path
+            
+            if target_path:
+                images.append(str(target_path.absolute()))
+                
         return images
 
     def load_weibo_data(self, posts_file: str, comments_file: str) -> List[Dict[str, Any]]:
-        """加载微博 CSV 数据并返回扁平化的项目列表（包含文章和评论）。"""
-        posts_df = pd.read_csv(posts_file)
-        comments_df = pd.read_csv(comments_file)
+        """加载微博 CSV 数据并返回扁平化的项目列表。"""
+        # 记录日期，用于后续对比
+        date_str = Path(posts_file).stem.split('_')[-1]
+        
+        posts_df = pd.read_csv(posts_file, on_bad_lines='warn', engine='python', encoding='utf-8-sig')
+        comments_df = pd.read_csv(comments_file, on_bad_lines='warn', engine='python', encoding='utf-8-sig')
         
         # 优化：按 note_id 对评论进行分组
         comments_by_post = {str(k): g for k, g in comments_df.groupby('note_id')}
@@ -80,49 +129,75 @@ class DataManager:
         flat_items = []
         
         for _, post in posts_df.iterrows():
-            note_id = str(post['note_id']) # 文章 ID
-            top_id = str(post.get('top_id', note_id)) 
+            note_id = str(post['note_id'])
+            top_id = str(post.get('top_id', '')) 
             post_url = post.get('note_url', post.get('url', f"https://m.weibo.cn/detail/{note_id}"))
-            post_content = post['content']
-            pictures = post.get('pictures', '')
             
-            # 1. 添加文章 (Post)
+            # 1. 添加文章
             post_data = {
                 "note_id": note_id,
-                "comment_id": "0", # 文章的 comment_id 统一设为 "0"
+                "comment_id": "0",
                 "top_id": top_id,
                 "url": post_url,
-                "content": post_content,
+                "content": post.get('content', ''),
                 "author": post.get('nickname', ''),
                 "created_at": post.get('create_date_time', ''),
                 "source": "weibo",
                 "type": "post",
-                "images": self._find_images("weibo", note_id, note_id, is_post=True, pictures_str=pictures),
-                "parent_content": None
+                "images": self._find_images("weibo", note_id, note_id, is_post=True, pictures_str=post.get('pictures', '')),
+                "data_date": date_str # 记录数据日期
             }
             flat_items.append(post_data)
             
-            # 2. 添加相关的评论 (Comments)
+            # 2. 添加相关的评论
             if note_id in comments_by_post:
-                post_comments = comments_by_post[note_id]
-                for _, comm in post_comments.iterrows():
-                    comm_id = str(comm['comment_id'])
-                    comm_pictures = comm.get('pictures', '')
+                for _, comment in comments_by_post[note_id].iterrows():
+                    comment_id = str(comment['comment_id'])
                     flat_items.append({
-                        "note_id": note_id, # 评论的 note_id 必须指向所属文章 ID
-                        "comment_id": comm_id,
+                        "note_id": note_id,
+                        "comment_id": comment_id,
                         "top_id": top_id,
                         "url": post_url,
-                        "content": comm['content'],
-                        "author": comm.get('nickname', ''),
-                        "created_at": comm.get('create_date_time', ''),
+                        "content": comment.get('content', ''),
+                        "author": comment.get('nickname', ''),
+                        "created_at": comment.get('create_date_time', ''),
                         "source": "weibo",
                         "type": "comment",
-                        "images": self._find_images("weibo", note_id, comm_id, is_post=False, pictures_str=comm_pictures),
-                        "parent_content": post_content
+                        "images": self._find_images("weibo", note_id, comment_id, is_post=False, pictures_str=comment.get('pictures', '')),
+                        "data_date": date_str
                     })
         
         return flat_items
+
+    def compare_data(self, old_data: List[Dict[str, Any]], new_data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+        """对比两份数据，检测新增、修改、删除。"""
+        def get_key(item): return f"{item['note_id']}_{item['comment_id']}"
+        
+        old_map = {get_key(item): item for item in old_data}
+        new_map = {get_key(item): item for item in new_data}
+        
+        added = []
+        modified = []
+        deleted = []
+        
+        for key, item in new_map.items():
+            if key not in old_map:
+                added.append(item)
+            else:
+                # 简单对比内容是否变化
+                if item['content'] != old_map[key]['content']:
+                    item['_old_content'] = old_map[key]['content']
+                    modified.append(item)
+                    
+        for key, item in old_map.items():
+            if key not in new_map:
+                deleted.append(item)
+                
+        return {
+            "added": added,
+            "modified": modified,
+            "deleted": deleted
+        }
 
     def load_json_data(self, json_file: str) -> List[Dict[str, Any]]:
         """Load unlabelled JSON data for batch processing."""

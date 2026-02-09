@@ -17,18 +17,24 @@ class MultimodalVLMModel:
 
         # 2. Load Model with 4-bit Quantization for memory efficiency
         from transformers import BitsAndBytesConfig
+        
+        # Check for bf16 support (Ampere or newer)
+        has_bf16 = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+        compute_dtype = torch.bfloat16 if has_bf16 else torch.float16
+        
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_use_double_quant=True,
             bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16
+            bnb_4bit_compute_dtype=compute_dtype
         )
 
         self.model = Qwen2VLForConditionalGeneration.from_pretrained(
             VLM_MODEL_ID,
             quantization_config=bnb_config,
             device_map="auto",
-            torch_dtype=torch.float16,
+            torch_dtype=compute_dtype,
+            attn_implementation="sdpa", # Use SDPA for speed
             cache_dir=str(MODEL_WEIGHTS_DIR),
             trust_remote_code=True
         )

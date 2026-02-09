@@ -17,6 +17,7 @@ dependencies = [
     "motor>=3.3.0",
     "opencv-python>=4.11.0.86",
     "pandas==2.2.3",
+    "numpy<2",
     "parsel==1.9.1",
     "pillow==9.5.0",
     "playwright==1.45.0",
@@ -58,6 +59,7 @@ dependencies = [
     "transformers-stream-generator>=0.0.5",
     "qwen-vl-utils",
     "flash-attn; sys_platform == 'linux'",
+    "jinja2",
 ]
 
 [[tool.uv.index]]
@@ -65,5 +67,5 @@ url = "https://mirrors.aliyun.com/pypi/simple/"
 default = true
 
 [tool.uv.sources]
-torch = { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu121/torch-2.1.2%2Bcu121-cp310-cp310-win_amd64.whl" }
-torchvision = { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu121/torchvision-0.16.2%2Bcu121-cp310-cp310-win_amd64.whl" }
+torch = { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu121/torch-2.4.1%2Bcu121-cp310-cp310-win_amd64.whl" }
+torchvision = { url = "https://mirror.sjtu.edu.cn/pytorch-wheels/cu121/torchvision-0.19.1%2Bcu121-cp310-cp310-win_amd64.whl" }

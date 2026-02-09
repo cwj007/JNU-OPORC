@@ -23,6 +23,8 @@ def train_vlm(
     dataset = MultimodalVLMDataset(jsonl_path, processor=model_wrapper.processor)
     
     # 3. Training Arguments
+    has_bf16 = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8
+    
     training_args = TrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=batch_size,
@@ -31,10 +33,13 @@ def train_vlm(
         num_train_epochs=epochs,
         logging_steps=10,
         save_strategy="epoch",
-        fp16=True,
+        bf16=has_bf16,
+        fp16=not has_bf16,
+        tf32=torch.cuda.is_available(),
         optim="paged_adamw_32bit", # Memory efficient optimizer
         remove_unused_columns=False,
         gradient_checkpointing=True,
+        dataloader_num_workers=2,
         report_to="none"
     )
     

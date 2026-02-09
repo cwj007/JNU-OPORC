@@ -2,7 +2,7 @@ import json
 from typing import List, Dict, Any
 from pathlib import Path
 
-from ..config import PLATFORM_MAP
+from ..config import PLATFORM_MAP, HISTORICAL_LABELED_DIR
 
 class Exporter:
     def __init__(self, output_file: str):
@@ -12,17 +12,28 @@ class Exporter:
         """Export analyzed data to JSONL format with the requested schema."""
         formatted_results = []
         
+        # 尝试从数据中提取日期，用于保存历史备份
+        data_date = None
+        if analyzed_data:
+            data_date = analyzed_data[0].get("data_date")
+            
         for item in analyzed_data:
-            # Each item is now a flat record (post or comment)
-            # For comments, item['top_id'] points to the original post note_id
-            # item['url'] is also preserved
             formatted_entry = self._format_entry(item)
             formatted_results.append(formatted_entry)
         
+        # 1. 保存到主结果文件
         mode = 'a' if append else 'w'
         with open(self.output_file, mode, encoding='utf-8') as f:
             for entry in formatted_results:
                 f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+        
+        # 2. 如果有日期，同时备份到 history 目录
+        if data_date:
+            history_file = HISTORICAL_LABELED_DIR / f"labeled_results_{data_date}.jsonl"
+            with open(history_file, mode, encoding='utf-8') as f:
+                for entry in formatted_results:
+                    f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            print(f"Historical backup saved to: {history_file}")
         
         if not append:
             print(f"Exported {len(formatted_results)} records to {self.output_file}")
@@ -58,6 +69,7 @@ class Exporter:
             "url": item.get("url"),
             "sentiment_analysis": {
                 "sentiment": analysis.get("sentiment"),
+                "fine_grained_sentiment": analysis.get("fine_grained_sentiment"),
                 "intent": analysis.get("intent"),
                 "irony_detected": irony_detected,
                 "reasoning": reasoning

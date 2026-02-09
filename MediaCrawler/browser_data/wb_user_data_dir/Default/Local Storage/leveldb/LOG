@@ -1,7 +1,0 @@
-2026/02/08-17:27:52.203 4afc Reusing MANIFEST E:\JNU-OPORC\MediaCrawler\browser_data\wb_user_data_dir\Default\Local Storage\leveldb/MANIFEST-000001
-2026/02/08-17:27:52.209 4afc Recovering log #168
-2026/02/08-17:27:52.210 4afc Level-0 table #171: started
-2026/02/08-17:27:52.219 4afc Level-0 table #171: 106720 bytes OK
-2026/02/08-17:27:52.220 4afc Recovering log #170
-2026/02/08-17:27:52.225 4afc Reusing old log E:\JNU-OPORC\MediaCrawler\browser_data\wb_user_data_dir\Default\Local Storage\leveldb/000170.log 
-2026/02/08-17:27:52.226 4afc Delete type=0 #168

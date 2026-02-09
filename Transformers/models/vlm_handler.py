@@ -2,7 +2,7 @@ import torch
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
 from typing import List, Dict, Any, Optional
-from ..config import VLM_MODEL_ID, MODEL_WEIGHTS_DIR, MIN_PIXELS, MAX_PIXELS, SENTIMENT_CATEGORIES, INTENT_CATEGORIES, DEVICE, USE_4BIT
+from ..config import VLM_MODEL_ID, MODEL_WEIGHTS_DIR, MIN_PIXELS, MAX_PIXELS, SENTIMENT_CATEGORIES, FINE_GRAINED_SENTIMENT_CATEGORIES, INTENT_CATEGORIES, DEVICE, USE_4BIT
 
 class VLMHandler:
     def __init__(self):
@@ -49,6 +49,7 @@ class VLMHandler:
         # 准备 Prompt，填入分类选项
         prompt = prompt_template.format(
             sentiments=", ".join(SENTIMENT_CATEGORIES),
+            fine_grained_sentiments=", ".join(FINE_GRAINED_SENTIMENT_CATEGORIES),
             intents=", ".join(INTENT_CATEGORIES)
         )
 
