@@ -1,11 +1,34 @@
 import os
 import torch
+import warnings
 from pathlib import Path
+
+# 过滤不需要的警告输出
+# 1. 忽略 Flash Attention 相关的 UserWarning (Windows 环境下常见)
+warnings.filterwarnings("ignore", message=".*Torch was not compiled with flash attention.*")
+# 2. 忽略一般的 Transformers/PyTorch 警告
+warnings.filterwarnings("ignore", category=UserWarning)
+# 3. 忽略 PIL 的 DecompressionBombWarning (处理超大图片时触发)
+warnings.filterwarnings("ignore", message=".*DecompressionBombWarning.*")
+warnings.filterwarnings("ignore", message=".*could be decompression bomb.*")
+# 4. 忽略 Transformers 关于 generation flags 的警告 (do_sample=False 时 top_p 等无效的提示)
+warnings.filterwarnings("ignore", message=".*generation flags are not valid.*")
 
 # 配置 Hugging Face 镜像加速，解决国内下载卡顿问题
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 # 优化显存分配，减少碎片化，适配 6GB 显存
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+# 开启计算加速
+if torch.cuda.is_available():
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+
+# 解决国内网络连接 hf-mirror.com 不稳定的问题
+# 优先使用本地缓存，避免每次启动都联网检查模型更新
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_HUB_OFFLINE"] = "1"
 
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
@@ -33,42 +56,59 @@ PLATFORM_PATHS = {
 
 # Sentiment categories
 SENTIMENT_CATEGORIES = ["正面", "中性", "负面"]
-FINE_GRAINED_SENTIMENT_CATEGORIES = ["惊喜", "愤怒", "失望", "中立", "赞赏", "期待", "焦虑", "厌恶", "悲伤", "愉快"]
-INTENT_CATEGORIES = ["投诉/反馈", "咨询/询问", "推荐/安利", "炫耀/分享", "吐槽/不满", "吃瓜/围观", "其他"]
+
+# 细粒度情感类别映射 (层级结构)
+FINE_GRAINED_SENTIMENT_MAPPING = {
+    "正面": ["惊喜", "赞赏", "期待", "愉快"],
+    "中性": ["中立"],
+    "负面": ["愤怒", "失望", "焦虑", "厌恶", "悲伤"]
+}
+
+# 意图类别映射 (层级结构)
+INTENT_CATEGORIES_MAPPING = {
+    "正面": ["推荐/安利", "炫耀/分享"],
+    "中性": ["咨询/询问", "吃瓜/围观", "其他"],
+    "负面": ["投诉/反馈", "吐槽/不满"]
+}
+
+# 扁平化列表供 Prompt 使用
+FINE_GRAINED_SENTIMENT_CATEGORIES = [item for sublist in FINE_GRAINED_SENTIMENT_MAPPING.values() for item in sublist]
+INTENT_CATEGORIES = [item for sublist in INTENT_CATEGORIES_MAPPING.values() for item in sublist]
 
 # 提示词：引导模型进行图文消解、情感识别和反讽判定
 ANALYSIS_PROMPT = """
-你是一个社交媒体舆情分析专家。请结合图片内容（OCR文字、视觉对象）和文本内容，进行多维度情感分析。
+你是一个舆情专家。请分析“目标”内容的情感与意图，Context仅作背景参考。
 
-注意：输入可能包含“上下文 (Context)”和“目标 (Target)”。
-- “上下文”是原贴内容，仅用于帮助你理解背景。
-- “目标”是你需要分析的评论内容。
-- 如果“目标”没有自带图片，请不要在 JSON 的 objects 和 ocr_text 中输出上下文图片的分析结果。
+分类标准：
+- 正面: 情感[{fg_pos}], 意图[{intent_pos}]
+- 中性: 情感[{fg_neu}], 意图[{intent_neu}]
+- 负面: 情感[{fg_neg}], 意图[{intent_neg}]
 
-要求：
-1. 图文矛盾消解：如果图片表达正面但文字表达负面（或反之），请判定是否存在反讽。
-2. 情感分类（双层）：
-   - 主情感：从 {sentiments} 中选择（正面/中性/负面）。
-   - 细粒度情感：从 {fine_grained_sentiments} 中选择最精准的一个（必须是字符串，不要输出对象或列表）。
-3. 意图识别：从 {intents} 中选择。
-4. 反讽判定：明确判定是否包含反讽（true/false）。
-5. 推理过程：简述理由。**注意：如果判定不包含反讽，推理中不要提及“没有反讽”等废话，只描述情感和意图的依据。**
+核心约束：
+1. 情感/意图必须选自对应主类别的列表。
+2. 图文矛盾则 irony_detected=true。
+3. 无图时 objects=[]，ocr_text=""，reasoning严禁提及图片。
+4. 仅输出 JSON，严禁其他文字。
 
-请直接输出 JSON 格式，包含以下字段：
-- sentiment: 主情感标签 (正面/中性/负面)
-- fine_grained_sentiment: 细粒度情感标签
+字段要求：
+- sentiment: 正面/中性/负面
+- fine_grained_sentiment: 细粒度标签
 - intent: 意图标签
 - irony_detected: true/false
-- reasoning: 推理理由（中文）
-- keywords: 关键词列表（中文）
-- objects: 仅针对“目标”图片的视觉对象列表（若无图则为空列表 []）
-- ocr_text: 仅针对“目标”图片的文字内容（若无图则为空字符串 ""）
+- reasoning: 简短理由(区分背景与目标)
+- keywords: 关键词列表
+- objects: 视觉对象列表
+- ocr_text: OCR文字
 """
 
 # Output settings
 TRANSFORMERS_DIR = BASE_DIR / "Transformers"
 TRANSFORMERS_OUTPUT_DIR = TRANSFORMERS_DIR / "output"
 os.makedirs(TRANSFORMERS_OUTPUT_DIR, exist_ok=True)
+
+# Cache settings
+CACHE_DIR = TRANSFORMERS_DIR / "cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Input files
 def get_weibo_files_by_date(date_str: str):
@@ -122,9 +162,9 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 # VLM 能够处理的最大图片数量（建议 1-9 张，过多会导致 OOM 或推理极慢）
 MAX_IMAGES_FOR_VLM = 9 
 # VLM Generation Parameters
-# 极致加速：将最小像素降低，最大像素从 512 降低到 336 (约 300x300 分辨率)
+# 极致加速：将最小像素降低，最大像素从 512 降低到 224 (约 200x200 分辨率)
 # 对于情感分析和基本的视觉识别，这个分辨率已经足够，但速度会提升非常多
 MIN_PIXELS = 128 * 28 * 28
-MAX_PIXELS = 336 * 28 * 28  
+MAX_PIXELS = 224 * 28 * 28  
 if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True # 开启 cuDNN 加速

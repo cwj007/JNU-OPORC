@@ -1,110 +1,283 @@
 import json
 import os
+import sqlite3
+import threading
+import queue
+import time
+from urllib.parse import unquote
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from filelock import FileLock
 
-from ..config import PLATFORM_MAP, HISTORICAL_LABELED_DIR
+from ..config import PLATFORM_MAP, HISTORICAL_LABELED_DIR, TRANSFORMERS_DIR, CACHE_DIR
 
 class Exporter:
     def __init__(self, output_file: str):
         self.output_file = Path(output_file)
-        self._existing_ids_cache = None # 内存缓存
+        self.db_path = CACHE_DIR / "processed_ids.db"
+        self._ensure_table_exists()
+        
+        # 异步写入队列
+        self.write_queue = queue.Queue()
+        self.stop_event = threading.Event()
+        self.write_thread = threading.Thread(target=self._async_write_worker, daemon=True)
+        self.write_thread.start()
+
+    def _ensure_table_exists(self):
+        """确保数据库表存在，如果不存在则创建，如果存在则检查字段并升级。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS processed_items (
+                unique_id TEXT PRIMARY KEY,
+                note_id TEXT,
+                comment_id TEXT,
+                top_id TEXT,
+                data_date TEXT,
+                sync_date TEXT,
+                created_at TEXT,
+                content TEXT,
+                sentiment TEXT,
+                intent TEXT,
+                keywords TEXT,
+                ip_location TEXT,
+                visual_objects TEXT,
+                ocr_text TEXT,
+                author TEXT,
+                source TEXT,
+                liked_count INTEGER,
+                comments_count INTEGER,
+                shared_count INTEGER,
+                gender TEXT
+            )
+        ''')
+        
+        # 字段升级逻辑
+        cursor.execute("PRAGMA table_info(processed_items)")
+        cols = [c[1] for c in cursor.fetchall()]
+        
+        # 动态添加缺失的字段
+        new_fields = [
+            ('sync_date', 'TEXT'),
+            ('content', 'TEXT'),
+            ('created_at', 'TEXT'),
+            ('visual_objects', 'TEXT'),
+            ('ocr_text', 'TEXT'),
+            ('author', 'TEXT'),
+            ('source', 'TEXT'),
+            ('liked_count', 'INTEGER'),
+            ('comments_count', 'INTEGER'),
+            ('shared_count', 'INTEGER'),
+            ('gender', 'TEXT'),
+            ('ip_location', 'TEXT'),
+            ('parent_comment_id', 'TEXT'),
+            ('top_id', 'TEXT')
+        ]
+        
+        for field_name, field_type in new_fields:
+            if field_name not in cols:
+                cursor.execute(f'ALTER TABLE processed_items ADD COLUMN {field_name} {field_type}')
+        
+        conn.commit()
+        conn.close()
 
     def get_existing_ids(self) -> set:
-        """从主输出文件和历史目录中扫描所有已处理的 ID。"""
-        if self._existing_ids_cache is not None:
-            return self._existing_ids_cache
-            
-        existing_ids = set()
-        
-        # 1. 扫描历史目录中的所有 .jsonl 文件
-        if HISTORICAL_LABELED_DIR.exists():
-            for history_file in HISTORICAL_LABELED_DIR.glob("*.jsonl"):
-                self._load_ids_from_file(history_file, existing_ids)
-        
-        # 2. 扫描当前主输出文件
-        if self.output_file.exists():
-            self._load_ids_from_file(self.output_file, existing_ids)
-        
-        self._existing_ids_cache = existing_ids
-        return existing_ids
+        """从 SQLite 数据库中极速获取所有已处理的 ID。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT unique_id FROM processed_items')
+        ids = {row[0] for row in cursor.fetchall()}
+        conn.close()
+        return ids
 
-    def _load_ids_from_file(self, file_path: Path, id_set: set):
-        """辅助函数：从单个文件读取 ID。"""
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line: continue
-                    try:
-                        data = json.loads(line)
-                        unique_id = f"{data.get('note_id')}_{data.get('comment_id')}"
-                        id_set.add(unique_id)
-                    except:
-                        continue
-        except Exception as e:
-            print(f"Warning: Failed to read existing IDs from {file_path.name}: {e}")
+    def _is_id_processed(self, unique_id: str) -> bool:
+        """在数据库中检查单条 ID 是否存在（极速查询）。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT 1 FROM processed_items WHERE unique_id = ?', (unique_id,))
+        exists = cursor.fetchone() is not None
+        conn.close()
+        return exists
+
+    def _mark_ids_as_processed(self, entries_for_db: List[tuple]):
+        """批量将 ID 和分析结果存入数据库。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.executemany('''
+            INSERT OR REPLACE INTO processed_items (
+                unique_id, note_id, comment_id, top_id, data_date, sync_date, created_at, content,
+                sentiment, intent, keywords, ip_location, visual_objects, 
+                ocr_text, author, source, liked_count, comments_count, 
+                shared_count, gender, parent_comment_id
+            ) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', entries_for_db)
+        conn.commit()
+        conn.close()
 
     def export(self, analyzed_data: List[Dict[str, Any]], append: bool = False, use_lock: bool = True):
-        """Export analyzed data to JSONL format and a structured JSON for frontend."""
+        """将数据丢入异步队列，立即返回，不阻塞 GPU。"""
         if not analyzed_data:
             return
-            
+        
+        # 将任务包装后放入队列
+        self.write_queue.put({
+            "data": analyzed_data,
+            "append": append,
+            "use_lock": use_lock
+        })
+
+    def _async_write_worker(self):
+        """后台写入线程：负责处理 IO 密集型任务。"""
+        while not (self.stop_event.is_set() and self.write_queue.empty()):
+            try:
+                # 阻塞式获取任务，超时时间 1 秒以便检查停止事件
+                task = self.write_queue.get(timeout=1.0)
+                
+                analyzed_data = task["data"]
+                append = task["append"]
+                use_lock = task["use_lock"]
+                
+                self._process_export_task(analyzed_data, append, use_lock)
+                
+                self.write_queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"  [写入错误] 后台线程异常: {e}")
+
+    def _process_export_task(self, analyzed_data: List[Dict[str, Any]], append: bool, use_lock: bool):
+        """实际的写入逻辑：格式化、去重、存库、写文件。"""
         formatted_results = []
         data_date = analyzed_data[0].get("data_date")
-            
+        
+        # 1. 过滤已存在的 ID (使用 SQLite 极速查询)
+        valid_entries = []
+        db_entries = []
+        top_entries = {} # top_id -> top_name
+        sync_date = datetime.now().strftime("%Y-%m-%d")
+        
         for item in analyzed_data:
-            formatted_entry = self._format_entry(item)
-            formatted_results.append(formatted_entry)
-        
-        # 1. 保存到原始结果文件 (JSONL)
+            entry = self._format_entry(item)
+            note_id = str(entry.get('note_id'))
+            comment_id = str(entry.get('comment_id', '0'))
+            unique_id = f"{note_id}_{comment_id}"
+            
+            if not self._is_id_processed(unique_id):
+                valid_entries.append(entry)
+                # 提取统计字段
+                sentiment = str(entry.get("sentiment_analysis", {}).get("sentiment", "Unknown"))
+                intent = str(entry.get("sentiment_analysis", {}).get("intent", "Unknown"))
+                keywords = json.dumps(entry.get("keywords", []), ensure_ascii=False)
+                ip_location = str(entry.get("ip_location", ""))
+                top_id = str(entry.get("top_id", ""))
+                top_name = entry.get("top_name")
+                created_at = str(entry.get("created_at", ""))
+                content = str(entry.get("content", ""))
+                visual_objects = json.dumps(entry.get("visual_objects", []), ensure_ascii=False)
+                ocr_text = str(entry.get("ocr_text", ""))
+                author = str(entry.get("author", ""))
+                source = str(entry.get("source", ""))
+                
+                # 区分文章和评论的计数
+                liked_count = entry.get("liked_count") or entry.get("comment_like_count") or 0
+                comments_count = entry.get("comments_count") or entry.get("sub_comment_count") or 0
+                shared_count = entry.get("shared_count") or 0
+                gender = str(entry.get("gender", ""))
+                parent_comment_id = str(entry.get("parent_comment_id", ""))
+                
+                db_entries.append((
+                    unique_id, note_id, comment_id, top_id, str(data_date or ""), sync_date, created_at, content,
+                    sentiment, intent, keywords, ip_location, visual_objects, 
+                    ocr_text, author, source, liked_count, comments_count, 
+                    shared_count, gender, parent_comment_id
+                ))
+
+                # 记录 top_topics
+                if top_id and top_id != "None":
+                    if top_name:
+                        top_entries[top_id] = top_name
+                    else:
+                        # 如果没有 top_name，尝试从 top_id 解码
+                        top_entries[top_id] = unquote(top_id)
+
+        if not valid_entries:
+            return
+
+        # 2. 写入 JSONL 文件 (使用文件锁保护多进程安全)
         mode = 'a' if append else 'w'
-        
-        # 仅在需要时使用文件锁（多进程安全）
         if use_lock:
             lock_path = f"{self.output_file}.lock"
             with FileLock(lock_path):
-                self._do_export(formatted_results, data_date, mode, append)
+                self._write_to_files(valid_entries, data_date, mode)
         else:
-            self._do_export(formatted_results, data_date, mode, append)
+            self._write_to_files(valid_entries, data_date, mode)
 
-    def _do_export(self, formatted_results, data_date, mode, append):
-        """实际执行导出逻辑。"""
-        existing_ids = self.get_existing_ids()
+        # 3. 写入数据库索引
+        self._mark_ids_as_processed(db_entries)
+        
+        # 4. 写入 top_topics 表
+        if top_entries:
+            self._update_top_topics(top_entries)
+        
+        # 5. 输出存储日志
+        print(f"  └─ [存储] {len(valid_entries)} 条新记录已异步同步 (SQLite 索引已更新)")
 
-        valid_entries_to_write = []
-        for entry in formatted_results:
-            unique_id = f"{entry.get('note_id')}_{entry.get('comment_id')}"
-            if unique_id not in existing_ids:
-                valid_entries_to_write.append(entry)
-                existing_ids.add(unique_id)
+    def _update_top_topics(self, top_entries: Dict[str, str]):
+        """批量更新 top_topics 表。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        # 确保表存在
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS top_topics (
+                top_id TEXT PRIMARY KEY,
+                top_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        entries = [(tid, tname) for tid, tname in top_entries.items()]
+        cursor.executemany('''
+            INSERT OR REPLACE INTO top_topics (top_id, top_name) VALUES (?, ?)
+        ''', entries)
+        conn.commit()
+        conn.close()
 
-        if valid_entries_to_write:
-            with open(self.output_file, mode, encoding='utf-8') as f:
-                for entry in valid_entries_to_write:
+    def _write_to_files(self, valid_entries, data_date, mode):
+        """物理写入文件：通过临时文件原子性替换，防止写入中断导致损坏。"""
+        # 写入主文件
+        temp_main = f"{self.output_file}.tmp"
+        try:
+            # 1. 写入临时文件
+            with open(temp_main, 'w', encoding='utf-8') as f:
+                for entry in valid_entries:
                     f.write(json.dumps(entry, ensure_ascii=False) + '\n')
             
-            # 2. 生成聚合后的结构化数据
-            self._export_aggregated_data(valid_entries_to_write, data_date, append)
-
-            # 3. 如果有日期，同时备份到 history 目录
+            # 2. 追加到正式文件
+            with open(self.output_file, 'a', encoding='utf-8') as f:
+                with open(temp_main, 'r', encoding='utf-8') as tf:
+                    f.write(tf.read())
+            
+            # 3. 写入历史备份
             if data_date:
                 history_file = HISTORICAL_LABELED_DIR / f"labeled_results_{data_date}.jsonl"
-                # 这里简单处理，历史备份也遵循锁逻辑
-                with open(history_file, mode, encoding='utf-8') as f:
-                    for entry in valid_entries_to_write:
-                        f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+                with open(history_file, 'a', encoding='utf-8') as f:
+                    with open(temp_main, 'r', encoding='utf-8') as tf:
+                        f.write(tf.read())
             
-                # 增强日志输出
-                if len(valid_entries_to_write) <= 3:
-                    ids_str = ", ".join([f"{e.get('note_id')}_{e.get('comment_id')}" for e in valid_entries_to_write])
-                    print(f"  [存储] {len(valid_entries_to_write)} 条记录已同步 (ID: {ids_str})")
-                else:
-                    print(f"  [存储] {len(valid_entries_to_write)} 条新记录已同步至主文件及历史备份 (日期: {data_date})")
-        
-        if not append:
-            print(f"Exported {len(formatted_results)} records to {self.output_file}")
+            # 4. 更新聚合 JSON (针对前端展示)
+            self._export_aggregated_data(valid_entries, data_date, True)
+            
+        finally:
+            if os.path.exists(temp_main):
+                os.remove(temp_main)
+
+    def close(self):
+        """关闭 Exporter，确保所有数据写完。"""
+        self.stop_event.set()
+        if self.write_thread.is_alive():
+            self.write_thread.join()
 
     def _export_aggregated_data(self, results: List[Dict[str, Any]], data_date: str, append: bool):
         """将数据按文章聚合，并对标签/关键词进行去重，生成前端易用的 JSON。"""
@@ -237,28 +410,47 @@ class Exporter:
             # 如果没有反讽，清理推理过程中的反讽相关词汇，或者保持简洁
             reasoning = reasoning.split("，没有")[0].split(", no")[0]
         
+        # 基础字段构建
         entry = {
             "top_id": item.get("top_id"),
             "note_id": item.get("note_id"),
             "comment_id": item.get("comment_id"),
             "content": content,
-            "image_paths": images, # 存储图片相对路径
-            "source": source_name, # 微博 / 知乎 等中文名
+            "image_paths": images,
+            "source": source_name,
             "author": item.get("author", ""),
             "created_at": item.get("created_at", ""),
             "url": item.get("url"),
-            "sentiment_analysis": {
-                "sentiment": analysis.get("sentiment"),
-                "fine_grained_sentiment": analysis.get("fine_grained_sentiment"),
-                "intent": analysis.get("intent"),
-                "irony_detected": irony_detected,
-                "reasoning": reasoning
-            },
+            "ip_location": item.get("ip_location", "")
+        }
+
+        # 区分文章和评论插入统计字段（置于 sentiment_analysis 之前）
+        if entry["comment_id"] == "0":
+            entry["liked_count"] = item.get("liked_count", 0)
+            entry["comments_count"] = item.get("comments_count", 0)
+            entry["shared_count"] = item.get("shared_count", 0)
+        else:
+            entry["comment_like_count"] = item.get("comment_like_count", 0)
+            entry["sub_comment_count"] = item.get("sub_comment_count", 0)
+            entry["gender"] = item.get("gender", "")
+            entry["parent_comment_id"] = item.get("parent_comment_id")
+
+        # 插入核心分析字段
+        entry["sentiment_analysis"] = {
+            "sentiment": analysis.get("sentiment"),
+            "fine_grained_sentiment": analysis.get("fine_grained_sentiment"),
+            "intent": analysis.get("intent"),
+            "irony_detected": irony_detected,
+            "reasoning": reasoning
+        }
+        
+        # 补充标签和视觉字段
+        entry.update({
             "labels": analysis.get("sentiment_labels", [analysis.get("sentiment")]),
             "keywords": analysis.get("keywords", []),
             "visual_objects": analysis.get("objects", []),
             "ocr_text": analysis.get("ocr_text", "")
-        }
+        })
 
         # 评论记录不需要 top_id
         if entry["comment_id"] != "0" and "top_id" in entry:

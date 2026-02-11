@@ -1,12 +1,13 @@
 import pandas as pd
 import json
 import os
+import re
 import httpx
 import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
-from ..config import MEDIA_CRAWLER_DATA_DIR, IMAGE_EXTENSIONS
+from ..config import MEDIA_CRAWLER_DATA_DIR, IMAGE_EXTENSIONS, CACHE_DIR
 
 class DataManager:
     def __init__(self):
@@ -124,9 +125,32 @@ class DataManager:
         comments_df['note_id'] = comments_df['note_id'].astype(str)
         comments_df['comment_id'] = comments_df['comment_id'].astype(str)
         comments_df = comments_df.where(pd.notnull(comments_df), None)
+
+        # --- 核心优化：上下文缓存到磁盘 ---
+        context_cache = {str(r['note_id']): r.get('content') for _, r in posts_df.iterrows() if r.get('content')}
+        cache_file = CACHE_DIR / "context_cache.json"
         
+        # 合并旧缓存（如果有）
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    old_cache = json.load(f)
+                    old_cache.update(context_cache)
+                    context_cache = old_cache
+            except: pass
+            
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(context_cache, f, ensure_ascii=False, indent=2)
+        print(f"已同步 {len(context_cache)} 条文章上下文到磁盘缓存: {cache_file.name}")
+
         # 1. 处理文章数据 (CPU 并行)
         print(f"正在读取文章数据 (已处理过的 ID 将被自动跳过)...")
+        
+        # --- 核心优化：文章处理策略 ---
+        # 建立无效文章 ID 集合，记录既无文本又无图片的文章 ID
+        invalid_note_ids = set()
+        # 线程安全锁，用于更新 invalid_note_ids
+        invalid_ids_lock = threading.Lock()
         
         post_processed_count = 0
         def process_post(row_tuple):
@@ -140,16 +164,31 @@ class DataManager:
                 return None
                 
             content = row.get('content')
+            # 确保内容不只是空白字符
+            clean_content = str(content).strip() if content and not pd.isna(content) else ""
+            
             pictures_str = row.get('pictures')
-            if not content and not pictures_str:
+            
+            # 优化：如果文字和图片配置同时为空，标记为无效并剔除
+            if not clean_content and (not pictures_str or pd.isna(pictures_str)):
+                with invalid_ids_lock:
+                    invalid_note_ids.add(note_id)
                 return None
+            
             images = self._find_images("weibo", note_id, note_id, is_post=True, pictures_str=pictures_str)
+            
+            # 如果图片查找失败（物理文件不存在）且内容也为空，则无法分析，标记为无效并剔除
+            if not clean_content and not images:
+                with invalid_ids_lock:
+                    invalid_note_ids.add(note_id)
+                return None
+
             return {
                 "note_id": note_id,
                 "comment_id": "0",
                 "top_id": str(row.get('top_id')) if row.get('top_id') else None,
                 "url": row.get('note_url', row.get('url', f"https://m.weibo.cn/detail/{note_id}")),
-                "content": content,
+                "content": clean_content or "[图片内容]", # 为纯图片提供占位符
                 "author": row.get('nickname'),
                 "created_at": row.get('create_date_time'),
                 "source": "weibo",
@@ -158,6 +197,7 @@ class DataManager:
                 "data_date": date_str,
                 "liked_count": row.get('liked_count', 0),
                 "comments_count": row.get('comments_count', 0),
+                "shared_count": row.get('shared_count', 0),
                 "ip_location": row.get('ip_location', '')
             }
 
@@ -180,49 +220,115 @@ class DataManager:
         print(f"正在读取 {total_raw_comments} 条评论数据...")
         
         comment_processed_count = 0
-        full_posts_content_cache = {str(r['note_id']): r.get('content') for _, r in posts_df.iterrows()}
-        spam_keywords = ["扫码", "加群", "无门槛", "网页链接", "投票", "点击链接", "免费领取"]
         
+        # 构建文章内容缓存，确保即使是纯图片文章也能提供背景提示，而不是空字符串
+        full_posts_content_cache = {}
+        for _, r in posts_df.iterrows():
+            nid = str(r['note_id'])
+            c = r.get('content')
+            clean_c = str(c).strip() if c and not pd.isna(c) else ""
+            if not clean_c:
+                # 如果没有文字，检查是否有图片配置
+                pics = r.get('pictures')
+                if pics and not pd.isna(pics):
+                    full_posts_content_cache[nid] = "[图片内容]"
+                else:
+                    full_posts_content_cache[nid] = ""
+            else:
+                full_posts_content_cache[nid] = clean_c
+
+        # 构建当前批次所有评论的内容映射，用于对话链上下文溯源
+        full_comments_content_cache = {str(row['comment_id']): row.get('content') for _, row in comments_df.iterrows()}
+        
+        # 垃圾评论关键词过滤
+        spam_keywords = ["扫码", "加群", "无门槛", "网页链接", "投票", "点击链接", "免费领取", "私聊", "看我主页"]
+        # 直接剔除纯图片评论提示语 (这些数据没有实际文本价值)
+        image_comment_placeholders = ["图片评论", "评论配图"]
+        
+        # 预编译正则，识别重复字符（如：啊啊啊啊啊啊）或无意义字符
+        nonsense_pattern = re.compile(r'(.)\1{10,}') 
+
         def process_row(row_tuple):
             nonlocal comment_processed_count
             idx, row = row_tuple
             note_id = str(row['note_id'])
             comment_id = str(row['comment_id'])
             
+            # 优化：如果所属文章是无效文章（无图无文），则直接剔除评论训练
+            if note_id in invalid_note_ids:
+                return None
+
             # --- 逻辑去重 (根据已存在文件) ---
             if existing_ids and f"{note_id}_{comment_id}" in existing_ids:
                 comment_processed_count += 1
                 return None
                 
             content = row.get('content')
+            # 确保内容不只是空白字符
+            clean_content = str(content).strip() if content and not pd.isna(content) else ""
+            
+            # --- 核心优化：垃圾评论/无意义评论过滤 ---
+            if clean_content:
+                # 1. 关键词过滤
+                if any(kw in clean_content for kw in spam_keywords):
+                    return None
+                # 2. 占位符过滤
+                if clean_content in image_comment_placeholders:
+                    clean_content = "" # 转化为纯图片逻辑处理
+                # 3. 重复字符过滤
+                if nonsense_pattern.search(clean_content):
+                    return None
+                # 4. 太短且无图片（如只有1个字或纯符号）
+                if len(clean_content) < 2 and not row.get('pictures'):
+                    return None
+            
             pictures_str = row.get('pictures')
             
-            # 1. 严格执行：只有当文字和图片同时为空时才剔除
-            if (content is None or str(content).strip() == "") and (pictures_str is None or str(pictures_str).strip() == ""):
-                return None
-            
-            # 2. 营销/垃圾广告过滤 (长度 < 50 且包含特定关键词)
-            if content and any(kw in str(content) for kw in spam_keywords) and len(str(content)) < 50:
+            # 如果文字和图片配置同时为空，直接剔除
+            if not clean_content and (not pictures_str or pd.isna(pictures_str)):
                 return None
             
             comment_images = self._find_images("weibo", note_id, comment_id, is_post=False, pictures_str=pictures_str)
+            
+            # 如果图片查找失败（物理文件不存在）且内容也为空，直接剔除
+            if not clean_content and not comment_images:
+                return None
+            
             parent_content = full_posts_content_cache.get(note_id, "")
             
+            # 顶级评论的 parent_comment_id 与其 comment_id 相同
+            raw_parent_id = row.get('parent_comment_id')
+            parent_comment_id = str(raw_parent_id) if raw_parent_id and not pd.isna(raw_parent_id) else comment_id
+            
+            # 优化 2：评论的字段有一个 sub_comment_count 子评论数量，
+            # 如果这个子评论数不大于 0 则表示没有子评论数据。就不需要缓存处理。
+            sub_comment_count = int(row.get('sub_comment_count', 0))
+            
+            # 获取对话链上下文：如果不是顶级评论，则获取父评论内容
+            reply_to_content = ""
+            if parent_comment_id != comment_id:
+                # 只有当父评论确实存在于缓存中时才提取
+                reply_to_content = full_comments_content_cache.get(parent_comment_id, "")
+
             return {
                 "note_id": note_id,
                 "comment_id": comment_id,
                 "top_id": None,
                 "url": row.get('url', f"https://m.weibo.cn/detail/{note_id}"),
-                "content": content,
+                "content": clean_content or "[图片评论]", # 纯图片评论占位符
                 "author": row.get('nickname'),
                 "created_at": row.get('create_date_time'),
                 "source": "weibo",
                 "type": "comment",
                 "images": comment_images,
                 "data_date": date_str,
-                "parent_content": parent_content,
-                "liked_count": row.get('liked_count', 0),
-                "ip_location": row.get('ip_location', '')
+                "parent_content": parent_content,      # 文章内容
+                "reply_to_content": reply_to_content,  # 父评论内容（对话链上下文）
+                "comment_like_count": row.get('liked_count', 0), # 统一命名为 comment_like_count
+                "sub_comment_count": sub_comment_count,
+                "ip_location": row.get('ip_location', ''),
+                "gender": row.get('gender', ''),
+                "parent_comment_id": parent_comment_id
             }
 
         # 使用固定长度列表并按索引填入，以确保并行处理后依然维持 CSV 原始顺序

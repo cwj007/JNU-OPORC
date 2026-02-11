@@ -2,7 +2,12 @@ import torch
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
 from typing import List, Dict, Any, Optional
-from ..config import VLM_MODEL_ID, MODEL_WEIGHTS_DIR, MIN_PIXELS, MAX_PIXELS, SENTIMENT_CATEGORIES, FINE_GRAINED_SENTIMENT_CATEGORIES, INTENT_CATEGORIES, DEVICE, USE_4BIT
+from ..config import (
+    VLM_MODEL_ID, MODEL_WEIGHTS_DIR, MIN_PIXELS, MAX_PIXELS, 
+    SENTIMENT_CATEGORIES, FINE_GRAINED_SENTIMENT_CATEGORIES, INTENT_CATEGORIES,
+    FINE_GRAINED_SENTIMENT_MAPPING, INTENT_CATEGORIES_MAPPING,
+    DEVICE, USE_4BIT
+)
 
 class VLMHandler:
     def __init__(self):
@@ -15,29 +20,23 @@ class VLMHandler:
         if self.model is not None:
             return
 
-        print(f"正在从 {MODEL_WEIGHTS_DIR} 加载 Qwen2-VL 模型...")
-        print("提示：首次运行或显存不足时，加载过程可能需要 10-30 秒，请耐心等待。")
+        print(f"正在加载 Qwen2-VL 模型 (目录: {MODEL_WEIGHTS_DIR})...")
         
         load_params = {
             "pretrained_model_name_or_path": VLM_MODEL_ID,
             "cache_dir": str(MODEL_WEIGHTS_DIR),
-            "trust_remote_code": True
+            "trust_remote_code": True,
+            "local_files_only": True  # 默认优先使用本地文件，避免联网超时
         }
 
         # 尝试使用 Flash Attention 2
         try:
             import flash_attn
             load_params["attn_implementation"] = "flash_attention_2"
-            print("提示：已启用 Flash Attention 2 加速推理。")
         except ImportError:
-            # 在 Windows 环境下，Flash Attention 2 较难安装，
-            # 默认使用 PyTorch 2.0+ 自带的 SDPA (Scaled Dot Product Attention)，
-            # 它会自动调用 Flash Attention 或 Memory Efficient Attention 算子进行加速。
             load_params["attn_implementation"] = "sdpa"
-            print("提示：检测到 Windows 环境，已启用 PyTorch 原生 SDPA 内核加速（性能接近 Flash Attention）。")
 
         if DEVICE == "cuda" and USE_4BIT:
-            print("提示：检测到 GPU，正在进行 4-bit 实时量化加载，这可能需要 2-5 分钟...")
             from transformers import BitsAndBytesConfig
             bnb_config = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -51,23 +50,47 @@ class VLMHandler:
                 "torch_dtype": torch.float16
             })
         else:
-            print(f"提示：使用 {DEVICE} 模式加载模型（不使用 4-bit 量化）...")
             load_params.update({
                 "device_map": DEVICE,
                 "torch_dtype": torch.float32 if DEVICE == "cpu" else torch.float16
             })
 
-        self.model = Qwen2VLForConditionalGeneration.from_pretrained(**load_params)
-        
-        # 加载处理器，并强制限制像素范围以极大提升推理速度
-        # min_pixels 设为 128*28*28 (约 100k 像素)，保证能看清 OCR
-        # max_pixels 设为 336*28*28 (约 260k 像素)，在 6GB 显存下能显著提速
-        self.processor = AutoProcessor.from_pretrained(
-            VLM_MODEL_ID,
-            cache_dir=str(MODEL_WEIGHTS_DIR),
-            min_pixels=MIN_PIXELS,
-            max_pixels=MAX_PIXELS
-        )
+        try:
+            # 尝试加载
+            self.model = Qwen2VLForConditionalGeneration.from_pretrained(**load_params)
+            self.processor = AutoProcessor.from_pretrained(
+                VLM_MODEL_ID,
+                cache_dir=str(MODEL_WEIGHTS_DIR),
+                min_pixels=MIN_PIXELS,
+                max_pixels=MAX_PIXELS,
+                local_files_only=True
+            )
+        except Exception as e:
+            if "local_files_only" in str(e) or "not found" in str(e).lower():
+                print("\n[提示] 本地未检测到模型文件，正在尝试联网下载（请确保网络可访问 hf-mirror.com）...")
+                # 禁用离线模式进行下载
+                import os
+                old_tf_offline = os.environ.get("TRANSFORMERS_OFFLINE")
+                old_hf_offline = os.environ.get("HF_HUB_OFFLINE")
+                os.environ["TRANSFORMERS_OFFLINE"] = "0"
+                os.environ["HF_HUB_OFFLINE"] = "0"
+                
+                load_params["local_files_only"] = False
+                self.model = Qwen2VLForConditionalGeneration.from_pretrained(**load_params)
+                self.processor = AutoProcessor.from_pretrained(
+                    VLM_MODEL_ID,
+                    cache_dir=str(MODEL_WEIGHTS_DIR),
+                    min_pixels=MIN_PIXELS,
+                    max_pixels=MAX_PIXELS,
+                    local_files_only=False
+                )
+                
+                # 恢复离线模式
+                if old_tf_offline: os.environ["TRANSFORMERS_OFFLINE"] = old_tf_offline
+                if old_hf_offline: os.environ["HF_HUB_OFFLINE"] = old_hf_offline
+            else:
+                raise e
+
         print(f"模型加载完成。(像素限制: {MIN_PIXELS} ~ {MAX_PIXELS})")
 
     def preprocess_batch(self, batch_data: List[Dict[str, Any]], prompt_template: str) -> Dict[str, Any]:
@@ -77,11 +100,19 @@ class VLMHandler:
             
         self._ensure_loaded()
         
-        # 准备统一的 Prompt 选项
+        # 检查批次是否包含图像
+        has_vision = any(item.get("images") for item in batch_data)
+        mode = "多模态" if has_vision else "纯文本"
+        print(f"    └─ [CPU] 编码模式: {mode}")
+        
+        # 准备统一的 Prompt 选项，注入层级约束
         prompt_base = prompt_template.format(
-            sentiments=", ".join(SENTIMENT_CATEGORIES),
-            fine_grained_sentiments=", ".join(FINE_GRAINED_SENTIMENT_CATEGORIES),
-            intents=", ".join(INTENT_CATEGORIES)
+            fg_pos=", ".join(FINE_GRAINED_SENTIMENT_MAPPING["正面"]),
+            intent_pos=", ".join(INTENT_CATEGORIES_MAPPING["正面"]),
+            fg_neu=", ".join(FINE_GRAINED_SENTIMENT_MAPPING["中性"]),
+            intent_neu=", ".join(INTENT_CATEGORIES_MAPPING["中性"]),
+            fg_neg=", ".join(FINE_GRAINED_SENTIMENT_MAPPING["负面"]),
+            intent_neg=", ".join(INTENT_CATEGORIES_MAPPING["负面"])
         )
 
         batch_messages = []
@@ -97,19 +128,33 @@ class VLMHandler:
                     "min_pixels": MIN_PIXELS,
                     "max_pixels": MAX_PIXELS,
                 })
-            content.append({"type": "text", "text": f"{prompt_base}\n\n内容文本: {text}"})
+            
+            # 优化：如果是纯文本，直接拼接 prompt，减少嵌套层级
+            if not image_paths:
+                content.append({"type": "text", "text": f"{prompt_base}\n\n内容文本: {text}"})
+            else:
+                content.append({"type": "text", "text": f"{prompt_base}\n\n内容文本: {text}"})
+            
             batch_messages.append([{"role": "user", "content": content}])
 
-        text_prompts = [self.processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in batch_messages]
-        image_inputs, video_inputs = process_vision_info(batch_messages)
-        
-        inputs = self.processor(
-            text=text_prompts,
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
+        # 优化：针对纯文本，跳过 vision 相关的 process_vision_info
+        if not has_vision:
+            text_prompts = [self.processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in batch_messages]
+            inputs = self.processor(
+                text=text_prompts,
+                padding=True,
+                return_tensors="pt",
+            )
+        else:
+            text_prompts = [self.processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=True) for msg in batch_messages]
+            image_inputs, video_inputs = process_vision_info(batch_messages)
+            inputs = self.processor(
+                text=text_prompts,
+                images=image_inputs,
+                videos=video_inputs,
+                padding=True,
+                return_tensors="pt",
+            )
         return inputs
 
     def analyze_batch(self, batch_data: List[Dict[str, Any]], prompt_template: str, preprocessed_inputs: Optional[Dict[str, Any]] = None) -> List[str]:
@@ -128,27 +173,25 @@ class VLMHandler:
         if preprocessed_inputs is not None:
             inputs = preprocessed_inputs
         else:
-            # 如果没有预处理好的，则现场处理
             inputs = self.preprocess_batch(batch_data, prompt_template)
 
-        print(f"  [推理] 正在将数据搬运至 GPU...")
         inputs = inputs.to(self.model.device)
 
         # 监控显存
         if DEVICE == "cuda":
             allocated = torch.cuda.memory_allocated() / 1024**3
             reserved = torch.cuda.memory_reserved() / 1024**3
-            print(f"  [GPU 状态] 批次大小: {len(batch_data)} | 已分配: {allocated:.2f}GB, 已保留: {reserved:.2f}GB")
+            print(f"  ├─ [GPU] 已分配: {allocated:.2f}GB | 已保留: {reserved:.2f}GB")
 
         # 推理生成
-        print(f"  [推理] GPU 正在生成分析结果 (这可能需要一些时间)...")
+        print(f"  ├─ [GPU] 正在生成结果...")
         try:
             with torch.no_grad():
                 autocast_ctx = torch.amp.autocast(device_type='cuda', enabled=(DEVICE == "cuda"))
                 with autocast_ctx:
                     generated_ids = self.model.generate(
                         **inputs,
-                        max_new_tokens=512,
+                        max_new_tokens=320, # 缩短生成长度，直接提升 GPU 速度
                         do_sample=False, 
                         use_cache=True
                     )
@@ -163,11 +206,12 @@ class VLMHandler:
                 generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
             )
         except torch.cuda.OutOfMemoryError as e:
-            print(f"\n  [警告] 显存溢出 (OOM): {str(e)}")
-            print("  尝试清理显存并建议减小 batch_size 或图片数量。")
+            print(f"\n  [❗ 严重警告] 显存溢出 (OOM): {str(e)}")
+            print("  原因: 当前批次 (Batch Size) 过大或文本过长，导致显存请求超出 GPU 限制。")
+            print("  建议: 请减小 --batch_size 参数，或将纯文本批次进一步降低。")
             if DEVICE == "cuda":
                 torch.cuda.empty_cache()
-            raise e
+            raise e # 抛出异常让上层处理
         finally:
             # 显式释放大张量，但不立即 empty_cache (避免卡顿)
             if DEVICE == "cuda":

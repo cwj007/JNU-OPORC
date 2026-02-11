@@ -17,7 +17,7 @@ if __name__ == "__main__":
     parser.add_argument("--weibo_posts", type=str)
     parser.add_argument("--weibo_comments", type=str)
     parser.add_argument("--json_file", type=str, help="Path to unlabelled JSON data")
-    parser.add_argument("--batch_size", type=int, default=8, help="Batch size for VLM inference (Recommended 4-8 for 6GB VRAM)")
+    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for VLM inference (Recommended 16+ for text-only)")
     parser.add_argument("--limit", type=int, help="Limit number of items to process")
     parser.add_argument("--process_count", type=int, default=1, help="Total number of parallel processes")
     parser.add_argument("--process_index", type=int, default=0, help="Index of current process (0 to process_count-1)")
@@ -74,19 +74,38 @@ if __name__ == "__main__":
         all_data = all_data[args.process_index::args.process_count]
         print(f"多进程模式: 进程 {args.process_index+1}/{args.process_count} 分配了 {len(all_data)}/{total_items} 条数据")
 
+    # 分离文章和评论
+    posts = [d for d in all_data if d.get("type") == "post"]
+    comments = [d for d in all_data if d.get("type") == "comment"]
+    other_data = [d for d in all_data if d.get("type") not in ["post", "comment"]]
+    
     # Process and Analyze
     print(f"\n" + "="*50)
     print(f"🚀 开始执行多模态分析流水线")
     if args.process_count > 1:
         print(f"当前进程  : {args.process_index + 1} / {args.process_count}")
-    print(f"待处理条数: {len(all_data)}")
+    print(f"待处理总量: {len(all_data)} (文章: {len(posts)}, 评论: {len(comments)})")
     print(f"批次大小  : {args.batch_size}")
     print("="*50 + "\n")
     
-    analyzer.process_batch(
-        all_data, 
-        exporter=exporter, 
-        batch_size=args.batch_size, 
-        use_lock=(args.process_count > 1)
-    )
+    # 核心策略：先处理文章，为评论提供更丰富的视觉背景
+    if posts:
+        print(f"\n>>> [阶段 1/2] 正在优先处理文章数据 (共 {len(posts)} 条)...")
+        analyzer.process_batch(
+            posts, 
+            exporter=exporter, 
+            batch_size=args.batch_size, 
+            use_lock=(args.process_count > 1)
+        )
+    
+    # 阶段 2：处理评论和其他数据
+    remaining_data = comments + other_data
+    if remaining_data:
+        print(f"\n>>> [阶段 2/2] 正在处理评论数据 (共 {len(remaining_data)} 条)...")
+        analyzer.process_batch(
+            remaining_data, 
+            exporter=exporter, 
+            batch_size=args.batch_size, 
+            use_lock=(args.process_count > 1)
+        )
     print(f"Pipeline completed successfully. Results saved to {LABELED_DATA_FILE}")

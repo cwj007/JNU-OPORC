@@ -4,7 +4,11 @@ from torch.utils.data import Dataset
 from PIL import Image
 from pathlib import Path
 from qwen_vl_utils import process_vision_info
-from .config import ANALYSIS_PROMPT, SENTIMENT_CATEGORIES, INTENT_CATEGORIES, MIN_PIXELS, MAX_PIXELS
+from .config import (
+    ANALYSIS_PROMPT, SENTIMENT_CATEGORIES, INTENT_CATEGORIES, 
+    MIN_PIXELS, MAX_PIXELS, FINE_GRAINED_SENTIMENT_MAPPING, 
+    INTENT_CATEGORIES_MAPPING
+)
 
 class MultimodalVLMDataset(Dataset):
     def __init__(self, jsonl_path, tokenizer=None, processor=None):
@@ -23,8 +27,12 @@ class MultimodalVLMDataset(Dataset):
         
         # 准备分析提示词
         prompt = ANALYSIS_PROMPT.format(
-            sentiments=", ".join(SENTIMENT_CATEGORIES),
-            intents=", ".join(INTENT_CATEGORIES)
+            fg_pos=", ".join(FINE_GRAINED_SENTIMENT_MAPPING["正面"]),
+            intent_pos=", ".join(INTENT_CATEGORIES_MAPPING["正面"]),
+            fg_neu=", ".join(FINE_GRAINED_SENTIMENT_MAPPING["中性"]),
+            intent_neu=", ".join(INTENT_CATEGORIES_MAPPING["中性"]),
+            fg_neg=", ".join(FINE_GRAINED_SENTIMENT_MAPPING["负面"]),
+            intent_neg=", ".join(INTENT_CATEGORIES_MAPPING["负面"])
         )
         
         content = []
