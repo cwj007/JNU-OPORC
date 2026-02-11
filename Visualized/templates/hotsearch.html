@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>平台热搜 - JNU-OPORC</title>
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.3.8/dist/index.css">
+    <style>
+        :root {
+            --bg-color: #f5f7fa;
+            --sidebar-width: 240px;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+            background-color: var(--bg-color);
+        }
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: #304156;
+            color: #fff;
+            flex-shrink: 0;
+            transition: width 0.3s;
+            overflow: hidden;
+        }
+        .sidebar.collapsed {
+            width: 64px;
+        }
+        .sidebar-logo {
+            height: 60px;
+            line-height: 60px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            border-bottom: 1px solid #1f2d3d;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        .main-container {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            height: 60px;
+            background-color: #fff;
+            box-shadow: 0 1px 4px rgba(0,21,41,.08);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+        }
+        .collapse-btn {
+            font-size: 20px;
+            cursor: pointer;
+            margin-right: 20px;
+            color: #606266;
+        }
+        .collapse-btn:hover {
+            color: #409EFF;
+        }
+        .content {
+            padding: 20px;
+            flex: 1;
+        }
+        .hot-card {
+            margin-bottom: 20px;
+            height: 100%;
+        }
+        .hot-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f2f5;
+        }
+        .hot-rank {
+            width: 24px;
+            height: 24px;
+            line-height: 24px;
+            text-align: center;
+            border-radius: 4px;
+            margin-right: 12px;
+            font-weight: bold;
+            font-size: 12px;
+            flex-shrink: 0;
+        }
+        .rank-1 { background-color: #ff4d4f; color: #fff; }
+        .rank-2 { background-color: #ff7a45; color: #fff; }
+        .rank-3 { background-color: #ffa940; color: #fff; }
+        .rank-other { background-color: #f0f2f5; color: #8c8c8c; }
+        .hot-title {
+            flex: 1;
+            font-size: 14px;
+            color: #303133;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .hot-title:hover {
+            color: #409EFF;
+        }
+        .hot-value {
+            font-size: 12px;
+            color: #909399;
+            margin-left: 10px;
+        }
+        .platform-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .loading-container {
+            padding: 20px;
+        }
+        .is-refreshing {
+            animation: rotating 1.5s linear infinite;
+        }
+        @keyframes rotating {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        [v-cloak] {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" v-cloak>
+        <!-- Sidebar -->
+        <div class="sidebar" :class="{ collapsed: isCollapse }">
+            <div class="sidebar-logo">{{ isCollapse ? 'OPORC' : 'JNU-OPORC 舆情系统' }}</div>
+            <el-menu
+                active-text-color="#ffd04b"
+                background-color="#304156"
+                class="el-menu-vertical"
+                default-active="hotsearch"
+                :collapse="isCollapse"
+                text-color="#fff"
+            >
+                <el-menu-item index="dashboard" @click="location.href='/'">
+                    <el-icon><data-line></data-line></el-icon>
+                    <template #title>舆情概览</template>
+                </el-menu-item>
+                <el-menu-item index="hotsearch" @click="location.href='/hotsearch'">
+                    <el-icon><trend-charts /></el-icon>
+                    <template #title>平台热搜</template>
+                </el-menu-item>
+                <el-menu-item index="crawler" @click="location.href='/crawler'">
+                    <el-icon><share /></el-icon>
+                    <template #title>爬虫管理</template>
+                </el-menu-item>
+            </el-menu>
+        </div>
+
+        <div class="main-container">
+            <div class="header">
+                <div style="display: flex; align-items: center;">
+                    <el-icon class="collapse-btn" @click="isCollapse = !isCollapse">
+                        <expand v-if="isCollapse"></expand>
+                        <fold v-else></fold>
+                    </el-icon>
+                    <el-breadcrumb separator="/">
+                        <el-breadcrumb-item>首页</el-breadcrumb-item>
+                        <el-breadcrumb-item>平台热搜</el-breadcrumb-item>
+                    </el-breadcrumb>
+                </div>
+                <div>
+                    <el-button type="primary" :icon="RefreshIcon" circle @click="fetchAllData" :loading="loading"></el-button>
+                </div>
+            </div>
+
+            <div class="content">
+                <el-row :gutter="20">
+                    <el-col :xs="24" :sm="12" :md="8" :lg="6" v-for="p in hotResults" :key="p.id" style="margin-bottom: 20px;">
+                        <el-card class="hot-card" shadow="hover" :body-style="{ padding: '10px 20px' }">
+                            <template #header>
+                                <div class="platform-header">
+                                        <span>
+                                            <el-tag size="small" effect="dark" :type="getTagType(p.id)">{{ p.name }}</el-tag>
+                                        </span>
+                                        <div style="display: flex; align-items: center; gap: 5px;">
+                                            <el-tooltip v-if="p.status === 'error' || p.status === 'history' || p.status === 'refreshing'" :content="p.error || (p.status === 'refreshing' ? '正在后台更新...' : '从历史记录加载')" placement="top">
+                                                <el-icon :color="p.status === 'error' ? '#F56C6C' : (p.status === 'refreshing' ? '#409EFF' : '#E6A23C')">
+                                                    <component :is="p.status === 'error' ? 'WarningFilled' : (p.status === 'refreshing' ? 'Refresh' : 'Clock')" :class="{'is-refreshing': p.status === 'refreshing'}" />
+                                                </el-icon>
+                                            </el-tooltip>
+                                            <span style="font-size: 12px; color: #909399;">{{ p.status === 'refreshing' ? '更新中' : timeAgo(p.fetch_time) }}</span>
+                                        </div>
+                                    </div>
+                                </template>
+                                
+                                <div v-if="['success', 'cached', 'history', 'refreshing'].includes(p.status)" class="hot-list">
+                                <div v-for="(item, index) in p.data.slice(0, 15)" :key="index" class="hot-item">
+                                    <div :class="['hot-rank', index < 3 ? 'rank-' + (index + 1) : 'rank-other']">
+                                        {{ index + 1 }}
+                                    </div>
+                                    <a :href="item.url || '#'" target="_blank" class="hot-title" :title="item.title">
+                                        {{ item.title }}
+                                    </a>
+                                    <div class="hot-value" v-if="item.hot">
+                                        {{ formatHot(item.hot) }}
+                                    </div>
+                                </div>
+                            </div>
+                            <div v-else-if="p.status === 'loading'" class="loading-container">
+                                <el-skeleton :rows="10" animated />
+                            </div>
+                            <div v-else class="loading-container" style="text-align: center; color: #909399;">
+                                <el-empty description="获取数据失败" :image-size="60"></el-empty>
+                            </div>
+                        </el-card>
+                    </el-col>
+                </el-row>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vue 3 + Axios + Element Plus -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.4.0/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus@2.3.8/dist/index.full.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue@2.1.0/dist/index.iife.min.js"></script>
+    
+    <script>
+        const { createApp, ref, onMounted } = Vue;
+
+        const app = createApp({
+            setup() {
+                const isCollapse = ref(false);
+                const hotResults = ref([]);
+                const loading = ref(false);
+                const Icons = window.ElementPlusIconsVue || {};
+                const RefreshIcon = Icons.Refresh;
+
+                const fetchAllData = async (isManual = true) => {
+                    if (isManual) {
+                        loading.value = true;
+                        ElementPlus.ElMessage({
+                            message: '正在请求全平台实时数据...',
+                            type: 'info',
+                            duration: 2000
+                        });
+                    }
+                    const startTime = Date.now();
+                    try {
+                        const url = '/api/hotsearch/all?refresh=' + (isManual ? 'true' : 'false');
+                        console.log('Fetching hotsearch data, isManual:', isManual, 'URL:', url);
+                        const res = await axios.get(url);
+                        hotResults.value = res.data;
+                        
+                        // 如果有平台还在 loading 或 refreshing 状态，3秒后自动重试一次（静默刷新）
+                        if (res.data.some(p => p.status === 'loading' || p.status === 'refreshing')) {
+                            console.log('Some platforms are loading/refreshing, scheduling silent refresh in 3s...');
+                            setTimeout(() => fetchAllData(false), 3000);
+                        }
+                    } catch (err) {
+                        console.error('Fetch all hotsearch failed', err);
+                        if (isManual) ElementPlus.ElMessage.error('获取热搜数据失败，请检查后端接口');
+                    } finally {
+                        if (isManual) {
+                            const elapsed = Date.now() - startTime;
+                            const delay = Math.max(0, 800 - elapsed);
+                            setTimeout(() => {
+                                loading.value = false;
+                            }, delay);
+                        }
+                    }
+                };
+
+                const formatHot = (val) => {
+                    if (!val) return '';
+                    const num = Number(val);
+                    if (isNaN(num)) return val;
+                    
+                    if (num >= 10000) {
+                        return (num / 10000).toFixed(0) + '万热度';
+                    }
+                    return num + '热度';
+                };
+
+                const getTagType = (id) => {
+                    const types = {
+                        weibo: 'danger',
+                        baidu: 'primary',
+                        zhihu: 'info',
+                        douyin: 'warning',
+                        toutiao: 'danger',
+                        'bilibili-hot-search': 'success'
+                    };
+                    return types[id] || '';
+                };
+
+                const timeAgo = (timeStr) => {
+                    if (!timeStr) return '';
+                    const now = new Date();
+                    const past = new Date(timeStr.replace(/-/g, '/'));
+                    const diff = Math.floor((now - past) / 1000);
+                    
+                    if (diff < 60) return '刚刚';
+                    if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
+                    if (diff < 86400) return Math.floor(diff / 3600) + '小时前';
+                    return Math.floor(diff / 86400) + '天前';
+                };
+
+                onMounted(() => {
+                    // 初始化骨架屏
+                    hotResults.value = [
+                        { id: 'weibo', name: '微博', status: 'loading' },
+                        { id: 'baidu', name: '百度热搜', status: 'loading' },
+                        { id: 'zhihu', name: '知乎', status: 'loading' },
+                        { id: 'douyin', name: '抖音', status: 'loading' }
+                    ];
+                    fetchAllData();
+                });
+
+                return {
+                    isCollapse,
+                    hotResults,
+                    loading,
+                    fetchAllData,
+                    formatHot,
+                    getTagType,
+                    timeAgo,
+                    RefreshIcon
+                };
+            }
+        });
+
+        // 注册所有图标
+        if (window.ElementPlusIconsVue) {
+            for (const [key, component] of Object.entries(window.ElementPlusIconsVue)) {
+                app.component(key, component);
+            }
+        }
+        
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>

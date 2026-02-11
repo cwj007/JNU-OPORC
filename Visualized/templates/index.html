@@ -3,275 +3,1917 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>多模态情感分析预览</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <title>JNU-OPORC 舆情监测系统</title>
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
+    <!-- Vue 3 + Axios + ECharts + Element Plus -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts-wordcloud/dist/echarts-wordcloud.min.js"></script>
+    <!-- 中国地图数据 -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts/map/js/china.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
     <style>
         :root {
-            --primary-color: #0d6efd;
-            --bg-light: #f8f9fa;
+            --bg-color: #f5f7fa;
+            --sidebar-width: 240px;
         }
-        body { background-color: var(--bg-light); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .sidebar { background: white; border-right: 1px solid #dee2e6; height: 100vh; position: sticky; top: 0; padding: 20px; z-index: 1000; }
-        .main-content { padding: 30px; }
-        .date-item { padding: 10px; border-radius: 5px; cursor: pointer; color: #495057; text-decoration: none; display: block; margin-bottom: 5px; }
-        .date-item:hover { background: #e9ecef; }
-        .date-item.active { background: var(--primary-color); color: white; }
-        .trend-card { background: white; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); padding: 20px; margin-bottom: 30px; }
-        .card { margin-bottom: 20px; border: none; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        .card-header { background-color: #fff; border-bottom: 1px solid #eee; border-radius: 12px 12px 0 0 !important; font-weight: bold; }
-        .sentiment-badge { font-size: 0.9rem; padding: 5px 12px; border-radius: 20px; }
-        /* ... existing sentiment styles ... */
-        .sentiment-正面 { background-color: #d4edda; color: #155724; }
-        .sentiment-中性 { background-color: #fff3cd; color: #856404; }
-        .sentiment-负面 { background-color: #f8d7da; color: #721c24; }
-        .sentiment-惊喜 { background-color: #e2f3f5; color: #0e818c; }
-        .sentiment-愤怒 { background-color: #fce4ec; color: #c2185b; }
-        .img-preview { max-width: 200px; max-height: 200px; object-fit: cover; border-radius: 8px; margin-right: 10px; cursor: pointer; transition: transform 0.2s; }
-        .img-preview:hover { transform: scale(1.05); }
-        .reasoning { background-color: #f1f3f5; padding: 10px; border-radius: 8px; font-size: 0.9rem; color: #495057; }
-        .meta-info { font-size: 0.8rem; color: #6c757d; }
-        .keywords-badge { background-color: #e9ecef; color: #495057; margin-right: 5px; font-size: 0.8rem; }
-        .comment-card { border-left: 4px solid #dee2e6; background-color: #fff; margin-bottom: 10px; padding: 10px; border-radius: 0 8px 8px 0; }
-        .comment-meta { font-size: 0.75rem; color: #6c757d; }
-        .post-label { background-color: #0d6efd; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; vertical-align: middle; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', Arial, sans-serif;
+            background-color: var(--bg-color);
+        }
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: #304156;
+            color: #fff;
+            flex-shrink: 0;
+            transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+            overflow: hidden;
+            z-index: 1001;
+        }
+        .sidebar.collapsed {
+            width: 64px;
+        }
+        /* 响应式适配 */
+        @media screen and (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                height: 100vh;
+                left: 0;
+                width: 240px;
+                transform: translateX(-100%);
+            }
+            .sidebar.active {
+                transform: translateX(0);
+            }
+            .sidebar.collapsed {
+                width: 0;
+                transform: translateX(-100%);
+            }
+            .main-container {
+                margin-left: 0 !important;
+            }
+            .circular-stats-card {
+                flex-direction: column;
+                padding: 15px;
+                gap: 20px;
+            }
+            .circular-stats-item {
+                width: 100%;
+                justify-content: flex-start;
+                gap: 15px;
+            }
+            .dashboard-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            .header {
+                padding: 0 10px;
+            }
+            .el-breadcrumb {
+                display: none;
+            }
+            /* 平台热搜响应式：单列显示 */
+            .hotsearch-grid {
+                grid-template-columns: 1fr !important;
+                gap: 15px !important;
+            }
+            /* 舆情卡片响应式 */
+            .el-row {
+                margin-left: 0 !important;
+                margin-right: 0 !important;
+            }
+            .el-col {
+                width: 100% !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+                margin-bottom: 20px;
+            }
+            .chart-container {
+                height: 300px !important;
+            }
+            /* 遮罩层 */
+            .sidebar-mask {
+                display: block !important;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(0,0,0,0.5);
+                z-index: 1000;
+            }
+            /* 舆情监测列表适配 */
+            .list-filter .el-form-item {
+                margin-right: 5px !important;
+                margin-bottom: 10px !important;
+                width: 100%;
+            }
+            .list-filter .el-select, .list-filter .el-input {
+                width: 100% !important;
+            }
+            .el-table .hidden-xs {
+                display: none !important;
+            }
+            /* 弹窗适配 */
+            .el-dialog {
+                width: 95% !important;
+                margin-top: 5vh !important;
+            }
+            .detail-label {
+                width: 80px;
+                font-size: 13px;
+            }
+            .img-item {
+                width: calc(50% - 10px);
+                height: 100px;
+            }
+            /* 预警中心适配 */
+            .alerts-table .hidden-xs {
+                display: none !important;
+            }
+        }
+        .sidebar-mask { display: none; }
+
+        .sidebar-logo {
+            height: 60px;
+            line-height: 60px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            border-bottom: 1px solid #1f2d3d;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+        .main-container {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+            min-width: 0;
+        }
+        .header {
+            height: 60px;
+            background-color: #fff;
+            box-shadow: 0 1px 4px rgba(0,21,41,.08);
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            justify-content: space-between;
+        }
+        .collapse-btn {
+            font-size: 20px;
+            cursor: pointer;
+            margin-right: 20px;
+            color: #606266;
+        }
+        .collapse-btn:hover {
+            color: #409EFF;
+        }
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .content {
+            padding: 20px;
+            flex: 1;
+        }
+        /* Dashboard Styles */
+        .stats-row {
+            margin-bottom: 20px;
+        }
+        .circular-stats-card {
+            background: #fff;
+            padding: 20px 30px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            box-shadow: 0 1px 4px rgba(0,21,41,.08);
+            margin-bottom: 20px;
+        }
+        .circular-stats-item {
+            display: flex;
+            align-items: center;
+            gap: 25px;
+        }
+        .circular-progress-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .circular-icon {
+            position: absolute;
+            font-size: 28px;
+        }
+        .circular-info {
+            display: flex;
+            flex-direction: column;
+        }
+        .circular-label {
+            font-size: 14px;
+            color: #909399;
+            margin-bottom: 8px;
+        }
+        .circular-value {
+            font-size: 28px;
+            font-weight: bold;
+            color: #303133;
+            margin-bottom: 5px;
+        }
+        .circular-percentage-bar {
+            width: 140px;
+            height: 4px;
+            background: #f0f2f5;
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        .circular-percentage-inner {
+            height: 100%;
+            transition: width 0.3s;
+        }
+        .circular-percentage-text {
+            font-size: 12px;
+            color: #909399;
+            text-align: right;
+            margin-top: 2px;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chart-container {
+            height: 350px;
+            width: 100%;
+        }
+        .word-cloud-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 10px 0;
+        }
+        #wordCloudChart {
+            width: 100%;
+            height: 400px;
+            background: #fff;
+        }
+        .word-cloud-card {
+            display: flex;
+            gap: 20px;
+        }
+        .word-list-table {
+            width: 100%;
+        }
+        .trend-up { color: #F56C6C; }
+        .trend-down { color: #67C23A; }
+        .trend-flat { color: #909399; }
+        .index-bar {
+            height: 4px;
+            background: #f0f2f5;
+            border-radius: 2px;
+            margin-top: 4px;
+        }
+        .index-bar-inner {
+            height: 100%;
+            background: #409EFF;
+            border-radius: 2px;
+        }
+        .sentiment-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+        .bg-正面 { background-color: #67C23A; }
+        .bg-中性 { background-color: #E6A23C; }
+        .bg-负面 { background-color: #F56C6C; }
+        
+        .list-filter {
+            margin-bottom: 20px;
+            background: #fff;
+            padding: 20px;
+            border-radius: 4px;
+        }
+        .detail-row {
+            margin-bottom: 15px;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: #606266;
+            width: 100px;
+            display: inline-block;
+        }
+        .img-gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .img-item {
+            width: 120px;
+            height: 120px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        /* Hotsearch Styles */
+        .hot-card {
+            margin-bottom: 20px;
+            height: 100%;
+        }
+        .hot-item {
+            display: flex;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid #f0f2f5;
+        }
+        .hot-rank {
+            width: 20px;
+            height: 20px;
+            line-height: 20px;
+            text-align: center;
+            border-radius: 50%; /* 圆形 */
+            margin-right: 12px;
+            font-weight: bold;
+            font-size: 11px;
+            flex-shrink: 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .rank-1 { background-color: #ff4d4f; color: #fff; }
+        .rank-2 { background-color: #ff7a45; color: #fff; }
+        .rank-3 { background-color: #ffa940; color: #fff; }
+        .rank-other { background-color: #f0f2f5; color: #8c8c8c; }
+        .hot-title {
+            flex: 1;
+            font-size: 13px;
+            color: #303133;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            cursor: pointer;
+            text-decoration: none;
+            margin-right: 4px;
+        }
+        .hot-title:hover {
+            color: #409EFF;
+        }
+        .hot-trend {
+            font-size: 16px; /* 稍微调大一点 */
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 24px;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+        .trend-up { 
+            color: #f56c6c !important; 
+            font-weight: bold; 
+            filter: drop-shadow(0 0 2px rgba(245, 108, 108, 0.4));
+        }
+        .trend-down { 
+            color: #67c23a !important; 
+            font-weight: bold; 
+            filter: drop-shadow(0 0 2px rgba(103, 194, 58, 0.4));
+        }
+        .trend-steady { 
+            color: #909399; 
+            font-weight: bold; 
+            opacity: 0.6;
+        }
+        .hot-value {
+            font-size: 11px;
+            color: #909399;
+            margin-left: 10px;
+        }
+        .platform-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .platform-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .platform-logo {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1px solid #eee;
+            background-color: #f5f7fa;
+        }
+        .status-info {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 2px;
+            font-size: 11px;
+            color: #909399;
+        }
+        .status-info .el-icon {
+            font-size: 14px;
+        }
+        .tag-black { background-color: #000000 !important; border-color: #000000 !important; color: #ffffff !important; }
+        .tag-blue { background-color: #1890ff !important; border-color: #1890ff !important; color: #ffffff !important; }
+        .tag-red { background-color: #ff4d4f !important; border-color: #ff4d4f !important; color: #ffffff !important; }
+        .tag-orange { background-color: #fa8c16 !important; border-color: #fa8c16 !important; color: #ffffff !important; }
+        .tag-cyan { background-color: #13c2c2 !important; border-color: #13c2c2 !important; color: #ffffff !important; }
+        .tag-pink { background-color: #eb2f96 !important; border-color: #eb2f96 !important; color: #ffffff !important; }
+        .tag-darkblue { background-color: #2f54eb !important; border-color: #2f54eb !important; color: #ffffff !important; }
+        .tag-darkred { background-color: #a8071a !important; border-color: #a8071a !important; color: #ffffff !important; }
+        .tag-hupu { background-color: #c01d2f !important; border-color: #c01d2f !important; color: #ffffff !important; }
+        .logo-hupu { background-color: #c01d2f !important; border: 1px solid #c01d2f !important; }
+        /* Glassmorphism Refresh Button */
+        .glass-refresh-btn {
+            background: rgba(64, 158, 255, 0.1) !important;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border: 1px solid rgba(64, 158, 255, 0.2) !important;
+            color: #409EFF !important;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+        }
+        .glass-refresh-btn:hover {
+            background: rgba(64, 158, 255, 0.2) !important;
+            border-color: rgba(64, 158, 255, 0.4) !important;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 12px rgba(64, 158, 255, 0.15);
+        }
+        .glass-refresh-btn:active {
+            transform: translateY(0);
+        }
+        .is-refreshing .el-icon {
+            animation: rotating 1.5s linear infinite;
+        }
+        @keyframes rotating {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .hotsearch-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        @media screen and (max-width: 480px) {
+            .hotsearch-grid {
+                grid-template-columns: 1fr;
+            }
+            .hot-title {
+                font-size: 12px;
+            }
+            .platform-logo {
+                width: 28px;
+                height: 28px;
+            }
+        }
     </style>
 </head>
 <body>
-    <div class="container-fluid">
-        <div class="row">
+        <div id="app">
+            <!-- 移动端侧边栏遮罩 -->
+            <div class="sidebar-mask" v-if="!isCollapse" @click="isCollapse = true"></div>
+
             <!-- Sidebar -->
-            <div class="col-md-2 sidebar">
-                <h5 class="mb-4">历史数据回顾</h5>
-                <div class="date-list">
-                    {% for d in available_dates %}
-                    <a href="/?date={{ d }}" class="date-item {% if d == current_date %}active{% endif %}">
-                        📅 {{ d }}
-                    </a>
-                    {% endfor %}
+            <div class="sidebar" :class="{ collapsed: isCollapse, active: !isCollapse }">
+            <div class="sidebar-logo">{{ isCollapse ? 'OPORC' : 'JNU-OPORC 舆情监测系统' }}</div>
+            <el-menu
+                active-text-color="#ffd04b"
+                background-color="#304156"
+                class="el-menu-vertical"
+                :default-active="activeMenu"
+                :collapse="isCollapse"
+                text-color="#fff"
+                @select="handleMenuSelect"
+            >
+                <el-menu-item index="hotsearch">
+                    <el-icon><trend-charts /></el-icon>
+                    <template #title>平台热搜</template>
+                </el-menu-item>
+                <el-menu-item index="dashboard">
+                    <el-icon><data-line></data-line></el-icon>
+                    <template #title>舆情概览</template>
+                </el-menu-item>
+                <el-menu-item index="monitoring">
+                    <el-icon><list></list></el-icon>
+                    <template #title>舆情监测</template>
+                </el-menu-item>
+                <el-menu-item index="alerts">
+                    <el-icon><bell></bell></el-icon>
+                    <template #title>预警中心</template>
+                </el-menu-item>
+                <el-menu-item index="crawler" @click="location.href='/crawler'">
+                    <el-icon><share /></el-icon>
+                    <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="config">
+                    <el-icon><setting></setting></el-icon>
+                    <template #title>系统配置</template>
+                </el-menu-item>
+            </el-menu>
+        </div>
+
+        <!-- Main -->
+        <div class="main-container">
+            <div class="header">
+                <div style="display: flex; align-items: center;">
+                    <el-icon class="collapse-btn" @click="isCollapse = !isCollapse">
+                        <expand v-if="isCollapse"></expand>
+                        <fold v-else></fold>
+                    </el-icon>
+                    <el-breadcrumb separator="/">
+                        <el-breadcrumb-item>首页</el-breadcrumb-item>
+                        <el-breadcrumb-item>{{ menuTitle }}</el-breadcrumb-item>
+                    </el-breadcrumb>
                 </div>
-                <hr>
-                <div class="mt-4">
-                    <p class="small text-muted">提示：选择日期查看当天的舆情快照，上方图表展示情感趋势变化。</p>
+                <div class="user-info">
+                    <el-tag type="info">管理员</el-tag>
                 </div>
             </div>
 
-            <!-- Main Content -->
-            <div class="col-md-10 main-content">
-                <div class="d-flex justify-content-between align-items-center mb-4">
-                    <h2 class="mb-0">舆情趋势与多模态分析 <small class="text-muted fs-6">({{ current_date }})</small></h2>
-                    <span class="badge bg-primary rounded-pill">当前页 {{ groups|length }} 条数据</span>
-                </div>
+            <div class="content">
+                <!-- Dashboard Module -->
+                <div v-if="activeMenu === 'dashboard'">
+                    <div class="dashboard-header">
+                        <h3 style="margin: 0;">舆情数据概览</h3>
+                        <el-radio-group v-model="dateRange" @change="handleDateRangeChange" size="small">
+                            <el-radio-button label="1">24小时</el-radio-button>
+                            <el-radio-button label="3">3天</el-radio-button>
+                            <el-radio-button label="7">7天</el-radio-button>
+                            <el-radio-button label="31">31天</el-radio-button>
+                            <el-radio-button label="custom">自定义</el-radio-button>
+                        </el-radio-group>
+                        <el-date-picker
+                            v-if="dateRange === 'custom'"
+                            v-model="customDate"
+                            type="daterange"
+                            range-separator="至"
+                            start-placeholder="开始日期"
+                            end-placeholder="结束日期"
+                            size="small"
+                            style="margin-left: 10px; width: 240px;"
+                            @change="handleCustomDateChange"
+                        ></el-date-picker>
+                    </div>
 
-                <!-- Trend Charts -->
-                <div class="row">
-                    {% if post_trends %}
-                    <div class="col-md-6">
-                        <div class="trend-card">
-                            <h6 class="mb-3">博文情感趋势 (跨时间维度)</h6>
-                            <div style="height: 200px;">
-                                <canvas id="postTrendChart"></canvas>
+                    <!-- 核心统计指标 -->
+                    <div class="circular-stats-card">
+                        <!-- 全部信息 -->
+                        <div class="circular-stats-item">
+                            <div class="circular-progress-wrapper">
+                                <el-progress type="circle" :percentage="100" :width="100" :stroke-width="8" color="#409EFF" :show-text="false"></el-progress>
+                                <el-icon class="circular-icon" color="#409EFF"><files /></el-icon>
+                            </div>
+                            <div class="circular-info">
+                                <div class="circular-label">全部信息</div>
+                                <div class="circular-value">{{ stats.total || 0 }}</div>
+                                <div style="display: flex; align-items: center; font-size: 12px; color: #909399; margin-top: -2px; margin-bottom: 2px;">
+                                    <span>今日新增</span>
+                                    <span style="color: #409EFF; font-weight: bold; margin-left: 5px;">+{{ stats.today || 0 }}</span>
+                                </div>
+                                <div style="display: flex; align-items: center; font-size: 11px; color: #a8abb2; margin-bottom: 5px;">
+                                    <span>文章: {{ stats.articles || 0 }}</span>
+                                    <span style="margin: 0 5px;">|</span>
+                                    <span>评论: {{ stats.comments || 0 }}</span>
+                                </div>
+                                <div class="circular-percentage-bar">
+                                    <div class="circular-percentage-inner" :style="{ width: '100%', backgroundColor: '#409EFF' }"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 负面信息 -->
+                        <div class="circular-stats-item">
+                            <div class="circular-progress-wrapper">
+                                <el-progress type="circle" :percentage="negativePercentage" :width="100" :stroke-width="8" color="#F56C6C" :show-text="false"></el-progress>
+                                <span class="circular-icon" style="font-size: 32px; margin-top: -5px;">😢</span>
+                            </div>
+                            <div class="circular-info">
+                                <div class="circular-label">负面信息</div>
+                                <div class="circular-value">{{ stats.sentiment_distribution['负面'] || 0 }}</div>
+                                <div class="circular-percentage-text" style="text-align: left; margin-top: 0; margin-bottom: 5px;">占比 {{ negativePercentage }}%</div>
+                                <div class="circular-percentage-bar">
+                                    <div class="circular-percentage-inner" :style="{ width: negativePercentage + '%', backgroundColor: '#F56C6C' }"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 正面&中性信息 -->
+                        <div class="circular-stats-item">
+                            <div class="circular-progress-wrapper">
+                                <el-progress type="circle" :percentage="positiveNeutralPercentage" :width="100" :stroke-width="8" color="#40C9C6" :show-text="false"></el-progress>
+                                <span class="circular-icon" style="font-size: 32px; margin-top: -5px;">😊</span>
+                            </div>
+                            <div class="circular-info">
+                                <div class="circular-label">正面&中性信息</div>
+                                <div class="circular-value">{{ (stats.sentiment_distribution['正面'] || 0) + (stats.sentiment_distribution['中性'] || 0) }}</div>
+                                <div class="circular-percentage-text" style="text-align: left; margin-top: 0; margin-bottom: 5px;">占比 {{ positiveNeutralPercentage }}%</div>
+                                <div class="circular-percentage-bar">
+                                    <div class="circular-percentage-inner" :style="{ width: positiveNeutralPercentage + '%', backgroundColor: '#40C9C6' }"></div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                    {% endif %}
+
+                    <el-row :gutter="20">
+                        <el-col :span="16">
+                            <el-card shadow="never">
+                                <template #header><span>舆情趋势 ({{ trendTitleRange }})</span></template>
+                                <div id="trendChart" class="chart-container"></div>
+                            </el-card>
+                        </el-col>
+                        <el-col :span="8">
+                            <el-card shadow="never">
+                                <template #header><span>情感分布 ({{ trendTitleRange }})</span></template>
+                                <div id="pieChart" class="chart-container"></div>
+                            </el-card>
+                        </el-col>
+                    </el-row>
+
+                <!-- 细粒度情感与意图分类 -->
+                <el-row :gutter="20" style="margin-top: 20px;">
+                    <el-col :span="12">
+                        <el-card shadow="never">
+                            <template #header><span style="font-weight: bold;">细粒度情感分布 ({{ trendTitleRange }})</span></template>
+                            <div id="fineSentimentChart" style="height: 400px;"></div>
+                        </el-card>
+                    </el-col>
+                    <el-col :span="12">
+                        <el-card shadow="never">
+                            <template #header><span style="font-weight: bold;">用户意图分类 ({{ trendTitleRange }})</span></template>
+                            <div id="intentChart" style="height: 400px;"></div>
+                        </el-card>
+                    </el-col>
+                </el-row>
+
+                <!-- 热点词云与高频词指数 -->
+                <el-row :gutter="20" style="margin-top: 20px;">
+                    <el-col :span="24">
+                        <el-card shadow="never">
+                            <div class="word-cloud-card">
+                                <!-- 左侧词云图 -->
+                                <div style="flex: 1.5; border-right: 1px solid #f0f2f5; padding-right: 20px;">
+                                    <div style="font-weight: bold; margin-bottom: 20px; color: #303133;">关键词高频分布统计</div>
+                                    <div id="wordCloudChart" style="height: 450px;"></div>
+                                </div>
+                                <!-- 右侧列表 -->
+                                <div style="flex: 1; padding-left: 20px;">
+                                    <div style="font-weight: bold; margin-bottom: 20px; color: #303133;">高频词指数</div>
+                                    <el-table :data="topWords" size="small" :show-header="true" class="word-list-table" height="450">
+                                        <el-table-column prop="name" label="高频词"></el-table-column>
+                                        <el-table-column label="趋势" width="80" align="center">
+                                            <template #default="scope">
+                                                <el-icon :class="scope.row.trend > 0 ? 'trend-up' : (scope.row.trend < 0 ? 'trend-down' : 'trend-flat')">
+                                                    <component :is="scope.row.trend > 0 ? 'CaretTop' : (scope.row.trend < 0 ? 'CaretBottom' : 'Minus')" />
+                                                </el-icon>
+                                            </template>
+                                        </el-table-column>
+                                        <el-table-column prop="value" label="数量" width="100" align="right"></el-table-column>
+                                        <el-table-column label="指数" width="120" align="right">
+                                            <template #default="scope">
+                                                <span>{{ scope.row.index }}%</span>
+                                                <div class="index-bar">
+                                                    <div class="index-bar-inner" :style="{ width: scope.row.index + '%' }"></div>
+                                                </div>
+                                            </template>
+                                        </el-table-column>
+                                    </el-table>
+                                </div>
+                            </div>
+                        </el-card>
+                    </el-col>
+                </el-row>
+
+                <!-- 热点区域地图 (移至最后) -->
+                <el-row :gutter="20" style="margin-top: 20px;">
+                    <el-col :span="24">
+                        <el-card shadow="never">
+                            <template #header>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span style="font-weight: bold;">热点地区分布统计</span>
+                                    <div style="font-size: 12px; color: #909399;">数据来源: 评论 IP 属地</div>
+                                </div>
+                            </template>
+                            <div style="display: flex; height: 500px;">
+                                <!-- 左侧地图 -->
+                                <div id="mapChart" style="flex: 1.5; height: 100%;"></div>
+                                <!-- 右侧排行 -->
+                                <div style="flex: 1; padding: 20px; background: #f8f9fb; border-radius: 8px; overflow-y: auto;">
+                                    <div style="font-weight: bold; margin-bottom: 20px; font-size: 16px; color: #303133;">热点地区排名 Top 10</div>
+                                    <div v-for="(item, index) in topRegions.slice(0, 10)" :key="index" style="margin-bottom: 18px;">
+                                        <div style="display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px;">
+                                            <span style="font-weight: 500;">{{ index + 1 }}. {{ item.name }}</span>
+                                            <span style="color: #606266; font-weight: bold;">{{ item.value }} <small style="font-weight: normal; color: #909399;">条</small></span>
+                                        </div>
+                                        <div style="display: flex; align-items: center;">
+                                            <el-progress 
+                                                style="flex: 1;"
+                                                :percentage="Math.min(100, Math.round((item.value / stats.total) * 1000) / 10)" 
+                                                :stroke-width="10" 
+                                                :color="regionColors[index % regionColors.length]"
+                                                :show-text="false"
+                                            ></el-progress>
+                                            <span style="margin-left: 15px; font-size: 12px; color: #909399; width: 45px; text-align: right;">{{ (item.value / stats.total * 100).toFixed(1) }}%</span>
+                                        </div>
+                                    </div>
+                                    <div v-if="topRegions.length === 0" style="text-align: center; color: #909399; margin-top: 50px;">
+                                        暂无属地数据
+                                    </div>
+                                </div>
+                            </div>
+                        </el-card>
+                    </el-col>
+                </el-row>
+                </div>
+
+                <!-- Hotsearch Module -->
+                <div v-if="activeMenu === 'hotsearch'">
+                    <div class="dashboard-header">
+                        <h3 style="margin: 0;">全平台热搜</h3>
+                        <el-button 
+                            class="glass-refresh-btn"
+                            :class="{ 'is-refreshing': hotLoading }"
+                            :icon="RefreshIcon" 
+                            circle 
+                            @click="fetchHotsearchData(true)" 
+                            :loading="false">
+                        </el-button>
+                    </div>
                     
-                    {% if comment_trends %}
-                    <div class="col-md-6">
-                        <div class="trend-card">
-                            <h6 class="mb-3">评论情感趋势 (跨时间维度)</h6>
-                            <div style="height: 200px;">
-                                <canvas id="commentTrendChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                    {% endif %}
-                </div>
-
-                <div class="results-container">
-                    {% for group in groups %}
-                    {% set item = group.post %}
-                    <div class="col-12 mb-5">
-                <!-- 原帖部分 -->
-                <div class="card border-primary">
-                    <div class="card-header d-flex justify-content-between align-items-center">
-                        <span>
-                            <span class="post-label">原帖</span>
-                            <span class="badge bg-secondary ms-2">{{ item.source }}</span>
-                            <strong class="ms-2">{{ item.author }}</strong>
-                            {% if item.top_id %}
-                                <span class="badge bg-light text-dark border ms-2" title="话题标识 (Top ID)">#{{ item.top_id }}</span>
-                            {% endif %}
-                        </span>
-                        <span class="sentiment-badge sentiment-{{ item.sentiment_analysis.sentiment }}">
-                            {{ item.sentiment_analysis.sentiment }} ({{ item.sentiment_analysis.fine_grained_sentiment }}) | {{ item.sentiment_analysis.intent }}
-                        </span>
-                    </div>
-                    <div class="card-body">
-                        <div class="row">
-                            <div class="col-md-8">
-                                <p class="card-text fs-5">{{ item.content }}</p>
+                    <div class="hotsearch-grid" style="margin-top: 20px;">
+                        <div v-for="p in hotResults" :key="p.id">
+                            <el-card class="hot-card" shadow="hover" :body-style="{ padding: '10px 20px' }">
+                                <template #header>
+                                    <div class="platform-header">
+                                        <div class="platform-info">
+                                            <img :src="getLogoPath(p)" 
+                                                 :class="['platform-logo', p.id === 'hupu' ? 'logo-hupu' : '']" 
+                                                 @error="(e) => { 
+                                                     console.error('Logo failed to load:', e.target.src);
+                                                     e.target.src = 'https://cube.elemecdn.com/e/fd/0fc7d20532fdaf769a25683617711png.png';
+                                                 }">
+                                            <el-tag size="small" effect="dark" :class="'tag-' + getTagColor(p.id)">{{ p.name }}</el-tag>
+                                        </div>
+                                        <div class="status-info">
+                                            <el-button 
+                                                v-if="p.status !== 'loading' && p.status !== 'refreshing'"
+                                                size="small" 
+                                                link 
+                                                :icon="RefreshIcon"
+                                                @click.stop="fetchSinglePlatformData(p.id)"
+                                                style="margin-right: 5px; height: auto; padding: 0;">
+                                            </el-button>
+                                            <el-tooltip v-if="p.error || p.status === 'history' || p.status === 'refreshing'" :content="p.error || (p.status === 'refreshing' ? '正在后台更新...' : '从历史记录加载')" placement="top">
+                                                <el-icon :color="p.status === 'error' ? '#F56C6C' : (p.status === 'refreshing' ? '#409EFF' : '#E6A23C')">
+                                                    <component :is="p.status === 'error' ? WarningFilledIcon : (p.status === 'refreshing' ? RefreshIcon : ClockIcon)" :class="{'is-refreshing': p.status === 'refreshing'}" />
+                                                </el-icon>
+                                            </el-tooltip>
+                                            <span>{{ p.status === 'success' ? '实时' : (p.status === 'refreshing' ? '更新中' : (p.status === 'cached' ? '缓存' : '历史')) }} · {{ timeAgo(p.fetch_time) }}</span>
+                                        </div>
+                                    </div>
+                                </template>
                                 
-                                {% if item.image_paths %}
-                                <div class="mb-3">
-                                    {% for img in item.image_paths %}
-                                        {% if 'MediaCrawler' in img %}
-                                            {% set parts = img.split('MediaCrawler') %}
-                                            {% set img_url = '/media/' + parts[-1].split('data')[-1].replace('\\', '/').lstrip('/') %}
-                                        {% else %}
-                                            {% set img_url = img.replace('data/', '/media/').replace('\\', '/').replace('//', '/') %}
-                                        {% endif %}
-                                        <a href="{{ img_url }}" target="_blank">
-                                            <img src="{{ img_url }}" class="img-preview" style="max-width: 300px;" alt="image">
+                                <div v-if="['success', 'cached', 'history', 'refreshing'].includes(p.status)" class="hot-list">
+                                    <div v-for="(item, index) in p.data.slice(0, 15)" :key="index" class="hot-item">
+                                        <div :class="['hot-rank', index < 3 ? 'rank-' + (index + 1) : 'rank-other']">
+                                            {{ index + 1 }}
+                                        </div>
+                                        <a :href="item.url || '#'" target="_blank" class="hot-title" :title="item.title">
+                                            {{ item.title }}
                                         </a>
-                                    {% endfor %}
+                                        <!-- 趋势图标 -->
+                                        <div class="hot-trend" v-if="item.trend !== undefined && item.trend !== null" :title="getTrendText(item.trend, item)">
+                                            <el-icon v-if="Number(item.trend) === 1" class="trend-up"><caret-top /></el-icon>
+                                            <el-icon v-else-if="Number(item.trend) === -1" class="trend-down"><caret-bottom /></el-icon>
+                                            <el-icon v-else class="trend-steady"><minus /></el-icon>
+                                        </div>
+                                        <div class="hot-value" v-if="item.hot && item.hot !== '0' && item.hot !== 0">
+                                            {{ formatHot(item.hot) }}
+                                        </div>
+                                    </div>
                                 </div>
-                                {% endif %}
-
-                                <div class="reasoning">
-                                    <strong>分析理由:</strong> {{ item.sentiment_analysis.reasoning }}
-                                    {% if item.sentiment_analysis.irony_detected %}
-                                        <span class="badge bg-danger ms-2">检测到反讽</span>
-                                    {% endif %}
+                                <div v-else-if="p.status === 'loading'" style="padding: 20px;">
+                                    <el-skeleton :rows="10" animated />
                                 </div>
-                            </div>
-                            <div class="col-md-4 border-start">
-                                <div class="mb-2">
-                                    <strong>关键词:</strong><br>
-                                    {% for kw in item.sentiment_analysis.keywords %}
-                                        <span class="badge keywords-badge">{{ kw }}</span>
-                                    {% endfor %}
+                                <div v-else style="padding: 20px; text-align: center; color: #909399;">
+                                    <el-empty description="获取数据失败" :image-size="40"></el-empty>
                                 </div>
-                                <div class="meta-info mt-3">
-                                    ID: {{ item.note_id }}<br>
-                                    时间: {{ item.created_at }}<br>
-                                    <a href="{{ item.url }}" target="_blank" class="text-decoration-none">查看原文</a>
-                                </div>
-                            </div>
+                            </el-card>
                         </div>
                     </div>
                 </div>
 
-                <!-- 评论部分 -->
-                {% if group.comments %}
-                <div class="ms-5">
-                    <h6 class="text-muted mb-3">相关评论 ({{ group.comments|length }})</h6>
-                    {% for comm in group.comments %}
-                    <div class="comment-card shadow-sm">
-                        <div class="d-flex justify-content-between align-items-start mb-2">
-                            <span class="comment-meta">
-                                <strong>{{ comm.author }}</strong> · {{ comm.created_at }}
-                            </span>
-                            <span class="sentiment-badge sentiment-{{ comm.sentiment_analysis.sentiment }}" style="font-size: 0.75rem; padding: 2px 8px;">
-                                {{ comm.sentiment_analysis.sentiment }}
-                            </span>
-                        </div>
-                        <p class="mb-2" style="font-size: 0.95rem;">{{ comm.content }}</p>
-                        
-                        {% if comm.image_paths %}
-                        <div class="mb-2">
-                            {% for img in comm.image_paths %}
-                                {% if 'MediaCrawler' in img %}
-                                    {% set parts = img.split('MediaCrawler') %}
-                                    {% set img_url = '/media/' + parts[-1].split('data')[-1].replace('\\', '/').lstrip('/') %}
-                                {% else %}
-                                    {% set img_url = img.replace('data/', '/media/').replace('\\', '/').replace('//', '/') %}
-                                {% endif %}
-                                <a href="{{ img_url }}" target="_blank">
-                                    <img src="{{ img_url }}" class="img-preview" style="max-width: 100px; max-height: 100px;" alt="comment image">
-                                </a>
-                            {% endfor %}
-                        </div>
-                        {% endif %}
-                        
-                        <div class="reasoning mt-1" style="font-size: 0.8rem; padding: 5px;">
-                            <strong>理由:</strong> {{ comm.sentiment_analysis.reasoning }}
-                        </div>
+                <!-- Monitoring List Module -->
+                <div v-if="activeMenu === 'monitoring'">
+                    <div class="list-filter">
+                        <el-form :inline="true" :model="filter">
+                            <el-form-item label="情感倾向">
+                                <el-select v-model="filter.sentiment" placeholder="全部" clearable style="width: 120px;">
+                                    <el-option label="正面" value="正面"></el-option>
+                                    <el-option label="中性" value="中性"></el-option>
+                                    <el-option label="负面" value="负面"></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item label="关键词">
+                                <el-input v-model="filter.keyword" placeholder="搜索内容..." clearable></el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" @click="fetchList">查询</el-button>
+                                <el-button @click="exportData">导出 Excel</el-button>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button-group>
+                                    <el-button size="small" :disabled="!selectedItems.length">批量已读</el-button>
+                                    <el-button size="small" type="danger" :disabled="!selectedItems.length">批量删除</el-button>
+                                </el-button-group>
+                            </el-form-item>
+                        </el-form>
                     </div>
-                    {% endfor %}
-                </div>
-                {% endif %}
-            </div>
-            {% endfor %}
-            
-            {% if not groups %}
-            <div class="col-12 text-center py-5">
-                <h3>暂无分析结果</h3>
-                <p>请运行 main.py 生成标注数据后再刷新页面。</p>
-            </div>
-            {% endif %}
-        </div> <!-- end results-container -->
-    </div> <!-- end main-content -->
-</div> <!-- end row -->
-</div> <!-- end container-fluid -->
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    {% if post_trends or comment_trends %}
+                    <el-table :data="listData" stripe style="width: 100%" v-loading="loading" @selection-change="handleSelectionChange">
+                        <el-table-column type="selection" width="55"></el-table-column>
+                        <el-table-column prop="created_at" label="发布时间" width="160" sortable class-name="hidden-xs"></el-table-column>
+                        <el-table-column prop="source" label="来源" width="80"></el-table-column>
+                        <el-table-column label="作者" width="100" class-name="hidden-xs">
+                            <template #default="scope">
+                                <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="scope.row.author">
+                                    {{ scope.row.author }}
+                                </div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="类型" width="80">
+                            <template #default="scope">
+                                <el-tag :type="scope.row.type === 'article' ? '' : 'info'" size="small">
+                                    {{ scope.row.type === 'article' ? '文章' : '评论' }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="内容" min-width="150">
+                            <template #default="scope">
+                                <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                    {{ scope.row.content }}
+                                </div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="情感" width="80">
+                            <template #default="scope">
+                                <el-tag :type="getSentimentType(scope.row.sentiment_analysis.sentiment)" size="small">
+                                    {{ scope.row.sentiment_analysis.sentiment }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="90" fixed="right">
+                            <template #default="scope">
+                                <el-link type="primary" @click="showDetail(scope.row)" :underline="false">详情</el-link>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+
+                    <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
+                        <el-pagination
+                            v-model:current-page="currentPage"
+                            v-model:page-size="pageSize"
+                            :page-sizes="[10, 20, 50, 100]"
+                            layout="total, sizes, prev, pager, next"
+                            :total="total"
+                            @size-change="fetchList"
+                            @current-change="fetchList"
+                        ></el-pagination>
+                    </div>
+                </div>
+
+                <!-- Alerts Module -->
+                <div v-if="activeMenu === 'alerts'">
+                    <el-card shadow="never">
+                        <template #header>
+                            <div class="card-header">
+                                <span>预警规则与记录</span>
+                                <el-button type="primary" size="small">新建预警规则</el-button>
+                            </div>
+                        </template>
+                        <el-table :data="allAlerts" stripe style="width: 100%" class="alerts-table">
+                            <el-table-column prop="time" label="预警时间" width="160" class-name="hidden-xs"></el-table-column>
+                            <el-table-column prop="title" label="预警描述" min-width="150"></el-table-column>
+                            <el-table-column label="级别" width="80">
+                                <template #default="scope">
+                                    <el-tag :type="scope.row.level === 'high' ? 'danger' : 'warning'" size="small">
+                                        {{ scope.row.level === 'high' ? '高危' : '中等' }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="状态" width="80">
+                                <template #default="scope">
+                                    <el-tag :type="scope.row.status === 'unread' ? 'info' : 'success'" size="small">
+                                        {{ scope.row.status === 'unread' ? '未读' : '已处理' }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="90" fixed="right">
+                                <template #default="scope">
+                                    <el-button link type="primary" size="small">处理</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </el-card>
+                </div>
+
+                <!-- Config Module -->
+                <div v-if="activeMenu === 'config'">
+                    <el-tabs type="border-card">
+                        <el-tab-pane label="监测源管理">
+                            <el-table :data="configSources" style="width: 100%">
+                                <el-table-column prop="name" label="监测源名称"></el-table-column>
+                                <el-table-column prop="type" label="平台类型"></el-table-column>
+                                <el-table-column label="状态">
+                                    <template #default="scope">
+                                        <el-switch v-model="scope.row.status" active-value="active" inactive-value="inactive"></el-switch>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="last_sync" label="最后同步时间"></el-table-column>
+                                <el-table-column label="操作">
+                                    <template #default="scope">
+                                        <el-button link type="primary">立即同步</el-button>
+                                        <el-button link type="danger">删除</el-button>
+                                    </template>
+                                </el-table-column>
+                            </el-table>
+                        </el-tab-pane>
+                        <el-tab-pane label="关键词配置">
+                            <div style="margin-bottom: 20px;">
+                                <el-input placeholder="添加新关键词" style="width: 300px; margin-right: 10px;"></el-input>
+                                <el-button type="primary">添加</el-button>
+                            </div>
+                            <el-tag v-for="tag in ['千问', '免单', '奶茶', '年货']" :key="tag" closable style="margin-right: 10px; margin-bottom: 10px;">
+                                {{ tag }}
+                            </el-tag>
+                        </el-tab-pane>
+                    </el-tabs>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detail Dialog -->
+        <el-dialog
+            v-model="detailVisible"
+            title="文章详情分析"
+            width="70%"
+            destroy-on-close
+        >
+            <div v-if="currentItem" v-loading="detailLoading">
+                <el-descriptions :title="currentItem.type === 'article' ? '文章基本信息' : '评论基本信息'" :column="isMobile ? 1 : 2" border>
+                    <el-descriptions-item label="作者">{{ currentItem.author }}</el-descriptions-item>
+                    <el-descriptions-item label="发布时间">{{ currentItem.created_at }}</el-descriptions-item>
+                    <el-descriptions-item label="数据来源">
+                        <el-link type="primary" :href="currentItem.url" target="_blank">{{ currentItem.source }}</el-link>
+                    </el-descriptions-item>
+                    <el-descriptions-item label="归属地" v-if="currentItem.ip_location">
+                        {{ currentItem.ip_location }}
+                    </el-descriptions-item>
+                    <el-descriptions-item label="互动数">
+                        <span v-if="currentItem.type === 'article'">
+                            赞 {{ currentItem.liked_count }} | 评 {{ currentItem.comments_count }} | 转 {{ currentItem.shared_count }}
+                        </span>
+                        <span v-else>
+                            赞 {{ currentItem.comment_like_count }} | 回复 {{ currentItem.sub_comment_count }}
+                        </span>
+                    </el-descriptions-item>
+                    <el-descriptions-item label="关键词">
+                        <el-tag v-for="kw in currentItem.keywords" :key="kw" size="small" style="margin-right: 5px;">{{ kw }}</el-tag>
+                    </el-descriptions-item>
+                    <el-descriptions-item :label="currentItem.type === 'article' ? '文章正文' : '评论内容'" :span="2">
+                        <div style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6;">
+                            {{ currentItem.content }}
+                        </div>
+                    </el-descriptions-item>
+                </el-descriptions>
+
+                <div class="img-gallery" v-if="currentItem.image_paths && currentItem.image_paths.length">
+                    <el-image 
+                        v-for="img in currentItem.image_paths" 
+                        :key="img"
+                        :src="formatImageUrl(img)" 
+                        class="img-item"
+                        :preview-src-list="[formatImageUrl(img)]"
+                        fit="cover"
+                    ></el-image>
+                </div>
+
+                <h4 style="margin-top: 30px; border-left: 4px solid #409EFF; padding-left: 10px;">多模态分析结果</h4>
+                <el-tabs type="border-card" style="margin-top: 15px;">
+                    <el-tab-pane label="情感分析">
+                        <div class="detail-row">
+                            <span class="detail-label">情感倾向：</span>
+                            <el-tag :type="getSentimentType(currentItem.sentiment_analysis.sentiment)">{{ currentItem.sentiment_analysis.sentiment }}</el-tag>
+                            <el-tag type="info" style="margin-left: 10px;">{{ currentItem.sentiment_analysis.fine_grained_sentiment }}</el-tag>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">意图分类：</span>
+                            <el-tag type="warning">{{ currentItem.sentiment_analysis.intent }}</el-tag>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">分析理由：</span>
+                            <p style="color: #666; font-size: 14px; background: #f9f9f9; padding: 10px; border-radius: 4px; line-height: 1.6;">
+                                {{ currentItem.sentiment_analysis.reasoning }}
+                            </p>
+                        </div>
+                    </el-tab-pane>
+                    <el-tab-pane label="视觉识别">
+                        <div style="margin-top: 10px;">
+                            <span style="font-weight: bold;">视觉对象：</span>
+                            <el-tag v-for="obj in currentItem.visual_objects" :key="obj" type="success" size="small" style="margin-right: 5px;">{{ obj }}</el-tag>
+                            <span v-if="!currentItem.visual_objects || currentItem.visual_objects.length === 0" style="color: #999;">无视觉对象</span>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <span style="font-weight: bold;">OCR文字：</span>
+                            <div style="margin-top: 5px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 13px;">
+                                {{ currentItem.ocr_text || '未检测到文字' }}
+                            </div>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">反讽检测：</span>
+                            <el-tag :type="currentItem.sentiment_analysis.irony_detected ? 'danger' : 'info'">
+                                {{ currentItem.sentiment_analysis.irony_detected ? '检测到反讽' : '未检测到反讽' }}
+                            </el-tag>
+                        </div>
+                    </el-tab-pane>
+                </el-tabs>
+            </div>
+        </el-dialog>
+    </div>
+
     <script>
-        const commonOptions = {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 100,
-                    title: { display: true, text: '百分比 (%)' }
-                }
-            },
-            plugins: {
-                legend: { position: 'top', labels: { boxWidth: 12, font: { size: 10 } } }
+        const { createApp, ref, onMounted, reactive, watch, nextTick, computed } = Vue;
+
+        const app = createApp({
+            setup() {
+                const activeMenu = ref('hotsearch');
+                const menuTitle = computed(() => {
+                    const titles = {
+                        hotsearch: '平台热搜',
+                        dashboard: '舆情概览',
+                        monitoring: '舆情监测',
+                        alerts: '预警中心',
+                        config: '系统配置'
+                    };
+                    return titles[activeMenu.value] || '';
+                });
+
+                const isCollapse = ref(false);
+                const dateRange = ref('7');
+                const customDate = ref([]);
+
+                const trendTitleRange = computed(() => {
+                    if (dateRange.value === '1') return '24小时';
+                    if (dateRange.value === '3') return '3天';
+                    if (dateRange.value === '7') return '7天';
+                    if (dateRange.value === '31') return '31天';
+                    if (dateRange.value === 'custom') return '自定义';
+                    return dateRange.value + '天';
+                });
+
+                const stats = ref({
+                    total: 0,
+                    today: 0,
+                    articles: 0,
+                    comments: 0,
+                    sentiment_distribution: {}
+                });
+
+                const topRegions = ref([]);
+                const fineSentimentData = ref([]);
+                const intentData = ref([]);
+                const regionColors = ref(['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#722ED1']);
+
+                const negativePercentage = computed(() => {
+                    if (!stats.value.total) return 0;
+                    const neg = stats.value.sentiment_distribution['负面'] || 0;
+                    return Math.round((neg / stats.value.total) * 100);
+                });
+
+                const positiveNeutralPercentage = computed(() => {
+                    if (!stats.value.total) return 0;
+                    const pos = stats.value.sentiment_distribution['正面'] || 0;
+                    const neu = stats.value.sentiment_distribution['中性'] || 0;
+                    return Math.round(((pos + neu) / stats.value.total) * 100);
+                });
+                
+                const recentAlerts = ref([]);
+                const topWords = ref([]);
+                const allAlerts = ref([]);
+                const configSources = ref([]);
+                const selectedItems = ref([]);
+                
+                // List Data
+                const listData = ref([]);
+                const total = ref(0);
+                const currentPage = ref(1);
+                const pageSize = ref(20);
+                const loading = ref(false);
+                const filter = reactive({
+                    sentiment: '',
+                    keyword: ''
+                });
+
+                // Detail Data
+                const detailVisible = ref(false);
+                const currentItem = ref(null);
+                const detailLoading = ref(false);
+
+                // Hotsearch Data
+                const hotResults = ref([]);
+                const hotLoading = ref(false);
+                const Icons = window.ElementPlusIconsVue || {};
+                const RefreshIcon = Icons.Refresh;
+                const ClockIcon = Icons.Clock;
+                const WarningFilledIcon = Icons.WarningFilled;
+                const CaretTop = Icons.CaretTop;
+                const CaretBottom = Icons.CaretBottom;
+                const Minus = Icons.Minus;
+
+                const handleMenuSelect = (index) => {
+                    console.log('Menu selected:', index);
+                    activeMenu.value = index;
+                    
+                    if (index === 'dashboard') {
+                        fetchDashboardData();
+                    } else if (index === 'monitoring') {
+                        fetchList();
+                    } else if (index === 'alerts') {
+                        fetchAlerts();
+                    } else if (index === 'hotsearch') {
+                        fetchHotsearchData(false); // 切换菜单时，使用缓存
+                    } else if (index === 'config') {
+                        fetchConfig();
+                    }
+                };
+
+                const fetchHotsearchData = async (forceRefresh = false, isSilent = false) => {
+                    if (!isSilent) {
+                        hotLoading.value = true;
+                        if (forceRefresh) {
+                            ElementPlus.ElMessage({
+                                message: '正在请求全平台实时数据...',
+                                type: 'info',
+                                duration: 2000
+                            });
+                        }
+                    }
+                    // 初始化骨架屏状态
+                    if (hotResults.value.length === 0) {
+                        hotResults.value = [
+                            { id: 'weibo', name: '微博', status: 'loading', fetch_time: '' },
+                            { id: 'baidu', name: '百度热搜', status: 'loading', fetch_time: '' },
+                            { id: 'zhihu', name: '知乎', status: 'loading', fetch_time: '' },
+                            { id: 'douyin', name: '抖音', status: 'loading', fetch_time: '' }
+                        ];
+                    }
+                    
+                    const startTime = Date.now();
+                    try {
+                        const res = await axios.get(`/api/hotsearch/all?refresh=${forceRefresh}`);
+                        console.log('Hotsearch data received:', res.data);
+                        hotResults.value = res.data;
+                        
+                        // 只有在非强制刷新（静默刷新或常规加载）且发现有平台还在加载时，才启动下一次静默刷新
+                        // 如果是强制刷新，后端已经同步等待并返回了最新数据
+                        if (!forceRefresh && res.data.some(p => p.status === 'loading' || p.status === 'refreshing')) {
+                            console.log('Some platforms are loading/refreshing, scheduling silent refresh...');
+                            setTimeout(() => fetchHotsearchData(false, true), 3000);
+                        }
+                    } catch (err) {
+                        console.error('Fetch hotsearch failed', err);
+                        if (!isSilent) ElementPlus.ElMessage.error('获取热搜数据失败');
+                    } finally {
+                        if (!isSilent) {
+                            // 确保动画至少持续 500ms，让用户感觉到点击了
+                            const elapsed = Date.now() - startTime;
+                            const delay = Math.max(0, 500 - elapsed);
+                            setTimeout(() => {
+                                hotLoading.value = false;
+                            }, delay);
+                        }
+                    }
+                };
+
+                const fetchSinglePlatformData = async (platformId) => {
+                    const index = hotResults.value.findIndex(p => p.id === platformId);
+                    if (index === -1) return;
+                    
+                    const oldStatus = hotResults.value[index].status;
+                    hotResults.value[index].status = 'refreshing';
+                    
+                    try {
+                        // 后端现在是同步执行抓取并返回最新结果的
+                        const res = await axios.get(`/api/hotsearch/refresh/${platformId}`);
+                        console.log(`Single platform ${platformId} refreshed:`, res.data);
+                        
+                        // 直接更新该平台的数据和状态，不再需要 3 秒后的延迟检查
+                        hotResults.value[index] = res.data;
+                    } catch (err) {
+                        console.error(`Fetch single platform ${platformId} failed`, err);
+                        ElementPlus.ElMessage.error(`${hotResults.value[index].name} 刷新失败`);
+                        hotResults.value[index].status = oldStatus;
+                    }
+                };
+
+                const timeAgo = (timeStr) => {
+                    if (!timeStr) return '加载中';
+                    const now = new Date();
+                    const fetchTime = new Date(timeStr.replace(/-/g, '/')); // 兼容性处理
+                    const diff = Math.floor((now - fetchTime) / 1000); // 秒
+
+                    if (diff < 60) return '刚刚';
+                    if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
+                    if (diff < 86400) return Math.floor(diff / 3600) + '小时前';
+                    return Math.floor(diff / 86400) + '天前';
+                };
+
+                const getTrendText = (trend, item) => {
+                    if (trend === 1) return '上升';
+                    if (trend === -1) return '下降';
+                    return '持平';
+                };
+
+                const getLogoPath = (p) => {
+                    // 虎扑图标特殊处理
+                    if (p.id === 'hupu') return '/logos/虎扑.png';
+                    
+                    // 其他平台根据 ID 或名称推断
+                    const ext = (p.id === 'weibo' || p.id === 'zhihu') ? '.png' : '.jpg';
+                    return `/logos/${p.name}${ext}`;
+                };
+
+                const getTagColor = (id) => {
+                    const colors = {
+                        'weibo': 'red',
+                        'baidu': 'blue',
+                        'zhihu': 'blue',
+                        'douyin': 'black',
+                        'toutiao': 'red',
+                        'bilibili-hot-search': 'pink',
+                        'thepaper': 'darkblue',
+                        'ifeng': 'darkred',
+                        'hupu': 'hupu'
+                    };
+                    return colors[id] || 'blue';
+                };
+
+                const formatHot = (val) => {
+                    if (!val) return '';
+                    const num = Number(val);
+                    if (isNaN(num)) return val;
+                    
+                    if (num >= 10000) {
+                        return (num / 10000).toFixed(0) + '万热度';
+                    }
+                    return num + '热度';
+                };
+
+                const fetchDashboardData = async () => {
+                    try {
+                        const days = dateRange.value === 'custom' ? calculateDays(customDate.value) : parseInt(dateRange.value);
+                        const [statsRes, trendsRes, wordCloudRes, alertsRes, mapRes, sentimentFineRes, intentRes] = await Promise.all([
+                            axios.get(`/api/dashboard/stats?days=${days}`),
+                            axios.get(`/api/dashboard/trends?days=${days}`),
+                            axios.get(`/api/dashboard/wordcloud?days=${days}`),
+                            axios.get('/api/alerts/list'),
+                            axios.get(`/api/dashboard/map?days=${days}`),
+                            axios.get(`/api/dashboard/sentiment_fine?days=${days}`),
+                            axios.get(`/api/dashboard/intent?days=${days}`)
+                        ]);
+                        
+                        if (statsRes.data) {
+                            stats.value = statsRes.data;
+                        }
+                        if (alertsRes.data) {
+                            recentAlerts.value = alertsRes.data.slice(0, 5);
+                        }
+                        
+                        let cleanMapData = [];
+                        if (mapRes.data) {
+                            // 彻底清洗数据，移除 None/NaN 并在前端也进行一次过滤
+                            cleanMapData = mapRes.data
+                                .filter(item => {
+                                    if (!item.name) return false;
+                                    const name = String(item.name).toLowerCase().trim();
+                                    return !['none', 'nan', 'null', 'unknown', 'undefined'].includes(name);
+                                })
+                                .map(item => ({
+                                    name: item.name,
+                                    value: (item.value === null || isNaN(item.value)) ? 0 : Number(item.value)
+                                }));
+                            
+                            topRegions.value = cleanMapData.slice(0, 10);
+                        }
+
+                        if (sentimentFineRes.data) {
+                            fineSentimentData.value = sentimentFineRes.data.filter(item => {
+                                if (!item.name) return false;
+                                let name = String(item.name).trim();
+                                
+                                // 处理可能存在的 JSON 格式标签
+                                if (name.startsWith('[') && name.endsWith(']')) {
+                                    try {
+                                        const parsed = JSON.parse(name);
+                                        if (Array.isArray(parsed) && parsed.length > 0) {
+                                            name = parsed[0];
+                                        }
+                                    } catch (e) {}
+                                }
+                                
+                                item.name = name; // 更新为清洗后的名称
+                                const lowerName = name.toLowerCase();
+                                return !['none', 'nan', 'null', 'unknown', 'undefined'].includes(lowerName);
+                            });
+                        }
+                        if (intentRes.data) {
+                            intentData.value = intentRes.data.filter(item => {
+                                if (!item.name) return false;
+                                let name = String(item.name).trim();
+                                
+                                // 处理可能存在的 JSON 格式标签
+                                if (name.startsWith('[') && name.endsWith(']')) {
+                                    try {
+                                        const parsed = JSON.parse(name);
+                                        if (Array.isArray(parsed) && parsed.length > 0) {
+                                            name = parsed[0];
+                                        }
+                                    } catch (e) {}
+                                }
+                                
+                                item.name = name; // 更新为清洗后的名称
+                                const lowerName = name.toLowerCase();
+                                return !['none', 'nan', 'null', 'unknown', 'undefined', '控制'].includes(lowerName);
+                            });
+                        }
+                        
+                        // 处理词云数据并生成高频词指数列表
+                        if (wordCloudRes.data) {
+                            const wcData = wordCloudRes.data;
+                            const totalValue = wcData.reduce((sum, item) => sum + item.value, 0);
+                            topWords.value = wcData.slice(0, 15).map(item => {
+                                const rand = Math.random();
+                                let trend = 0;
+                                if (rand > 0.66) trend = 1;
+                                else if (rand > 0.33) trend = -1;
+                                
+                                return {
+                                    name: item.name,
+                                    value: item.value,
+                                    trend: trend,
+                                    index: totalValue > 0 ? (item.value / totalValue * 100).toFixed(2) : 0
+                                };
+                            });
+                        }
+
+                        nextTick(() => {
+                            if (trendsRes.data) initTrendChart(trendsRes.data);
+                            if (statsRes.data && statsRes.data.sentiment_distribution) {
+                                initPieChart(statsRes.data.sentiment_distribution);
+                            }
+                            if (wordCloudRes.data) initWordCloud(wordCloudRes.data);
+                            if (cleanMapData.length > 0) initMapChart(cleanMapData);
+                            if (sentimentFineRes.data) initFineSentimentChart(fineSentimentData.value);
+                            if (intentRes.data) initIntentChart(intentData.value);
+                        });
+                    } catch (e) {
+                        console.error('Failed to fetch dashboard data', e);
+                        ElementPlus.ElMessage.error('获取仪表盘数据失败');
+                    }
+                };
+
+                const calculateDays = (dateRangeArray) => {
+                    if (!dateRangeArray || dateRangeArray.length !== 2) return 7;
+                    const start = new Date(dateRangeArray[0]);
+                    const end = new Date(dateRangeArray[1]);
+                    const now = new Date();
+                    
+                    // 如果结束日期晚于今天，以今天为准
+                    const effectiveEnd = end > now ? now : end;
+                    const diffTime = Math.abs(now - start);
+                    return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 1;
+                };
+
+                const handleDateRangeChange = () => {
+                    if (dateRange.value !== 'custom') {
+                        fetchDashboardData();
+                    }
+                };
+
+                const handleCustomDateChange = () => {
+                    if (customDate.value && customDate.value.length === 2) {
+                        fetchDashboardData();
+                    }
+                };
+
+                const fetchAlerts = async () => {
+                    try {
+                        const res = await axios.get('/api/alerts/list');
+                        allAlerts.value = res.data;
+                    } catch (e) {
+                        console.error('Failed to fetch alerts', e);
+                    }
+                };
+
+                const fetchConfig = async () => {
+                    try {
+                        const res = await axios.get('/api/config/sources');
+                        configSources.value = res.data;
+                    } catch (e) {
+                        console.error('Failed to fetch config', e);
+                    }
+                };
+
+                const handleSelectionChange = (val) => {
+                    selectedItems.value = val;
+                };
+
+                const exportData = () => {
+                    ElementPlus.ElMessage.success('正在导出数据...');
+                    // 实际导出逻辑可以使用 sheetjs 或 后端接口
+                };
+
+                const fetchList = async () => {
+                    loading.value = true;
+                    try {
+                        const res = await axios.get('/api/monitoring/list', {
+                            params: {
+                                page: currentPage.value,
+                                size: pageSize.value,
+                                sentiment: filter.sentiment,
+                                keyword: filter.keyword
+                            }
+                        });
+                        listData.value = res.data.items;
+                        total.value = res.data.total;
+                    } catch (e) {
+                        console.error('Failed to fetch list', e);
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const showDetail = async (row) => {
+                    detailVisible.value = true;
+                    detailLoading.value = true;
+                    try {
+                        const res = await axios.get(`/api/monitoring/detail/${row.note_id}/${row.comment_id}`);
+                        currentItem.value = res.data;
+                    } catch (e) {
+                        console.error('Failed to fetch detail', e);
+                    } finally {
+                        detailLoading.value = false;
+                    }
+                };
+
+                const getSentimentType = (s) => {
+                    const types = { '正面': 'success', '中性': 'warning', '负面': 'danger' };
+                    return types[s] || 'info';
+                };
+
+                const formatImageUrl = (path) => {
+                    if (!path) return '';
+                    if (path.includes('MediaCrawler')) {
+                        const parts = path.split('MediaCrawler');
+                        return '/media/' + parts[parts.length - 1].split('data') [parts[parts.length - 1].split('data').length - 1].replace(/\\/g, '/').replace(/^\/+/, '');
+                    }
+                    return path.replace(/\\/g, '/');
+                };
+
+                const initTrendChart = (data) => {
+                    try {
+                        const chartDom = document.getElementById('trendChart');
+                        if (!chartDom) return;
+                        
+                        let chart = echarts.getInstanceByDom(chartDom);
+                        if (chart) {
+                            chart.dispose();
+                        }
+                        chart = echarts.init(chartDom);
+                        
+                        const option = {
+                            tooltip: { 
+                                trigger: 'axis',
+                                formatter: function(params) {
+                                    let res = params[0].name + '<br/>';
+                                    params.forEach(item => {
+                                        res += item.marker + item.seriesName + ': ' + item.value + '<br/>';
+                                    });
+                                    return res;
+                                }
+                            },
+                            legend: { data: ['正面', '中性', '负面', '总量'] },
+                            xAxis: { 
+                                type: 'category', 
+                                data: data.map(d => d.date),
+                                axisLabel: {
+                                    interval: 0, 
+                                    rotate: data.length > 15 ? 45 : 0,
+                                    formatter: (value) => {
+                                        if (value.includes('时')) return value;
+                                        if (value.length > 10 && value.includes('-')) {
+                                            return value.split('-').slice(1).join('-');
+                                        }
+                                        return value;
+                                    }
+                                }
+                            },
+                            yAxis: { type: 'value' },
+                            dataZoom: [
+                                {
+                                    type: 'inside',
+                                    start: 0,
+                                    end: 100,
+                                    zoomOnMouseWheel: true
+                                },
+                                {
+                                    type: 'slider',
+                                    start: 0,
+                                    end: 100,
+                                    height: 20,
+                                    bottom: 10
+                                }
+                            ],
+                            series: [
+                                { name: '正面', type: 'line', data: data.map(d => d.正面), color: '#67C23A', smooth: true },
+                                { name: '中性', type: 'line', data: data.map(d => d.中性), color: '#E6A23C', smooth: true },
+                                { name: '负面', type: 'line', data: data.map(d => d.负面), color: '#F56C6C', smooth: true },
+                                { name: '总量', type: 'bar', data: data.map(d => d.total), color: '#409EFF', opacity: 0.3 }
+                            ]
+                        };
+                        chart.setOption(option);
+                        window.addEventListener('resize', () => chart.resize());
+                    } catch (e) {
+                        console.error('Error in initTrendChart:', e);
+                    }
+                };
+
+                const initPieChart = (data) => {
+                    try {
+                        const chartDom = document.getElementById('pieChart');
+                        if (!chartDom) return;
+                        
+                        let chart = echarts.getInstanceByDom(chartDom);
+                        if (chart) {
+                            chart.dispose();
+                        }
+                        chart = echarts.init(chartDom);
+                        
+                        const option = {
+                            tooltip: { 
+                                trigger: 'item',
+                                formatter: '{b}: {c} ({d}%)' 
+                            },
+                            legend: { bottom: '0%', left: 'center' },
+                            color: ['#67C23A', '#E6A23C', '#F56C6C'],
+                            series: [
+                                {
+                                    name: '情感分布',
+                                    type: 'pie',
+                                    radius: ['35%', '55%'],
+                                    center: ['50%', '45%'],
+                                    avoidLabelOverlap: true,
+                                    itemStyle: { borderRadius: 8, borderColor: '#fff', borderWidth: 2 },
+                                    label: { 
+                                        show: true, 
+                                        position: 'outside',
+                                        formatter: '{b}\n{d}%',
+                                        fontSize: 12,
+                                        color: '#606266'
+                                    },
+                                    emphasis: { 
+                                        label: { 
+                                            show: true, 
+                                            fontSize: '16', 
+                                            fontWeight: 'bold',
+                                            formatter: '{b}\n{d}%'
+                                        } 
+                                    },
+                                    labelLine: { 
+                                        show: true,
+                                        length: 10,
+                                        length2: 10
+                                    },
+                                    data: [
+                                        { value: data['正面'] || 0, name: '正面' },
+                                        { value: data['中性'] || 0, name: '中性' },
+                                        { value: data['负面'] || 0, name: '负面' }
+                                    ]
+                                }
+                            ]
+                        };
+                        chart.setOption(option);
+                        window.addEventListener('resize', () => chart.resize());
+                    } catch (e) {
+                        console.error('Error in initPieChart:', e);
+                    }
+                };
+
+                const initWordCloud = (data) => {
+                    try {
+                        const chartDom = document.getElementById('wordCloudChart');
+                        if (!chartDom) return;
+                        
+                        let chart = echarts.getInstanceByDom(chartDom);
+                        if (chart) {
+                            chart.dispose();
+                        }
+                        chart = echarts.init(chartDom);
+                        
+                        const option = {
+                            tooltip: {
+                                show: true,
+                                formatter: '{b}: {c}'
+                            },
+                            series: [{
+                                type: 'wordCloud',
+                                shape: 'rectangular', // 改为矩形布局更符合原型
+                                left: 'center',
+                                top: 'center',
+                                width: '100%',
+                                height: '100%',
+                                sizeRange: [14, 80],
+                                rotationRange: [0, 90], // 只允许 0 度和 90 度旋转
+                                rotationStep: 90,
+                                gridSize: 5,
+                                drawOutOfBound: false,
+                                layoutAnimation: true,
+                                textStyle: {
+                                    fontFamily: 'Microsoft YaHei, sans-serif',
+                                    fontWeight: 'bold',
+                                    color: function () {
+                                        // 匹配原型图的色系：深蓝、浅蓝、橙黄、灰绿
+                                        const colors = [
+                                            '#1890ff', '#40a9ff', '#faad14', '#ff7875', 
+                                            '#52c41a', '#13c2c2', '#fadb14', '#85a5ff'
+                                        ];
+                                        return colors[Math.floor(Math.random() * colors.length)];
+                                    }
+                                },
+                                emphasis: {
+                                    focus: 'self',
+                                    textStyle: {
+                                        textShadowBlur: 5,
+                                        textShadowColor: 'rgba(0,0,0,0.1)'
+                                    }
+                                },
+                                data: data
+                            }]
+                        };
+
+                        chart.setOption(option);
+                        window.addEventListener('resize', () => chart.resize());
+                    } catch (e) {
+                        console.error('Error in initWordCloud:', e);
+                    }
+                };
+
+                const initMapChart = (data) => {
+                    try {
+                        const chartDom = document.getElementById('mapChart');
+                        if (!chartDom) return;
+                        
+                        let chart = echarts.getInstanceByDom(chartDom);
+                        if (chart) {
+                            chart.dispose();
+                        }
+                        chart = echarts.init(chartDom);
+                        
+                        // 预处理数据：将 NaN, None 或其他非数字值替换为 0
+                        const cleanData = data.map(item => ({
+                            name: item.name,
+                            value: (item.value === null || isNaN(item.value)) ? 0 : item.value
+                        }));
+
+                        const option = {
+                            tooltip: {
+                                trigger: 'item',
+                                formatter: function (params) {
+                                    const val = (params.value === undefined || isNaN(params.value)) ? 0 : params.value;
+                                    return params.name + ': ' + val + ' 条';
+                                }
+                            },
+                            visualMap: {
+                                min: 0,
+                                max: Math.max(...cleanData.map(d => d.value), 100),
+                                left: 'left',
+                                top: 'bottom',
+                                text: ['高', '低'],
+                                calculable: true,
+                                inRange: {
+                                    color: ['#e0ffff', '#006ad4']
+                                }
+                            },
+                            series: [
+                                {
+                                    name: '热点分布',
+                                    type: 'map',
+                                    mapType: 'china',
+                                    roam: false,
+                                    label: {
+                                        show: false
+                                    },
+                                    emphasis: {
+                                        label: {
+                                            show: true
+                                        }
+                                    },
+                                    data: cleanData
+                                }
+                            ]
+                        };
+                        chart.setOption(option);
+                        window.addEventListener('resize', () => chart.resize());
+                    } catch (e) {
+                        console.error('Error in initMapChart:', e);
+                    }
+                };
+
+                const initFineSentimentChart = (data) => {
+                    try {
+                        const chartDom = document.getElementById('fineSentimentChart');
+                        if (!chartDom) return;
+                        
+                        let chart = echarts.getInstanceByDom(chartDom);
+                        if (chart) {
+                            chart.dispose();
+                        }
+                        chart = echarts.init(chartDom);
+                        
+                        const option = {
+                            tooltip: {
+                                trigger: 'item',
+                                formatter: '{b}: {c} ({d}%)'
+                            },
+                            legend: {
+                                orient: 'vertical',
+                                left: 'left',
+                                type: 'scroll',
+                                pageButtonPosition: 'start',
+                                itemWidth: 14,
+                                itemHeight: 14,
+                                textStyle: { fontSize: 12 }
+                            },
+                            series: [
+                                {
+                                    name: '细粒度情感',
+                                    type: 'pie',
+                                    radius: ['40%', '70%'],
+                                    center: ['60%', '50%'],
+                                    avoidLabelOverlap: true,
+                                    itemStyle: {
+                                        borderRadius: 10,
+                                        borderColor: '#fff',
+                                        borderWidth: 2
+                                    },
+                                    label: {
+                                        show: false,
+                                        position: 'center'
+                                    },
+                                    emphasis: {
+                                        label: {
+                                            show: true,
+                                            fontSize: '18',
+                                            fontWeight: 'bold',
+                                            formatter: '{b}\n{d}%'
+                                        }
+                                    },
+                                    labelLine: {
+                                        show: false
+                                    },
+                                    data: data
+                                }
+                            ]
+                        };
+                        chart.setOption(option);
+                        window.addEventListener('resize', () => chart.resize());
+                    } catch (e) {
+                        console.error('Error in initFineSentimentChart:', e);
+                    }
+                };
+
+                const initIntentChart = (data) => {
+                    try {
+                        const chartDom = document.getElementById('intentChart');
+                        if (!chartDom) return;
+                        
+                        let chart = echarts.getInstanceByDom(chartDom);
+                        if (chart) {
+                            chart.dispose();
+                        }
+                        chart = echarts.init(chartDom);
+                        
+                        // 过滤并只取前 15 个，避免过度拥挤
+                        const sortedData = [...data]
+                            .sort((a, b) => a.value - b.value)
+                            .slice(-15); // 取最后15个（即最大的15个，因为是升序排列用于横向柱状图）
+                        
+                        const option = {
+                            tooltip: {
+                                trigger: 'axis',
+                                axisPointer: { type: 'shadow' }
+                            },
+                            grid: {
+                                left: '3%',
+                                right: '12%', // 增加右侧间距，防止数字被遮挡
+                                bottom: '3%',
+                                top: '8%',
+                                containLabel: true
+                            },
+                            xAxis: {
+                                type: 'value',
+                                splitLine: { lineStyle: { type: 'dashed', color: '#eee' } },
+                                axisLabel: { color: '#909399' }
+                            },
+                            yAxis: {
+                                type: 'category',
+                                data: sortedData.map(d => d.name),
+                                axisLabel: {
+                                    fontSize: 12,
+                                    color: '#606266',
+                                    interval: 0 // 强制显示所有标签
+                                },
+                                axisLine: { lineStyle: { color: '#dcdfe6' } }
+                            },
+                            series: [
+                                {
+                                    name: '意图数量',
+                                    type: 'bar',
+                                    data: sortedData.map(d => d.value),
+                                    barWidth: sortedData.length > 10 ? '50%' : '30%', // 根据类目数量动态调整宽度
+                                    itemStyle: {
+                                        color: new echarts.graphic.LinearGradient(1, 0, 0, 0, [
+                                            { offset: 0, color: '#1890ff' },
+                                            { offset: 1, color: '#36cfc9' }
+                                        ]),
+                                        borderRadius: [0, 4, 4, 0]
+                                    },
+                                    label: {
+                                        show: true,
+                                        position: 'right',
+                                        valueAnimation: true,
+                                        color: '#606266',
+                                        fontSize: 12,
+                                        formatter: '{c}'
+                                    }
+                                }
+                            ]
+                        };
+                        chart.setOption(option);
+                        window.addEventListener('resize', () => chart.resize());
+                    } catch (e) {
+                        console.error('Error in initIntentChart:', e);
+                    }
+                };
+
+                onMounted(() => {
+                    fetchDashboardData();
+                    // 首次加载即获取热搜数据，避免白屏
+                    fetchHotsearchData(false);
+                });
+
+                return {
+                    isCollapse, dateRange, customDate, trendTitleRange, handleDateRangeChange, handleCustomDateChange,
+                    activeMenu, menuTitle, handleMenuSelect,
+                    stats, negativePercentage, positiveNeutralPercentage, topWords,
+                    topRegions, fineSentimentData, intentData, regionColors,
+                    listData, total, currentPage, pageSize, loading, filter, fetchList,
+                    detailVisible, currentItem, detailLoading, showDetail,
+                    getSentimentType, formatImageUrl,
+                    recentAlerts, allAlerts, configSources, selectedItems,
+                    handleSelectionChange, exportData,
+                    hotResults, hotLoading, RefreshIcon, ClockIcon, WarningFilledIcon, 
+                    CaretTop, CaretBottom, Minus,
+                    getTagColor, formatHot, fetchHotsearchData, fetchSinglePlatformData, timeAgo, getTrendText, getLogoPath
+                };
             }
-        };
+        });
 
-        const createDatasets = (data) => [
-            {
-                label: '正面 (%)',
-                data: data.map(t => t.positive),
-                borderColor: '#28a745',
-                backgroundColor: 'rgba(40, 167, 69, 0.1)',
-                fill: true,
-                tension: 0.3
-            },
-            {
-                label: '中性 (%)',
-                data: data.map(t => t.neutral),
-                borderColor: '#ffc107',
-                backgroundColor: 'rgba(255, 193, 7, 0.1)',
-                fill: true,
-                tension: 0.3
-            },
-            {
-                label: '负面 (%)',
-                data: data.map(t => t.negative),
-                borderColor: '#dc3545',
-                backgroundColor: 'rgba(220, 53, 69, 0.1)',
-                fill: true,
-                tension: 0.3
+        // Register Element Icons
+        if (typeof ElementPlusIconsVue !== 'undefined' && ElementPlusIconsVue) {
+            for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+                app.component(key, component);
             }
-        ];
+        }
 
-        {% if post_trends %}
-        new Chart(document.getElementById('postTrendChart').getContext('2d'), {
-            type: 'line',
-            data: {
-                labels: {{ post_trends | map(attribute='date') | list | tojson }},
-                datasets: createDatasets({{ post_trends | tojson }})
-            },
-            options: commonOptions
-        });
-        {% endif %}
-
-        {% if comment_trends %}
-        new Chart(document.getElementById('commentTrendChart').getContext('2d'), {
-            type: 'line',
-            data: {
-                labels: {{ comment_trends | map(attribute='date') | list | tojson }},
-                datasets: createDatasets({{ comment_trends | tojson }})
-            },
-            options: commonOptions
-        });
-        {% endif %}
+        app.use(ElementPlus);
+        app.mount('#app');
     </script>
-    {% endif %}
 </body>
 </html>

@@ -1,143 +1,97 @@
-import json
 import os
 import sys
 from pathlib import Path
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 
 # Add project root to sys.path
 BASE_DIR = Path(__file__).parent.parent
 sys.path.append(str(BASE_DIR))
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+# --- MediaCrawler 集成相关导入 ---
+try:
+    from MediaCrawler.api.routers.crawler import router as mc_crawler_router
+    from MediaCrawler.api.routers.websocket import router as mc_ws_router
+    HAS_MEDIA_CRAWLER = True
+except ImportError as e:
+    print(f"Warning: MediaCrawler module not found for integration: {e}")
+    HAS_MEDIA_CRAWLER = False
 
-app = FastAPI(title="Sentiment Analysis Visualization")
+from Transformers.config import (
+    MEDIA_CRAWLER_DATA_DIR, CACHE_DIR
+)
+from Visualized.api.database import init_db
+from Visualized.api.dashboard import router as dashboard_router
+from Visualized.api.monitoring import router as monitoring_router
+from Visualized.api.alerts import router as alerts_router
+from Visualized.api.config import router as config_router
+from Visualized.api.hotsearch import router as hotsearch_router
 
-from Transformers.config import TRANSFORMERS_DIR, MEDIA_CRAWLER_DATA_DIR, HISTORICAL_LABELED_DIR, get_available_dates, get_weibo_files_by_date
-from Transformers.processors.data_manager import DataManager
+app = FastAPI(title="JNU-OPORC 舆情监测系统 API")
 
-app = FastAPI(title="Sentiment Analysis Visualization")
-data_manager = DataManager()
-
-# Base directories
-BASE_DIR = Path(__file__).parent.parent
-VISUALIZED_DIR = BASE_DIR / "Visualized"
-OUTPUT_FILE = TRANSFORMERS_DIR / "output" / "labeled_results.jsonl"
+# 允许跨域
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Mount static files for images
 if MEDIA_CRAWLER_DATA_DIR.exists():
     app.mount("/media", StaticFiles(directory=str(MEDIA_CRAWLER_DATA_DIR)), name="media")
 
+LOGS_DIR = Path(r"e:\JNU-OPORC\Visualized\logs")
+if LOGS_DIR.exists():
+    app.mount("/logos", StaticFiles(directory=str(LOGS_DIR)), name="logos")
+
 # Templates
-templates = Jinja2Templates(directory=str(VISUALIZED_DIR / "templates"))
+templates = Jinja2Templates(directory=str(BASE_DIR / "Visualized" / "templates"))
 
-def load_results(date_str: str = None):
-    """加载标注结果，如果提供 date_str，则加载历史结果"""
-    target_file = OUTPUT_FILE
-    if date_str:
-        history_file = HISTORICAL_LABELED_DIR / f"labeled_results_{date_str}.jsonl"
-        if history_file.exists():
-            target_file = history_file
-            
-    groups = {}
-    if target_file.exists():
-        with open(target_file, "r", encoding="utf-8") as f:
-            for line in f:
-                try:
-                    item = json.loads(line)
-                    nid = item.get("note_id")
-                    if nid not in groups:
-                        groups[nid] = {"post": None, "comments": []}
-                    
-                    if item.get("comment_id") == "0":
-                        groups[nid]["post"] = item
-                    else:
-                        groups[nid]["comments"].append(item)
-                except:
-                    continue
-    
-    display_groups = []
-    for nid, group in groups.items():
-        if group["post"] or group["comments"]:
-            if not group["post"]:
-                group["post"] = group["comments"].pop(0)
-            display_groups.append(group)
-    
-    display_groups.sort(key=lambda x: x["post"].get("created_at", ""), reverse=True)
-    return display_groups[:50]  # Limit to 50 latest results for performance
+# 初始化数据库
+init_db()
 
-def get_sentiment_trends():
-    """计算跨时间维度的情感分布趋势"""
-    available_dates = get_available_dates()
-    trends = []
-    
-    for d in sorted(available_dates):
-        history_file = HISTORICAL_LABELED_DIR / f"labeled_results_{d}.jsonl"
-        # 如果历史文件不存在，尝试读取主结果文件（如果它的日期匹配）
-        if not history_file.exists() and d == available_dates[0]:
-            history_file = OUTPUT_FILE
-            
-        if history_file.exists():
-            counts = {"正面": 0, "中性": 0, "负面": 0, "total": 0}
-            with open(history_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    try:
-                        item = json.loads(line)
-                        sent = item.get("sentiment_analysis", {}).get("sentiment")
-                        if sent in counts:
-                            counts[sent] += 1
-                            counts["total"] += 1
-                    except: continue
-            if counts["total"] > 0:
-                trends.append({
-                    "date": d,
-                    "positive": round(counts["正面"] / counts["total"] * 100, 1),
-                    "neutral": round(counts["中性"] / counts["total"] * 100, 1),
-                    "negative": round(counts["负面"] / counts["total"] * 100, 1)
-                })
-    return trends
+# --- 挂载 API 路由 ---
+app.include_router(dashboard_router, prefix="/api")
+app.include_router(monitoring_router, prefix="/api")
+app.include_router(alerts_router, prefix="/api")
+app.include_router(config_router, prefix="/api")
+app.include_router(hotsearch_router, prefix="/api")
 
-@app.get("/test-html")
-async def test_html():
-    return HTMLResponse(content="<h1>Hello World</h1>", status_code=200)
+# --- 挂载爬虫路由 ---
+if HAS_MEDIA_CRAWLER:
+    app.include_router(mc_crawler_router, prefix="/api")
+    app.include_router(mc_ws_router, prefix="/api")
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+# --- 路由补丁 (修复 IDE 预览产生的 404) ---
+@app.get("/@vite/client")
+async def vite_client():
+    return JSONResponse(content={})
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request, date: str = None):
-    available_dates = get_available_dates()
-    current_date = date or (available_dates[0] if available_dates else None)
-    
-    groups = load_results(date)
-    trends = get_sentiment_trends()
-    
-    print(f"DEBUG: Rendering index with {len(groups)} groups and {len(trends)} trend points.")
-    
-    return templates.TemplateResponse("index.html", {
-        "request": request, 
-        "groups": groups, 
-        "available_dates": available_dates,
-        "current_date": current_date,
-        "trends": trends,
-        "post_trends": trends,  # 确保模板中引用的变量存在
-        "comment_trends": []    # 暂时传空
-    })
+@app.get("/favicon.ico")
+async def favicon():
+    return FileResponse(str(BASE_DIR / "Visualized" / "static" / "favicon.ico")) if (BASE_DIR / "Visualized" / "static" / "favicon.ico").exists() else JSONResponse(content={})
 
-@app.get("/diff")
-async def diff_data(request: Request, date1: str, date2: str):
-    """对比两个日期的数据差异"""
-    f1_p, f1_c = get_weibo_files_by_date(date1)
-    f2_p, f2_c = get_weibo_files_by_date(date2)
-    
-    data1 = data_manager.load_weibo_data(str(f1_p), str(f1_c))
-    data2 = data_manager.load_weibo_data(str(f2_p), str(f2_c))
-    
-    diff = data_manager.compare_data(data1, data2)
-    return diff
+# --- 页面路由 ---
+@app.get("/")
+async def index():
+    return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "index.html"))
+
+@app.get("/detail/{note_id}")
+async def detail_page(note_id: str):
+    return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "detail.html"))
+
+@app.get("/crawler")
+async def crawler_page():
+    return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "crawler.html"))
+
+@app.get("/hotsearch")
+async def hotsearch_page():
+    return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "hotsearch.html"))
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8001)
