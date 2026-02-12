@@ -3,6 +3,7 @@ from transformers import Trainer, TrainingArguments, DataCollatorForLanguageMode
 from .models.model import MultimodalVLMModel
 from .models.dataset import MultimodalVLMDataset
 from .config import TRANSFORMERS_OUTPUT_DIR
+from Transformers import utils
 
 def train_vlm(
     jsonl_path: str,
@@ -51,12 +52,12 @@ def train_vlm(
         data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False) if tokenizer else None,
     )
     
-    print("🚀 Starting VLM LoRA training...")
+    utils.logger.info("[trainer.train_vlm] 🚀 Starting VLM LoRA training...")
     trainer.train()
     
     # 5. Save Model
     trainer.save_model(output_dir)
-    print(f"✅ Training complete! Model saved to {output_dir}")
+    utils.logger.info(f"[trainer.train_vlm] ✅ Training complete! Model saved to {output_dir}")
 
 if __name__ == "__main__":
     import os
@@ -64,4 +65,4 @@ if __name__ == "__main__":
     if os.path.exists(LABELED_DATA_FILE):
         train_vlm(str(LABELED_DATA_FILE))
     else:
-        print(f"Labeled data not found at {LABELED_DATA_FILE}")
+        utils.logger.error(f"[trainer.main] Labeled data not found at {LABELED_DATA_FILE}")

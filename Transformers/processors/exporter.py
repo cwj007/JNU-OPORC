@@ -11,6 +11,7 @@ from pathlib import Path
 from filelock import FileLock
 
 from ..config import PLATFORM_MAP, HISTORICAL_LABELED_DIR, TRANSFORMERS_DIR, CACHE_DIR
+from Transformers import utils
 
 class Exporter:
     def __init__(self, output_file: str):
@@ -60,6 +61,7 @@ class Exporter:
         # 动态添加缺失的字段
         new_fields = [
             ('sync_date', 'TEXT'),
+            ('sync_time', 'TEXT'),
             ('content', 'TEXT'),
             ('created_at', 'TEXT'),
             ('visual_objects', 'TEXT'),
@@ -103,15 +105,18 @@ class Exporter:
     def _mark_ids_as_processed(self, entries_for_db: List[tuple]):
         """批量将 ID 和分析结果存入数据库。"""
         conn = sqlite3.connect(self.db_path)
+        # 启用高性能模式
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         cursor = conn.cursor()
         cursor.executemany('''
             INSERT OR REPLACE INTO processed_items (
-                unique_id, note_id, comment_id, top_id, data_date, sync_date, created_at, content,
+                unique_id, note_id, comment_id, top_id, data_date, sync_date, sync_time, created_at, content,
                 sentiment, intent, keywords, ip_location, visual_objects, 
                 ocr_text, author, source, liked_count, comments_count, 
                 shared_count, gender, parent_comment_id
             ) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', entries_for_db)
         conn.commit()
         conn.close()
@@ -145,62 +150,78 @@ class Exporter:
             except queue.Empty:
                 continue
             except Exception as e:
-                print(f"  [写入错误] 后台线程异常: {e}")
+                utils.logger.error(f"  [Exporter._async_write_worker] 后台线程异常: {e}")
 
     def _process_export_task(self, analyzed_data: List[Dict[str, Any]], append: bool, use_lock: bool):
         """实际的写入逻辑：格式化、去重、存库、写文件。"""
-        formatted_results = []
-        data_date = analyzed_data[0].get("data_date")
-        
         # 1. 过滤已存在的 ID (使用 SQLite 极速查询)
         valid_entries = []
         db_entries = []
         top_entries = {} # top_id -> top_name
         sync_date = datetime.now().strftime("%Y-%m-%d")
+        sync_time = datetime.now().strftime("%H:%M:%S")
+        data_date = analyzed_data[0].get("data_date")
+        
+        # 批量获取当前批次的所有 ID 状态，减少数据库连接开销
+        conn = sqlite3.connect(self.db_path)
+        # 启用读性能优化
+        conn.execute("PRAGMA query_only = ON")
+        cursor = conn.cursor()
         
         for item in analyzed_data:
-            entry = self._format_entry(item)
+            # 兼容处理：如果 item 已经是格式化好的 entry，直接使用
+            if "sentiment_analysis" in item:
+                entry = item
+            else:
+                entry = self._format_entry(item)
+                
             note_id = str(entry.get('note_id'))
             comment_id = str(entry.get('comment_id', '0'))
             unique_id = f"{note_id}_{comment_id}"
             
-            if not self._is_id_processed(unique_id):
-                valid_entries.append(entry)
-                # 提取统计字段
-                sentiment = str(entry.get("sentiment_analysis", {}).get("sentiment", "Unknown"))
-                intent = str(entry.get("sentiment_analysis", {}).get("intent", "Unknown"))
-                keywords = json.dumps(entry.get("keywords", []), ensure_ascii=False)
-                ip_location = str(entry.get("ip_location", ""))
-                top_id = str(entry.get("top_id", ""))
-                top_name = entry.get("top_name")
-                created_at = str(entry.get("created_at", ""))
-                content = str(entry.get("content", ""))
-                visual_objects = json.dumps(entry.get("visual_objects", []), ensure_ascii=False)
-                ocr_text = str(entry.get("ocr_text", ""))
-                author = str(entry.get("author", ""))
-                source = str(entry.get("source", ""))
+            # 检查 ID 是否已处理
+            cursor.execute('SELECT 1 FROM processed_items WHERE unique_id = ?', (unique_id,))
+            if cursor.fetchone() is not None:
+                continue
                 
-                # 区分文章和评论的计数
-                liked_count = entry.get("liked_count") or entry.get("comment_like_count") or 0
-                comments_count = entry.get("comments_count") or entry.get("sub_comment_count") or 0
-                shared_count = entry.get("shared_count") or 0
-                gender = str(entry.get("gender", ""))
-                parent_comment_id = str(entry.get("parent_comment_id", ""))
-                
-                db_entries.append((
-                    unique_id, note_id, comment_id, top_id, str(data_date or ""), sync_date, created_at, content,
-                    sentiment, intent, keywords, ip_location, visual_objects, 
-                    ocr_text, author, source, liked_count, comments_count, 
-                    shared_count, gender, parent_comment_id
-                ))
+            valid_entries.append(entry)
+            # 提取统计字段
+            sentiment = str(entry.get("sentiment_analysis", {}).get("sentiment", "Unknown"))
+            intent = str(entry.get("sentiment_analysis", {}).get("intent", "Unknown"))
+            keywords = json.dumps(entry.get("keywords", []), ensure_ascii=False)
+            ip_location = str(entry.get("ip_location", ""))
+            top_id = str(entry.get("top_id", ""))
+            top_name = entry.get("top_name")
+            created_at = str(entry.get("created_at", ""))
+            content = str(entry.get("content", ""))
+            visual_objects = json.dumps(entry.get("visual_objects", []), ensure_ascii=False)
+            ocr_text = str(entry.get("ocr_text", ""))
+            author = str(entry.get("author", ""))
+            source = str(entry.get("source", ""))
+            
+            # 区分文章和评论的计数
+            liked_count = entry.get("liked_count") or entry.get("comment_like_count") or 0
+            comments_count = entry.get("comments_count") or entry.get("sub_comment_count") or 0
+            shared_count = entry.get("shared_count") or 0
+            gender = str(entry.get("gender", ""))
+            parent_comment_id = str(entry.get("parent_comment_id", ""))
+            
+            db_entries.append((
+                unique_id, note_id, comment_id, top_id, str(data_date or ""), sync_date, sync_time, created_at, content,
+                sentiment, intent, keywords, ip_location, visual_objects, 
+                ocr_text, author, source, liked_count, comments_count, 
+                shared_count, gender, parent_comment_id
+            ))
 
-                # 记录 top_topics
-                if top_id and top_id != "None":
-                    if top_name:
-                        top_entries[top_id] = top_name
-                    else:
-                        # 如果没有 top_name，尝试从 top_id 解码
-                        top_entries[top_id] = unquote(top_id)
+            # 记录 top_topics
+            if top_id and top_id != "None":
+                if top_name:
+                    top_entries[top_id] = top_name
+                else:
+                    # 如果没有 top_name，尝试从 top_id 解码
+                    top_entries[top_id] = unquote(top_id)
+
+        conn.close()
 
         if not valid_entries:
             return
@@ -222,7 +243,7 @@ class Exporter:
             self._update_top_topics(top_entries)
         
         # 5. 输出存储日志
-        print(f"  └─ [存储] {len(valid_entries)} 条新记录已异步同步 (SQLite 索引已更新)")
+        utils.logger.info(f"[Exporter._sync_worker] 存储: {len(valid_entries)} 条新记录已异步同步 (SQLite 索引已更新)")
 
     def _update_top_topics(self, top_entries: Dict[str, str]):
         """批量更新 top_topics 表。"""
@@ -246,28 +267,29 @@ class Exporter:
 
     def _write_to_files(self, valid_entries, data_date, mode):
         """物理写入文件：通过临时文件原子性替换，防止写入中断导致损坏。"""
-        # 写入主文件
+        # 1. 写入临时文件
         temp_main = f"{self.output_file}.tmp"
         try:
-            # 1. 写入临时文件
             with open(temp_main, 'w', encoding='utf-8') as f:
                 for entry in valid_entries:
                     f.write(json.dumps(entry, ensure_ascii=False) + '\n')
             
-            # 2. 追加到正式文件
-            with open(self.output_file, 'a', encoding='utf-8') as f:
-                with open(temp_main, 'r', encoding='utf-8') as tf:
-                    f.write(tf.read())
-            
-            # 3. 写入历史备份
+            # 2. 如果提供了 data_date，则只写入该日期的历史文件
+            # 如果没有 data_date，则写入默认的 output_file
             if data_date:
                 history_file = HISTORICAL_LABELED_DIR / f"labeled_results_{data_date}.jsonl"
                 with open(history_file, 'a', encoding='utf-8') as f:
                     with open(temp_main, 'r', encoding='utf-8') as tf:
                         f.write(tf.read())
-            
-            # 4. 更新聚合 JSON (针对前端展示)
-            self._export_aggregated_data(valid_entries, data_date, True)
+                
+                # 更新聚合 JSON (针对前端展示，也会按日期备份)
+                self._export_aggregated_data(valid_entries, data_date, True)
+            else:
+                # 兼容模式：写入主文件
+                with open(self.output_file, 'a', encoding='utf-8') as f:
+                    with open(temp_main, 'r', encoding='utf-8') as tf:
+                        f.write(tf.read())
+                self._export_aggregated_data(valid_entries, None, True)
             
         finally:
             if os.path.exists(temp_main):
@@ -281,7 +303,11 @@ class Exporter:
 
     def _export_aggregated_data(self, results: List[Dict[str, Any]], data_date: str, append: bool):
         """将数据按文章聚合，并对标签/关键词进行去重，生成前端易用的 JSON。"""
-        agg_file = self.output_file.parent / "aggregated_display_data.json"
+        # 如果提供了 data_date，则优先使用历史文件
+        if data_date:
+            agg_file = HISTORICAL_LABELED_DIR / f"aggregated_{data_date}.json"
+        else:
+            agg_file = self.output_file.parent / "aggregated_display_data.json"
         
         # 如果是追加模式，先读取现有数据
         aggregated = {}
@@ -298,7 +324,7 @@ class Exporter:
                             s["all_labels"] = set(s.get("all_labels", []))
                         aggregated[entry['note_id']] = entry
             except Exception as e:
-                print(f"Warning: Failed to load existing aggregated data: {e}")
+                utils.logger.warning(f"[Exporter.get_existing_ids] Warning: Failed to load existing aggregated data: {e}")
 
         for item in results:
             note_id = item['note_id']
@@ -385,11 +411,9 @@ class Exporter:
         with open(agg_file, 'w', encoding='utf-8') as f:
             json.dump(final_list, f, ensure_ascii=False, indent=2)
         
-        # 如果有日期，备份一份聚合数据
-        if data_date:
-            history_agg = HISTORICAL_LABELED_DIR / f"aggregated_{data_date}.json"
-            with open(history_agg, 'w', encoding='utf-8') as f:
-                json.dump(final_list, f, ensure_ascii=False, indent=2)
+        # 如果当前不是备份文件且有日期，也同步备份一份到主文件(可选，取决于是否需要保留一份汇总)
+        # 但根据用户要求，现在主要按日期存储，所以这里不需要冗余备份到 aggregated_display_data.json
+        # 如果需要汇总，前端可以从 history 目录下读取所有文件并合并。
 
     def _format_entry(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """Format a single item (post or comment) according to the user's schema."""

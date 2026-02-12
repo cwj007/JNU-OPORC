@@ -2,10 +2,11 @@ import torch
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from .config import VLM_MODEL_ID, MODEL_WEIGHTS_DIR, DEVICE
+from Transformers import utils
 
 class MultimodalVLMModel:
     def __init__(self):
-        print(f"Loading model for training on {DEVICE}...")
+        utils.logger.info(f"[MultimodalVLMModel.__init__] Loading model for training on {DEVICE}...")
         
         # 1. Load Processor
         self.processor = AutoProcessor.from_pretrained(

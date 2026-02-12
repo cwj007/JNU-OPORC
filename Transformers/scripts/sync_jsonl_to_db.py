@@ -9,16 +9,17 @@ BASE_DIR = Path(__file__).parent.parent.parent
 sys.path.append(str(BASE_DIR))
 
 from Transformers.config import CACHE_DIR, LABELED_DATA_FILE
+from Transformers import utils
 
 JSONL_FILE = LABELED_DATA_FILE
 DB_FILE = CACHE_DIR / "processed_ids.db"
 
 def sync_ids():
     if not JSONL_FILE.exists():
-        print(f"错误: 找不到文件 {JSONL_FILE}")
+        utils.logger.error(f"[sync_jsonl_to_db.sync_ids] 错误: 找不到文件 {JSONL_FILE}")
         return
 
-    print(f"正在从 {JSONL_FILE.name} 同步 ID 到 SQLite...")
+    utils.logger.info(f"[sync_jsonl_to_db.sync_ids] 正在从 {JSONL_FILE.name} 同步 ID 到 SQLite...")
     
     # 连接数据库
     conn = sqlite3.connect(DB_FILE)
@@ -72,10 +73,10 @@ def sync_ids():
                     ''', batch_entries)
                     count += cursor.rowcount
                     batch_entries = []
-                    print(f"已处理 {count} 条...")
+                    utils.logger.info(f"[sync_jsonl_to_db.sync_ids] 已处理 {count} 条...")
                     
             except Exception as e:
-                print(f"处理行时出错: {e}")
+                utils.logger.error(f"[sync_jsonl_to_db.sync_ids] 处理行时出错: {e}")
         
         # 处理剩余的记录
         if batch_entries:
@@ -88,12 +89,12 @@ def sync_ids():
     conn.commit()
     conn.close()
     
-    print("\n" + "="*40)
-    print(f"同步完成！")
-    print(f"• 总计扫描行数: {count + duplicate_count}")
-    print(f"• 新增同步到 DB: {count}")
-    print(f"• 跳过已存在 ID: {duplicate_count}")
-    print("="*40)
+    utils.logger.info("="*40)
+    utils.logger.info(f"[sync_jsonl_to_db.sync_ids] 同步完成！")
+    utils.logger.info(f"[sync_jsonl_to_db.sync_ids] 总计扫描行数: {count + duplicate_count}")
+    utils.logger.info(f"[sync_jsonl_to_db.sync_ids] 新增同步到 DB: {count}")
+    utils.logger.info(f"[sync_jsonl_to_db.sync_ids] 跳过已存在 ID: {duplicate_count}")
+    utils.logger.info("="*40)
 
 if __name__ == "__main__":
     sync_ids()

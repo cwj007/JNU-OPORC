@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
 from ..config import MEDIA_CRAWLER_DATA_DIR, IMAGE_EXTENSIONS, CACHE_DIR
+from Transformers import utils
 
 class DataManager:
     def __init__(self):
@@ -141,10 +142,10 @@ class DataManager:
             
         with open(cache_file, 'w', encoding='utf-8') as f:
             json.dump(context_cache, f, ensure_ascii=False, indent=2)
-        print(f"已同步 {len(context_cache)} 条文章上下文到磁盘缓存: {cache_file.name}")
+        utils.logger.info(f"[DataManager.load_weibo_data] 已同步 {len(context_cache)} 条文章上下文到磁盘缓存: {cache_file.name}")
 
         # 1. 处理文章数据 (CPU 并行)
-        print(f"正在读取文章数据 (已处理过的 ID 将被自动跳过)...")
+        utils.logger.info(f"[DataManager.load_weibo_data] 正在读取文章数据 (已处理过的 ID 将被自动跳过)...")
         
         # --- 核心优化：文章处理策略 ---
         # 建立无效文章 ID 集合，记录既无文本又无图片的文章 ID
@@ -213,11 +214,11 @@ class DataManager:
         posts_list = [p for p in posts_list if p is not None]
 
         if post_processed_count > 0:
-            print(f"  - 文章表已跳过 {post_processed_count} 条已处理记录。")
+            utils.logger.info(f"[DataManager.load_weibo_data] 文章表已跳过 {post_processed_count} 条已处理记录。")
 
         # 2. 处理评论数据 (CPU 并行)
         total_raw_comments = len(comments_df)
-        print(f"正在读取 {total_raw_comments} 条评论数据...")
+        utils.logger.info(f"[DataManager.load_weibo_data] 正在读取 {total_raw_comments} 条评论数据...")
         
         comment_processed_count = 0
         
@@ -344,10 +345,18 @@ class DataManager:
         # 合并文章和评论，同时保持各自内部的原始顺序
         final_list = posts_list + [c for c in comments_list if c is not None]
         
+        # 增加详细日志输出，展示加载的数据样本
+        if final_list:
+            sample_count = min(3, len(final_list))
+            utils.logger.info(f"[DataManager.load_weibo_data] DEBUG: 成功加载 {len(final_list)} 条数据。前 {sample_count} 条样本:")
+            for i in range(sample_count):
+                item = final_list[i]
+                utils.logger.info(f"[DataManager.load_weibo_data] 样本: [{item.get('type')}] ID: {item.get('note_id')}_{item.get('comment_id')} | Content: {item.get('content')[:50]}...")
+
         if comment_processed_count > 0:
-            print(f"  - 评论表已跳过 {comment_processed_count} 条已处理记录。")
+            utils.logger.info(f"[DataManager.load_weibo_data] 评论表已跳过 {comment_processed_count} 条已处理记录。")
             
-        print(f"加载完成: 过滤后剩余 {len(final_list)} 条新数据待处理 (已跳过 {len(comments_df) + len(posts_df) - len(final_list)} 条重复或无效数据)")
+        utils.logger.info(f"[DataManager.load_weibo_data] 加载完成: 过滤后剩余 {len(final_list)} 条新数据待处理 (已跳过 {len(comments_df) + len(posts_df) - len(final_list)} 条重复或无效数据)")
         return final_list
 
     def compare_data(self, old_data: List[Dict[str, Any]], new_data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:

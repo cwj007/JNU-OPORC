@@ -8,6 +8,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from Transformers.processors.exporter import Exporter
 from Transformers.config import TRANSFORMERS_OUTPUT_DIR
+from Transformers import utils
 
 def test_aggregation():
     output_file = TRANSFORMERS_OUTPUT_DIR / "test_labeled.jsonl"
@@ -55,15 +56,15 @@ def test_aggregation():
         }
     ]
     
-    print("Exporting mock data...")
+    utils.logger.info("[test_exporter.test_aggregation] Exporting mock data...")
     exporter.export(mock_data)
     
     agg_file = TRANSFORMERS_OUTPUT_DIR / "aggregated_display_data.json"
     if agg_file.exists():
         with open(agg_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            print("\nAggregated Data Structure:")
-            print(json.dumps(data, indent=2, ensure_ascii=False))
+            utils.logger.info("\n[test_exporter.test_aggregation] Aggregated Data Structure:")
+            utils.logger.info(json.dumps(data, indent=2, ensure_ascii=False))
             
             # Verify aggregation
             item = data[0]
@@ -72,9 +73,9 @@ def test_aggregation():
             assert "great" in item['summary']['all_keywords']
             assert "agree" in item['summary']['all_keywords']
             assert item['summary']['sentiment_distribution']['正面'] == 2
-            print("\n[Success] Aggregation test passed!")
+            utils.logger.info("\n[test_exporter.test_aggregation] [Success] Aggregation test passed!")
     else:
-        print("\n[Error] Aggregated file not found!")
+        utils.logger.error("\n[test_exporter.test_aggregation] [Error] Aggregated file not found!")
 
 if __name__ == "__main__":
     test_aggregation()

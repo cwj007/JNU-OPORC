@@ -8,6 +8,7 @@ from ..config import (
     FINE_GRAINED_SENTIMENT_MAPPING, INTENT_CATEGORIES_MAPPING,
     DEVICE, USE_4BIT
 )
+from Transformers import utils
 
 class VLMHandler:
     def __init__(self):
@@ -20,7 +21,7 @@ class VLMHandler:
         if self.model is not None:
             return
 
-        print(f"正在加载 Qwen2-VL 模型 (目录: {MODEL_WEIGHTS_DIR})...")
+        utils.logger.info(f"[VLMHandler._ensure_loaded] 正在加载 Qwen2-VL 模型 (目录: {MODEL_WEIGHTS_DIR})...")
         
         load_params = {
             "pretrained_model_name_or_path": VLM_MODEL_ID,
@@ -67,7 +68,7 @@ class VLMHandler:
             )
         except Exception as e:
             if "local_files_only" in str(e) or "not found" in str(e).lower():
-                print("\n[提示] 本地未检测到模型文件，正在尝试联网下载（请确保网络可访问 hf-mirror.com）...")
+                utils.logger.info("\n[VLMHandler._ensure_loaded] [提示] 本地未检测到模型文件，正在尝试联网下载（请确保网络可访问 hf-mirror.com）...")
                 # 禁用离线模式进行下载
                 import os
                 old_tf_offline = os.environ.get("TRANSFORMERS_OFFLINE")
@@ -91,7 +92,7 @@ class VLMHandler:
             else:
                 raise e
 
-        print(f"模型加载完成。(像素限制: {MIN_PIXELS} ~ {MAX_PIXELS})")
+        utils.logger.info(f"[VLMHandler._ensure_loaded] 模型加载完成。(像素限制: {MIN_PIXELS} ~ {MAX_PIXELS})")
 
     def preprocess_batch(self, batch_data: List[Dict[str, Any]], prompt_template: str) -> Dict[str, Any]:
         """对批次数据进行预处理（编码），可在后台线程执行。"""
@@ -103,7 +104,7 @@ class VLMHandler:
         # 检查批次是否包含图像
         has_vision = any(item.get("images") for item in batch_data)
         mode = "多模态" if has_vision else "纯文本"
-        print(f"    └─ [CPU] 编码模式: {mode}")
+        utils.logger.info(f"[VLMHandler.preprocess_batch] CPU 编码模式: {mode}")
         
         # 准备统一的 Prompt 选项，注入层级约束
         prompt_base = prompt_template.format(
@@ -181,10 +182,10 @@ class VLMHandler:
         if DEVICE == "cuda":
             allocated = torch.cuda.memory_allocated() / 1024**3
             reserved = torch.cuda.memory_reserved() / 1024**3
-            print(f"  ├─ [GPU] 已分配: {allocated:.2f}GB | 已保留: {reserved:.2f}GB")
+        utils.logger.info(f"[VLMHandler.analyze_batch] GPU 已分配: {allocated:.2f}GB | 已保留: {reserved:.2f}GB")
 
         # 推理生成
-        print(f"  ├─ [GPU] 正在生成结果...")
+        utils.logger.info(f"[VLMHandler.analyze_batch] GPU 正在生成结果...")
         try:
             with torch.no_grad():
                 autocast_ctx = torch.amp.autocast(device_type='cuda', enabled=(DEVICE == "cuda"))
@@ -196,7 +197,7 @@ class VLMHandler:
                         use_cache=True
                     )
             
-            print(f"  [推理] 正在解码模型输出...")
+            utils.logger.info(f"[VLMHandler.analyze_batch] 推理: 正在解码模型输出...")
             # 裁剪输入部分，只保留生成的回复
             generated_ids_trimmed = [
                 out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
@@ -205,10 +206,13 @@ class VLMHandler:
             decoded_results = self.processor.batch_decode(
                 generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
             )
+            # 增加详细日志输出 API 得到的数据
+            for i, res in enumerate(decoded_results):
+                utils.logger.info(f"[VLMHandler.analyze_batch] DEBUG: API 响应结果 [{i+1}/{len(decoded_results)}]: {res[:200]}...")
         except torch.cuda.OutOfMemoryError as e:
-            print(f"\n  [❗ 严重警告] 显存溢出 (OOM): {str(e)}")
-            print("  原因: 当前批次 (Batch Size) 过大或文本过长，导致显存请求超出 GPU 限制。")
-            print("  建议: 请减小 --batch_size 参数，或将纯文本批次进一步降低。")
+            utils.logger.error(f"\n  [VLMHandler.analyze_batch] [❗ 严重警告] 显存溢出 (OOM): {str(e)}")
+            utils.logger.warning("  [VLMHandler.analyze_batch] 原因: 当前批次 (Batch Size) 过大或文本过长，导致显存请求超出 GPU 限制。")
+            utils.logger.warning("  [VLMHandler.analyze_batch] 建议: 请减小 --batch_size 参数，或将纯文本批次进一步降低。")
             if DEVICE == "cuda":
                 torch.cuda.empty_cache()
             raise e # 抛出异常让上层处理

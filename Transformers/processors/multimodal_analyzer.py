@@ -15,6 +15,7 @@ from ..config import (
     MEDIA_CRAWLER_DATA_DIR, FINE_GRAINED_SENTIMENT_MAPPING, 
     INTENT_CATEGORIES_MAPPING, TRANSFORMERS_DIR, CACHE_DIR
 )
+from Transformers import utils
 
 class MultimodalAnalyzer:
     def __init__(self, vlm_handler: VLMHandler):
@@ -38,9 +39,9 @@ class MultimodalAnalyzer:
                     self._analysis_cache = data.get("analysis", {})
                     self._vision_cache = data.get("vision", {})
                     self._text_pool = data.get("text_pool", {})
-                print(f"[缓存] 已加载持久化缓存: {len(self._analysis_cache)} 条记录, {len(self._text_pool)} 条语义记录")
+                utils.logger.info(f"[MultimodalAnalyzer._load_persistent_cache] 已加载持久化缓存: {len(self._analysis_cache)} 条记录, {len(self._text_pool)} 条语义记录")
             except Exception as e:
-                print(f"[缓存] 加载失败: {e}")
+                utils.logger.error(f"[MultimodalAnalyzer._load_persistent_cache] 加载失败: {e}")
 
     def _save_persistent_cache(self):
         """将缓存保存到磁盘。"""
@@ -59,7 +60,7 @@ class MultimodalAnalyzer:
                     "text_pool": self._text_pool
                 }, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"[缓存] 保存失败: {e}")
+            utils.logger.error(f"[MultimodalAnalyzer._save_persistent_cache] 保存失败: {e}")
 
     def _check_fast_path(self, text: str) -> Optional[Dict[str, Any]]:
         """快速判定短文本或无意义回复（1ms 级）。"""
@@ -201,7 +202,7 @@ class MultimodalAnalyzer:
         thread.join(timeout)
         
         if thread.is_alive():
-            print(f"\n[超时] 超过 {timeout}s 未输入，将由系统自动标注。")
+            utils.logger.warning(f"\n[MultimodalAnalyzer._input_with_timeout] [超时] 超过 {timeout}s 未输入，将由系统自动标注。")
             return None
         return result[0]
 
@@ -218,12 +219,14 @@ class MultimodalAnalyzer:
         if exporter:
             existing_ids = exporter.get_existing_ids()
             if existing_ids:
+                data_len_before = len(data)
                 data = [item for item in data if f"{item.get('note_id')}_{item.get('comment_id')}" not in existing_ids]
-                if 0 < len(data) < batch_size * 10:
-                    print(f"\n[断点续传] 已过滤掉已处理的数据，剩余 {len(data)} 条。")
+                filtered_count = data_len_before - len(data)
+                if filtered_count > 0:
+                    utils.logger.info(f"[MultimodalAnalyzer.process_batch] [断点续传] 已过滤掉 {filtered_count} 条已处理的数据，剩余 {len(data)} 条。")
 
         if not data:
-            print("\n[完成] 没有新数据需要处理。")
+            utils.logger.info("[MultimodalAnalyzer.process_batch] [完成] 没有新数据需要处理。")
             return []
 
         # --- 数据分流 (核心优化 2) ---
@@ -235,12 +238,10 @@ class MultimodalAnalyzer:
             else:
                 multimodal_data.append(item)
 
-        print(f"\n" + "┌" + "─"*60 + "┐")
-        print(f"│ 📊 数据分流报告")
-        print(f"├" + "─"*60 + "┤")
-        print(f"│ • 纯文本流: {len(text_only_data)} 条 -> [策略: 跳过视觉编码, 稳定 Batch=32]")
-        print(f"│ • 多模态流: {len(multimodal_data)} 条 -> [策略: 开启视觉编码, 标准 Batch={self.adaptive_batch_size}]")
-        print(f"└" + "─"*60 + "┘")
+        utils.logger.info(f"[MultimodalAnalyzer.process_batch] 📊 数据分流报告")
+        utils.logger.info(f"[MultimodalAnalyzer.process_batch] • 纯文本流: {len(text_only_data)} 条 -> [策略: 跳过视觉编码, 稳定 Batch=32]")
+        utils.logger.info(f"[MultimodalAnalyzer.process_batch] • 多模态流: {len(multimodal_data)} 条 -> [策略: 开启视觉编码, 标准 Batch={self.adaptive_batch_size}]")
+        utils.logger.info("-" * 60)
         
         analyzed_data = []
         overall_start_time = time.time()
@@ -264,7 +265,7 @@ class MultimodalAnalyzer:
             # 针对纯文本流优化：按长度排序，形成“长度桶”，减少推理时的 Padding 开销
             if mode_name == "纯文本":
                 target_data.sort(key=lambda x: len(x.get("content", "")))
-                print(f"[优化] 纯文本流已按长度排序，减少 GPU Padding 开销")
+                utils.logger.info(f"[MultimodalAnalyzer.run_pipeline] [优化] 纯文本流已按长度排序，减少 GPU Padding 开销")
 
             total_target = len(target_data)
             processed_target = 0
@@ -294,9 +295,9 @@ class MultimodalAnalyzer:
                     cached_indices = []
                     
                     if actual_bs != current_bs:
-                        print(f"\n[策略] 视觉压力较大，动态调整 Batch Size: {current_bs} -> {actual_bs}")
+                        utils.logger.info(f"[MultimodalAnalyzer.prefetch_worker] 策略: 视觉压力较大，动态调整 Batch Size: {current_bs} -> {actual_bs}")
                     
-                    print(f"\n[CPU] 正在预处理第 {idx//current_bs + 1} 批数据 ({mode_name})")
+                    utils.logger.info(f"[MultimodalAnalyzer.prefetch_worker] CPU: 正在预处理第 {idx//current_bs + 1} 批数据 ({mode_name})")
                     
                     # 使用线程池并行计算 MD5 和签名
                     def prepare_item(item_data):
@@ -410,10 +411,10 @@ class MultimodalAnalyzer:
                     if vlm_batch_data:
                         try:
                             from ..config import ANALYSIS_PROMPT
-                            print(f"  └─ [CPU] 执行 Token 编码与张量化...")
+                            utils.logger.info(f"[MultimodalAnalyzer.prefetch_worker] CPU: 执行 Token 编码与张量化...")
                             preprocessed_inputs = self.vlm.preprocess_batch(vlm_batch_data, ANALYSIS_PROMPT)
                         except Exception as e:
-                            print(f"  └─ [CPU 错误] 预处理失败: {e}")
+                            utils.logger.error(f"[MultimodalAnalyzer.prefetch_worker] CPU 错误: 预处理失败: {e}")
 
                     self.prefetch_queue.put({
                         "batch_items": batch_items,
@@ -444,7 +445,7 @@ class MultimodalAnalyzer:
                         vlm_start = time.time()
                         from ..config import ANALYSIS_PROMPT
                         
-                        print(f"[GPU] 正在推理批次 (Batch: {len(vlm_batch_data)} | 模式: {mode_name})")
+                        utils.logger.info(f"[MultimodalAnalyzer.run_pipeline] [GPU] 正在推理批次 (Batch: {len(vlm_batch_data)} | 模式: {mode_name})")
                         # 仅执行 GPU 推理，不执行解码和后处理
                         raw_outputs = self.vlm.analyze_batch(vlm_batch_data, ANALYSIS_PROMPT, preprocessed_inputs=preprocessed_inputs)
                         vlm_duration = time.time() - vlm_start
@@ -460,7 +461,7 @@ class MultimodalAnalyzer:
                                 for v_data, raw_output in zip(v_data_list, outputs):
                                     b_idx = v_data["item_idx"]
                                     if b_idx >= len(items):
-                                        print(f"  [后处理警告] 索引越界: b_idx={b_idx}, items_len={len(items)}")
+                                        utils.logger.warning(f"  [MultimodalAnalyzer.async_post_process] 后处理警告: 索引越界: b_idx={b_idx}, items_len={len(items)}")
                                         continue
                                         
                                     item = items[b_idx]
@@ -521,20 +522,20 @@ class MultimodalAnalyzer:
                                     
                                 post_duration = time.time() - post_start
                                 # 统一日志输出格式，增加运行时间统计
-                                print(f"  ├─ [{timestamp}] [耗时 {time_str}] [进度 {processed_target}/{total_target}] ID: [{ids_summary}]")
-                                print(f"  └─ [性能] 推理: {duration:.2f}s | 后处理: {post_duration:.2f}s")
+                                utils.logger.info(f"[MultimodalAnalyzer.async_post_process] [{timestamp}] [总计 {time_str}] [进度 {processed_target}/{total_target}] ID: [{ids_summary}]")
+                                utils.logger.info(f"[MultimodalAnalyzer.async_post_process] 性能: 推理 {duration:.2f}s | 后处理 {post_duration:.2f}s")
                                 
                                 # 定期存盘
                                 if len(self._analysis_cache) % 100 == 0:
                                     self._save_persistent_cache()
                             except Exception as ex:
-                                print(f"  [后处理错误] {ex}")
+                                utils.logger.error(f"  [MultimodalAnalyzer.async_post_process] 后处理错误: {ex}")
 
                         # 提交到线程池执行
                         self.cpu_executor.submit(async_post_process, batch_items, vlm_batch_data, raw_outputs, vlm_start, vlm_duration)
 
                     except Exception as e:
-                        print(f"  [GPU 错误] 批次推理失败: {e}")
+                        utils.logger.error(f"  [MultimodalAnalyzer.run_pipeline] [GPU 错误] 批次推理失败: {e}")
                         for b_idx, item in enumerate(batch_items):
                             if batch_results[b_idx] is None:
                                 item["analysis"] = {"sentiment": "Unknown", "error": str(e)}
@@ -543,7 +544,8 @@ class MultimodalAnalyzer:
                 # 处理已经命中的缓存
                 if cached_indices and exporter:
                     cached_items = [batch_items[idx] for idx in cached_indices]
-                    self.cpu_executor.submit(exporter.export, cached_items, True, use_lock)
+                    # 再次确保缓存命中的项不会导致重复写入（防止同一批次内多次命中相同 sig）
+                    exporter.export(cached_items, append=True, use_lock=use_lock)
                 
                 for b_idx, item in enumerate(batch_items):
                     item["analysis"] = batch_results[b_idx]
@@ -551,15 +553,15 @@ class MultimodalAnalyzer:
 
         # 1. 先处理纯文本数据 (使用稳定批次: 32)
         if text_only_data:
-            print(f"\n🚀 启动阶段 1: 纯文本并行推理流 (稳定模式)")
+            utils.logger.info(f"[MultimodalAnalyzer.process_batch] 🚀 启动阶段 1: 纯文本并行推理流 (稳定模式)")
             run_pipeline(text_only_data, current_bs=32, mode_name="纯文本")
 
         # 2. 再处理多模态数据 (使用原批次)
         if multimodal_data:
-            print(f"\n🚀 启动阶段 2: 多模态图文推理流 (精准模式)")
+            utils.logger.info(f"[MultimodalAnalyzer.process_batch] 🚀 启动阶段 2: 多模态图文推理流 (精准模式)")
             run_pipeline(multimodal_data, current_bs=self.adaptive_batch_size, mode_name="多模态")
 
-        print(f"\n[完成] 总耗时: {(time.time() - overall_start_time)/60:.1f}min")
+        utils.logger.info(f"[MultimodalAnalyzer.process_batch] 完成: 总耗时: {(time.time() - overall_start_time)/60:.1f}min")
         return analyzed_data
 
     def analyze_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -606,43 +608,38 @@ class MultimodalAnalyzer:
         text = item.get("content", "")
         item_type = item.get("type", "item")
         
-        print("\n" + "="*50)
-        print("⚠️  触发手动标注模式")
-        print(f"类型: {item_type}")
-        print(f"内容文本: {text}")
+        utils.logger.warning("="*50)
+        utils.logger.warning("[MultimodalAnalyzer._manual_annotate] ⚠️  触发手动标注模式")
+        utils.logger.info(f"[MultimodalAnalyzer._manual_annotate] 类型: {item_type}")
+        utils.logger.info(f"[MultimodalAnalyzer._manual_annotate] 内容文本: {text}")
         if item.get("parent_content"):
-             print(f"原帖内容: {item['parent_content']}")
-        
-        # 处理图片路径为 Windows 可点击格式
-        print("-" * 50)
-        print("图片列表 (点击可打开):")
+             utils.logger.info(f"[MultimodalAnalyzer._manual_annotate] 原帖内容: {item['parent_content']}")
+        utils.logger.info("-" * 50)
+        utils.logger.info("[MultimodalAnalyzer._manual_annotate] 图片列表 (点击可打开):")
         for img_rel in images:
-            abs_path = Path(img_rel)
-            # 使用 pathlib 的 as_uri() 生成标准的 Windows 可点击路径
+            abs_path = Path(img_rel).absolute()
             clickable_path = abs_path.as_uri()
-            print(f"  - {clickable_path}")
-        print("-" * 50)
-
-        # 1. 询问是否需要手动标注
+            utils.logger.info(f"  - {clickable_path}")
+        utils.logger.info("-" * 50)
+        
         if not force:
             choice = self._input_with_timeout("是否需要手动标注此项? (y/n, 默认n, 20s后跳过): ", 20)
             if choice is None or choice.lower() != 'y':
-                print(">>> 跳过手动标注，交由系统分析...")
-                return None # 返回 None 触发 VLM 分析
+                utils.logger.info("[MultimodalAnalyzer._manual_annotate] >>> 跳过手动标注，交由系统分析...")
+                return None
         else:
-            print(">>> VLM 发生错误，必须手动标注。")
-
-        # 2. 进行标注
-        print(f"可用主情感: {' / '.join(SENTIMENT_CATEGORIES)}")
+            utils.logger.warning("[MultimodalAnalyzer._manual_annotate] >>> VLM 发生错误，必须手动标注。")
+        
+        utils.logger.info(f"[MultimodalAnalyzer._manual_annotate] 可用主情感: {' / '.join(SENTIMENT_CATEGORIES)}")
         sentiment = self._input_with_timeout("请输入主情感标签: ", 20)
         if sentiment is None: return None
 
-        print(f"可用细粒度情感: {' / '.join(FINE_GRAINED_SENTIMENT_CATEGORIES)}")
+        utils.logger.info(f"[MultimodalAnalyzer._manual_annotate] 可用细粒度情感: {' / '.join(FINE_GRAINED_SENTIMENT_CATEGORIES)}")
         fine_grained = self._input_with_timeout("请输入细粒度情感标签: ", 20)
         if fine_grained is None: return None
-            
-        print(f"可用意图: {' / '.join(INTENT_CATEGORIES)}")
-        intent = self._input_with_timeout("请输入用户意图: ", 20)
+
+        utils.logger.info(f"[MultimodalAnalyzer._manual_annotate] 可用意图: {' / '.join(INTENT_CATEGORIES)}")
+        intent = self._input_with_timeout("请输入意图标签: ", 20)
         if intent is None: return None
             
         irony_input = self._input_with_timeout("是否包含反讽? (y/n, 默认n): ", 20)
