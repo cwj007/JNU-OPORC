@@ -3,6 +3,7 @@ import asyncio
 import os
 import re
 import pathlib
+import time
 from typing import List, Optional
 from urllib.parse import unquote
 
@@ -110,10 +111,17 @@ class WeiboTopIDExtractor(WeiboCrawler):
                         cookie_str=config.COOKIES,
                     )
                     await login_obj.login_by_cookies()
+                    
+                    # 关键修正：单 Cookie 模式下，注入浏览器后必须同步更新到 API 客户端 headers
+                    await self.wb_client.update_cookies(browser_context=self.browser_context)
                 
                 # 注入后再次访问主页以刷新状态
                 await self.context_page.goto(self.index_url)
-                await asyncio.sleep(2)
+                try:
+                    await self.context_page.wait_for_load_state("networkidle", timeout=10000)
+                except Exception:
+                    utils.logger.warning("[WeiboTopIDExtractor] 等待页面加载超时，继续执行...")
+                await asyncio.sleep(3)
 
             if not await self.wb_client.pong():
                 from .login import WeiboLogin
@@ -188,10 +196,18 @@ class WeiboTopIDExtractor(WeiboCrawler):
 
             # 提取器选择器 (综合用户提供和实际观察)
             selectors = [
+                # 新版搜索结果通用卡片结构
+                "div.card-wrap div.from a[target='_blank']",
+                "div.card-wrap div.content a[target='_blank']",
+                
+                # 旧版或特定视图结构
                 "#pl_feedlist_index div.card-feed div.from a[target='_blank']",
                 "div.card-feed div.from a[target='_blank']",
                 "div.from a[target='_blank']",
-                "div.card-feed div.content a[target='_blank']"
+                "div.card-feed div.content a[target='_blank']",
+                
+                # 尝试匹配 feed_list_item 属性
+                "div[action-type='feed_list_item'] div.from a[target='_blank']"
             ]
 
             # 存储结果的目录准备
@@ -252,6 +268,24 @@ class WeiboTopIDExtractor(WeiboCrawler):
                         utils.logger.info(f"[WeiboTopIDExtractor] 已将板块 [{keyword}] 的结果追加到: {target_file}")
                     else:
                         utils.logger.warning(f"[WeiboTopIDExtractor] 未能从该榜单提取到任何 ID")
+                        
+                        # Debug: 保存 HTML 以便分析页面结构
+                        try:
+                            debug_dir = os.path.join(self.target_base_dir, "debug_html")
+                            if not os.path.exists(debug_dir):
+                                os.makedirs(debug_dir)
+                            
+                            safe_keyword = re.sub(r'[\\/:*?"<>|]', '_', keyword)
+                            timestamp = int(time.time())
+                            debug_file = os.path.join(debug_dir, f"failed_{safe_keyword}_{timestamp}.html")
+                            
+                            content = await self.context_page.content()
+                            with open(debug_file, "w", encoding="utf-8") as f:
+                                f.write(content)
+                            utils.logger.info(f"[WeiboTopIDExtractor] 已保存页面 HTML 用于调试: {debug_file}")
+                        except Exception as e:
+                            utils.logger.error(f"[WeiboTopIDExtractor] 保存调试 HTML 失败: {e}")
+
                 except Exception as e:
                     utils.logger.error(f"[WeiboTopIDExtractor] 处理 URL {url} 时出错: {e}")
 
