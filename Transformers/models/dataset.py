@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 from PIL import Image
 from pathlib import Path
 from qwen_vl_utils import process_vision_info
-from .config import (
+from Transformers.config import (
     ANALYSIS_PROMPT, SENTIMENT_CATEGORIES, INTENT_CATEGORIES, 
     MIN_PIXELS, MAX_PIXELS, FINE_GRAINED_SENTIMENT_MAPPING, 
     INTENT_CATEGORIES_MAPPING
@@ -39,8 +39,13 @@ class MultimodalVLMDataset(Dataset):
         # 添加图片信息
         images = item.get("image_paths", [])
         for img_path in images:
-            # 确保路径是绝对路径
-            full_path = Path("e:/JNU-OPORC/MediaCrawler") / img_path
+            # Handle both absolute and relative paths
+            img_p = Path(img_path)
+            if img_p.is_absolute():
+                full_path = img_p
+            else:
+                full_path = Path("e:/JNU-OPORC/MediaCrawler") / img_path
+            
             if full_path.exists():
                 content.append({
                     "type": "image",
@@ -48,13 +53,24 @@ class MultimodalVLMDataset(Dataset):
                     "min_pixels": MIN_PIXELS,
                     "max_pixels": MAX_PIXELS,
                 })
+            else:
+                # Optional: log missing image
+                pass
 
         # 添加文本信息
         text_content = item.get("content", "")
+        if not text_content:
+            # Fallback to empty text if content is missing
+            text_content = "[无文本内容]"
+            
         content.append({"type": "text", "text": f"{prompt}\n\n内容文本: {text_content}"})
 
         # 准备目标输出 (JSON 格式)
         sentiment_analysis = item.get("sentiment_analysis", {})
+        if not sentiment_analysis:
+            # Fallback for training stability
+            sentiment_analysis = {"sentiment": "中性", "reasoning": "数据缺失"}
+            
         target_output = json.dumps(sentiment_analysis, ensure_ascii=False)
 
         messages = [
@@ -70,7 +86,9 @@ class MultimodalVLMDataset(Dataset):
             text=[text_prompt],
             images=image_inputs,
             videos=video_inputs,
-            padding=True,
+            padding="max_length", # 强制对齐
+            max_length=512,       # 极致压缩序列长度至 512
+            truncation=True,      # 开启截断
             return_tensors="pt",
         )
 

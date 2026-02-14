@@ -26,9 +26,9 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = True
 
 # 解决国内网络连接 hf-mirror.com 不稳定的问题
-# 优先使用本地缓存，避免每次启动都联网检查模型更新
-os.environ["TRANSFORMERS_OFFLINE"] = "1"
-os.environ["HF_HUB_OFFLINE"] = "1"
+# 默认开启离线模式，如果本地没有模型权重，请先手动下载或临时关闭此开关
+os.environ["TRANSFORMERS_OFFLINE"] = os.getenv("TRANSFORMERS_OFFLINE", "1")
+os.environ["HF_HUB_OFFLINE"] = os.getenv("HF_HUB_OFFLINE", "1")
 
 # Base paths
 BASE_DIR = Path(__file__).parent.parent
@@ -76,29 +76,55 @@ FINE_GRAINED_SENTIMENT_CATEGORIES = [item for sublist in FINE_GRAINED_SENTIMENT_
 INTENT_CATEGORIES = [item for sublist in INTENT_CATEGORIES_MAPPING.values() for item in sublist]
 
 # 提示词：引导模型进行图文消解、情感识别和反讽判定
-ANALYSIS_PROMPT = """
-你是一个舆情专家。请分析“目标”内容的情感与意图，Context仅作背景参考。
+# Sentiment categories 
+SENTIMENT_CATEGORIES = ["正面", "中性", "负面"] 
 
-分类标准：
-- 正面: 情感[{fg_pos}], 意图[{intent_pos}]
-- 中性: 情感[{fg_neu}], 意图[{intent_neu}]
-- 负面: 情感[{fg_neg}], 意图[{intent_neg}]
+# 细粒度情感类别映射 (层级结构) 
+FINE_GRAINED_SENTIMENT_MAPPING = { 
+    "正面": ["惊喜", "赞赏", "期待", "愉快"], 
+    "中性": ["中立"], 
+    "负面": ["愤怒", "失望", "焦虑", "厌恶", "悲伤"] 
+} 
 
-核心约束：
-1. 情感/意图必须选自对应主类别的列表。
-2. 图文矛盾则 irony_detected=true。
-3. 无图时 objects=[]，ocr_text=""，reasoning严禁提及图片。
-4. 仅输出 JSON，严禁其他文字。
+# 意图类别映射 (层级结构) 
+INTENT_CATEGORIES_MAPPING = { 
+    "正面": ["推荐/安利", "炫耀/分享"], 
+    "中性": ["咨询/询问", "吃瓜/围观", "其他"], 
+    "负面": ["投诉/反馈", "吐槽/不满"] 
+} 
 
-字段要求：
-- sentiment: 正面/中性/负面
-- fine_grained_sentiment: 细粒度标签
-- intent: 意图标签
-- irony_detected: true/false
-- reasoning: 简短理由(区分背景与目标)
-- keywords: 关键词列表
-- objects: 视觉对象列表
-- ocr_text: OCR文字
+# 扁平化列表供 Prompt 使用 
+FINE_GRAINED_SENTIMENT_CATEGORIES = [item for sublist in FINE_GRAINED_SENTIMENT_MAPPING.values() for item in sublist] 
+INTENT_CATEGORIES = [item for sublist in INTENT_CATEGORIES_MAPPING.values() for item in sublist] 
+
+# 提示词：引导模型进行图文消解、情感识别和反讽判定 
+ANALYSIS_PROMPT = """你是一个专业的**多模态舆情专家**。请分析“目标”内容的情感与意图，Context仅作背景参考。
+
+分类标准： 
+- 正面: 情感[{fg_pos}], 意图[{intent_pos}] 
+- 中性: 情感[{fg_neu}], 意图[{intent_neu}] 
+- 负面: 情感[{fg_neg}], 意图[{intent_neg}] 
+
+核心指南：
+1. **识别反讽**：文字表面夸奖但实际描述负面事实（如“取消奖金却说老板体贴”）必须判定为“负面”并标记 irony_detected=true。
+2. **图文消解**：若图片揭示了与文字相反的负面事实（如文字说“环境好”但图片是“废墟”），判定为“负面”并标记 irony_detected=true。
+3. **事实优先**：涉及利益受损（欠薪、裁员、福利削减）的客观事实，情感应判定为“负面”。
+
+核心约束： 
+1. 情感/意图必须选自对应主类别的列表。 
+2. 图文矛盾则 irony_detected=true。 
+3. 无图时 objects=[]，ocr_text=""，reasoning严禁提及图片。 
+4. 仅输出 JSON，严禁其他文字。 
+
+字段要求： 
+- sentiment: 正面/中性/负面 
+- fine_grained_sentiment: 细粒度标签 
+- intent: 意图标签 
+- irony_detected: true/false 
+- reasoning: 简短理由(必须说明判定逻辑，尤其是反讽逻辑) 
+- keywords: 关键词列表 
+- objects: 视觉对象列表 
+- ocr_text: OCR文字 
 """
 
 # Output settings
