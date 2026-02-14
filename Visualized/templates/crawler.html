@@ -10,33 +10,450 @@
     <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
     <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
     <style>
-        :root { --bg-color: #f5f7fa; --sidebar-width: 240px; }
-        body { margin: 0; background-color: var(--bg-color); font-family: sans-serif; }
-        #app { display: flex; height: 100vh; }
-        .sidebar { width: var(--sidebar-width); background-color: #304156; color: #fff; flex-shrink: 0; }
-        .sidebar-logo { height: 60px; line-height: 60px; text-align: center; font-weight: bold; border-bottom: 1px solid #1f2d3d; }
-        .main-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-        .header { height: 60px; background: #fff; display: flex; align-items: center; padding: 0 20px; box-shadow: 0 1px 4px rgba(0,21,41,.08); }
-        .content { padding: 20px; flex: 1; overflow-y: auto; }
-        .log-container { background: #1e1e1e; color: #d4d4d4; padding: 15px; border-radius: 4px; font-family: monospace; height: 400px; overflow-y: auto; margin-top: 20px; font-size: 13px; line-height: 1.5; }
-        .log-line { margin-bottom: 4px; border-left: 3px solid transparent; padding-left: 8px; }
-        .log-info { color: #4fc1ff; }
-        .log-error { color: #f44747; border-left-color: #f44747; }
-        .log-warning { color: #dcdcaa; border-left-color: #dcdcaa; }
-        .log-success { color: #6a9955; }
-        .status-bar { display: flex; align-items: center; gap: 20px; margin-bottom: 20px; }
+        :root {
+            --bg-color: #0a0e17;
+            --sidebar-bg: #0a0e17;
+            --card-bg: rgba(26, 31, 46, 0.45);
+            --border-color: rgba(0, 240, 255, 0.15);
+            --primary-color: #00f0ff;
+            --accent-color: #b967ff;
+            --text-primary: #e0e6ed;
+            --text-secondary: #94a3b8;
+            --sidebar-width: 240px;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', 'Roboto', 'PingFang SC', sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 50% 50%, rgba(0, 240, 255, 0.05) 0%, transparent 50%),
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+            color: var(--text-primary);
+            overflow: hidden;
+            position: relative;
+        }
+
+        /* 扫描线效果 */
+        body::after {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, 
+                transparent 0%, 
+                rgba(0, 240, 255, 0.05) 50%, 
+                transparent 100%);
+            background-size: 100% 8px;
+            z-index: -1;
+            pointer-events: none;
+            animation: scanline 10s linear infinite;
+        }
+
+        @keyframes scanline {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+
+        .data-stream-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .data-particle {
+            position: absolute;
+            width: 1px;
+            height: 40px;
+            background: linear-gradient(to bottom, transparent, var(--primary-color));
+            opacity: 0.2;
+            animation: particle-fall linear infinite;
+        }
+
+        @keyframes particle-fall {
+            from { transform: translateY(-100px); }
+            to { transform: translateY(100vh); }
+        }
+
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--sidebar-bg); /* 与 header 背景一致 */
+            border-right: 1px solid rgba(0, 240, 255, 0.2); /* 统一边框色 */
+            color: var(--text-primary);
+            flex-shrink: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            overflow: hidden;
+            z-index: 1001;
+            box-shadow: 10px 0 30px rgba(0, 0, 0, 0.7);
+        }
+
+        /* 同步 Header 的背景装饰效果到 Sidebar */
+        .sidebar::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            right: 0;
+            width: 1px;
+            background: linear-gradient(to bottom, 
+                transparent 0%, 
+                rgba(0, 240, 255, 0.2) 20%, 
+                rgba(0, 240, 255, 0.5) 50%, 
+                rgba(0, 240, 255, 0.2) 80%, 
+                transparent 100%);
+            z-index: 1;
+        }
+
+        .sidebar::after {
+            content: '';
+            position: absolute;
+            top: -100%;
+            left: 0;
+            width: 100%;
+            height: 50%;
+            background: linear-gradient(to bottom, 
+                transparent, 
+                rgba(0, 240, 255, 0.05), 
+                transparent);
+            transform: skewY(-30deg);
+            animation: sidebar-scan 8s infinite;
+            pointer-events: none;
+        }
+
+        @keyframes sidebar-scan {
+            0% { top: -100%; }
+            50% { top: 150%; }
+            100% { top: 150%; }
+        }
+
+        .sidebar-logo {
+            height: 64px;
+            line-height: 64px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--accent-color) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+            border-bottom: 1px solid var(--border-color);
+            letter-spacing: 2px;
+            font-family: 'Orbitron', sans-serif;
+            white-space: nowrap;
+        }
+
+        .el-menu {
+            border-right: none !important;
+            background-color: transparent !important;
+        }
+
+        .el-menu-item {
+            color: var(--text-secondary) !important;
+            margin: 4px 12px;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        .el-menu-item:hover, .el-menu-item.is-active {
+            background: rgba(0, 240, 255, 0.1) !important;
+            color: var(--primary-color) !important;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
+        }
+
+        .el-menu-item .el-icon {
+            color: inherit !important;
+        }
+
+        .main-container {
+            flex: 1;
+            overflow: hidden; /* 改为 hidden，防止整体滚动 */
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            background: transparent;
+            height: 100vh;
+        }
+
+        .header {
+            height: 64px;
+            background: transparent !important; /* 透明化处理 */
+            backdrop-filter: blur(10px); /* 保持与 control-bar 一致的模糊度 */
+            -webkit-backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(0, 240, 255, 0.2);
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+            flex-shrink: 0;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                rgba(0, 240, 255, 0.2) 20%, 
+                rgba(0, 240, 255, 0.5) 50%, 
+                rgba(0, 240, 255, 0.2) 80%, 
+                transparent 100%);
+            z-index: 1;
+        }
+
+        .header::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 50%;
+            height: 100%;
+            background: linear-gradient(90deg, 
+                transparent, 
+                rgba(0, 240, 255, 0.05), 
+                transparent);
+            transform: skewX(-30deg);
+            animation: header-scan 6s infinite;
+            pointer-events: none;
+        }
+
+        @keyframes header-scan {
+            0% { left: -100%; }
+            50% { left: 150%; }
+            100% { left: 150%; }
+        }
+
+        .el-breadcrumb__inner {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--accent-color) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 2px;
+            font-size: 18px;
+            font-weight: 800 !important;
+            text-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+            transition: all 0.3s;
+        }
+
+        .el-breadcrumb__item:last-child .el-breadcrumb__inner {
+            font-weight: 800 !important;
+            filter: brightness(1.2);
+        }
+
+        .el-breadcrumb__separator {
+            color: rgba(255, 255, 255, 0.3) !important;
+            margin: 0 8px;
+        }
+
+        .content {
+            padding: 24px;
+            padding-top: 24px;
+            flex: 1;
+            overflow-y: auto; /* 恢复内容区域的滚动 */
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 科技感卡片 */
+        .el-card {
+            background-color: var(--card-bg) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--text-primary) !important;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+            border-radius: 16px !important;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .el-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--primary-color), var(--accent-color), transparent);
+            opacity: 0.3;
+        }
+
+        .el-card__header {
+            border-bottom: 1px solid var(--border-color) !important;
+            color: var(--primary-color) !important;
+            font-weight: bold;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        /* 表单控件科技化 */
+        .el-form-item__label {
+            color: var(--text-secondary) !important;
+        }
+
+        .el-input__wrapper, .el-select .el-input__wrapper {
+            background-color: rgba(255, 255, 255, 0.03) !important;
+            box-shadow: 0 0 0 1px var(--border-color) inset !important;
+            border-radius: 8px !important;
+        }
+
+        .el-input__inner {
+            color: var(--text-primary) !important;
+        }
+
+        .el-radio {
+            color: var(--text-secondary) !important;
+        }
+
+        .el-radio.is-checked .el-radio__label {
+            color: var(--primary-color) !important;
+        }
+
+        /* 日志容器终端化 */
+        .log-container {
+            background: rgba(10, 14, 23, 0.9) !important;
+            color: #00ff9d; /* 科技绿 */
+            padding: 24px;
+            border-radius: 16px;
+            font-family: 'Fira Code', 'Consolas', 'JetBrains Mono', monospace;
+            height: 450px;
+            overflow-y: auto;
+            margin-top: 24px;
+            font-size: 13px;
+            line-height: 1.6;
+            border: 1px solid var(--border-color);
+            box-shadow: inset 0 0 30px rgba(0, 255, 157, 0.05);
+            position: relative;
+        }
+
+        .log-container::before {
+            content: 'SYSTEM_CORE_LOG_STREAM';
+            position: absolute;
+            top: 8px;
+            right: 20px;
+            font-size: 10px;
+            color: rgba(0, 255, 157, 0.2);
+            letter-spacing: 2px;
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        .log-line {
+            margin-bottom: 8px;
+            border-left: 2px solid transparent;
+            padding-left: 12px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            transition: all 0.2s;
+        }
+
+        .log-line:hover {
+            background: rgba(0, 255, 157, 0.05);
+        }
+
+        .log-info { color: var(--primary-color); }
+        .log-error { color: #ff4d4f; border-left-color: #ff4d4f; background: rgba(255, 77, 79, 0.05); }
+        .log-warning { color: #fa8c16; border-left-color: #fa8c16; }
+        .log-success { color: #00ff9d; }
+
+        /* 按钮科技化 */
+        .el-button--primary {
+            background: linear-gradient(135deg, var(--primary-color) 0%, #006ad4 100%) !important;
+            border: none !important;
+            box-shadow: 0 4px 15px rgba(0, 240, 255, 0.3) !important;
+            border-radius: 8px !important;
+            font-weight: bold !important;
+        }
+
+        .el-button--danger {
+            background: linear-gradient(135deg, #ff4d4f 0%, #cf1322 100%) !important;
+            border: none !important;
+            box-shadow: 0 4px 15px rgba(255, 77, 79, 0.3) !important;
+            border-radius: 8px !important;
+            font-weight: bold !important;
+        }
+
+        /* 滚动条美化 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(0, 240, 255, 0.2);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-color);
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
     </style>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body>
     <div id="app">
+        <!-- 数据流动画容器 -->
+        <div class="data-stream-container" id="dataStream"></div>
+
         <div class="sidebar">
-            <div class="sidebar-logo">JNU-OPORC</div>
-            <el-menu background-color="#304156" text-color="#fff" active-text-color="#409EFF" default-active="crawler">
-                <el-menu-item index="dashboard" @click="location.href='/'">
-                    <el-icon><odometer /></el-icon><span>控制台</span>
+            <div class="sidebar-logo">JNU-OPORC 舆情哨兵</div>
+            <el-menu
+                active-text-color="var(--primary-color)"
+                background-color="transparent"
+                class="el-menu-vertical"
+                default-active="crawler"
+                :collapse="isCollapse"
+                text-color="var(--text-secondary)"
+                @select="handleMenuSelect"
+            >
+                <el-menu-item index="hotsearch">
+                    <el-icon><trend-charts /></el-icon>
+                    <template #title>平台热榜</template>
+                </el-menu-item>
+                <el-menu-item index="dashboard">
+                    <el-icon><data-line /></el-icon>
+                    <template #title>舆情仪表盘</template>
+                </el-menu-item>
+                <el-menu-item index="monitor">
+                    <el-icon><monitor /></el-icon>
+                    <template #title>舆情检测</template>
+                </el-menu-item>
+                <el-menu-item index="warning">
+                    <el-icon><bell /></el-icon>
+                    <template #title>预警中心</template>
+                </el-menu-item>
+                <el-menu-item index="volume_rank">
+                    <el-icon><histogram /></el-icon>
+                    <template #title>声量热榜</template>
                 </el-menu-item>
                 <el-menu-item index="crawler">
-                    <el-icon><share /></el-icon><span>爬虫管理</span>
+                    <el-icon><share /></el-icon>
+                    <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="settings">
+                    <el-icon><setting /></el-icon>
+                    <template #title>系统配置</template>
                 </el-menu-item>
             </el-menu>
         </div>
@@ -136,6 +553,26 @@
                     }
                 };
 
+                const handleMenuSelect = (index) => {
+                    console.log('Menu selected:', index);
+                    if (!index) return;
+                    
+                    const currentPath = window.location.pathname;
+                    const targetPath = index === 'dashboard' ? '/' : `/${index}`;
+                    
+                    if (currentPath === targetPath || (currentPath === '/' && index === 'dashboard')) {
+                        console.log('Already on target page:', index);
+                        return;
+                    }
+
+                    const externalPages = ['hotsearch', 'volume_rank', 'crawler', 'monitor', 'warning', 'settings'];
+                    if (externalPages.includes(index)) {
+                        window.location.href = `/${index}`;
+                    } else if (index === 'dashboard') {
+                        window.location.href = '/';
+                    }
+                };
+
                 const initWebSocket = () => {
                     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
                     const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws/logs`);
@@ -171,9 +608,23 @@
                     for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
                         app.component(key, component);
                     }
+
+                    // 初始化数据流粒子动画
+                    const container = document.getElementById('dataStream');
+                    if (container) {
+                        const particleCount = 20;
+                        for (let i = 0; i < particleCount; i++) {
+                            const particle = document.createElement('div');
+                            particle.className = 'data-particle';
+                            particle.style.left = Math.random() * 100 + 'vw';
+                            particle.style.animationDuration = (Math.random() * 3 + 2) + 's';
+                            particle.style.animationDelay = Math.random() * 5 + 's';
+                            container.appendChild(particle);
+                        }
+                    }
                 });
 
-                return { form, status, loading, logs, logBox, startCrawler, stopCrawler };
+                return { form, status, loading, logs, logBox, startCrawler, stopCrawler, handleMenuSelect };
             }
         });
         app.use(ElementPlus);

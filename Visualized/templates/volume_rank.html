@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>声量热榜 - JNU-OPORC 舆情哨兵</title>
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.3.8/dist/index.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #0a0e17;
+            --sidebar-bg: #0a0e17;
+            --card-bg: rgba(26, 31, 46, 0.45);
+            --border-color: rgba(0, 240, 255, 0.15);
+            --primary-color: #00f0ff;
+            --accent-color: #b967ff;
+            --text-primary: #e0e6ed;
+            --text-secondary: #94a3b8;
+            --sidebar-width: 240px;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', 'Roboto', 'PingFang SC', sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 50% 50%, rgba(0, 240, 255, 0.05) 0%, transparent 50%),
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* 扫描线效果 */
+        body::after {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, 
+                transparent 0%, 
+                rgba(0, 240, 255, 0.05) 50%, 
+                transparent 100%);
+            background-size: 100% 8px;
+            z-index: -1;
+            pointer-events: none;
+            animation: scanline 10s linear infinite;
+        }
+        @keyframes scanline {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width);
+            background-color: var(--sidebar-bg);
+            border-right: 1px solid var(--border-color);
+            color: var(--text-primary);
+            flex-shrink: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            z-index: 1001;
+            box-shadow: 10px 0 30px rgba(0, 0, 0, 0.7);
+        }
+        .sidebar.collapsed {
+            width: 64px;
+        }
+
+        .sidebar-logo {
+            height: 64px;
+            line-height: 64px;
+            text-align: center;
+            font-size: 18px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--accent-color) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
+            border-bottom: 1px solid var(--border-color);
+            letter-spacing: 2px;
+            font-family: 'Orbitron', sans-serif;
+            white-space: nowrap;
+        }
+
+        .main-container {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            background: transparent;
+        }
+
+        .header {
+            height: 64px;
+            background: rgba(10, 14, 23, 0.85);
+            backdrop-filter: blur(15px);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            justify-content: space-between;
+            z-index: 1000;
+        }
+
+        .collapse-btn {
+            font-size: 22px;
+            cursor: pointer;
+            margin-right: 20px;
+            color: var(--primary-color);
+        }
+
+        .content {
+            padding: 24px;
+            flex: 1;
+        }
+
+        .el-menu {
+            border-right: none !important;
+            background-color: transparent !important;
+        }
+        .el-menu-item {
+            color: var(--text-secondary) !important;
+            margin: 4px 12px;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+        .el-menu-item:hover, .el-menu-item.is-active {
+            background: rgba(0, 240, 255, 0.1) !important;
+            color: var(--primary-color) !important;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
+        }
+        .el-menu-item .el-icon {
+            color: inherit !important;
+        }
+
+        .el-breadcrumb__inner, .el-breadcrumb__separator {
+            color: var(--text-secondary) !important;
+        }
+        .el-breadcrumb__item:last-child .el-breadcrumb__inner {
+            color: var(--primary-color) !important;
+            font-weight: bold;
+        }
+
+        /* 列表卡片样式 */
+        .rank-card {
+            background: var(--card-bg) !important;
+            backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--border-color) !important;
+            border-radius: 16px !important;
+            margin-bottom: 24px;
+        }
+
+        .rank-item {
+            display: flex;
+            align-items: center;
+            padding: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s;
+        }
+        .rank-item:hover {
+            background: rgba(0, 240, 255, 0.05);
+        }
+        
+        .rank-number {
+            width: 40px;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 20px;
+            font-weight: 900;
+            color: var(--text-secondary);
+            text-align: center;
+        }
+        .rank-item:nth-child(1) .rank-number { color: #ffd700; text-shadow: 0 0 10px rgba(255, 215, 0, 0.5); }
+        .rank-item:nth-child(2) .rank-number { color: #c0c0c0; text-shadow: 0 0 10px rgba(192, 192, 192, 0.5); }
+        .rank-item:nth-child(3) .rank-number { color: #cd7f32; text-shadow: 0 0 10px rgba(205, 127, 50, 0.5); }
+
+        .author-avatar {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            margin: 0 16px;
+            border: 2px solid var(--border-color);
+        }
+
+        .author-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .author-name {
+            font-weight: 700;
+            font-size: 16px;
+            color: #fff;
+            margin-bottom: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .platform-tag {
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(0, 240, 255, 0.1);
+            color: var(--primary-color);
+            border: 1px solid var(--border-color);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 24px;
+            text-align: right;
+        }
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+        .stat-value {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+
+        .data-stream-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        .data-particle {
+            position: absolute;
+            width: 1px;
+            height: 40px;
+            background: linear-gradient(to bottom, transparent, var(--primary-color));
+            opacity: 0.2;
+            animation: particle-fall linear infinite;
+        }
+        @keyframes particle-fall {
+            from { transform: translateY(-100px); }
+            to { transform: translateY(100vh); }
+        }
+
+        @media (max-width: 768px) {
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+            .sidebar {
+                display: none;
+            }
+        }
+
+        [v-cloak] { display: none; }
+    </style>
+</head>
+<body>
+    <div id="app" v-cloak>
+        <div class="data-stream-container" id="dataStream"></div>
+
+        <div class="sidebar" :class="{ collapsed: isCollapse }">
+            <div class="sidebar-logo">{{ isCollapse ? 'OPORC' : 'JNU-OPORC 舆情哨兵' }}</div>
+            <el-menu
+                active-text-color="var(--primary-color)"
+                background-color="transparent"
+                class="el-menu-vertical"
+                default-active="volume_rank"
+                :collapse="isCollapse"
+                text-color="var(--text-secondary)"
+                @select="handleMenuSelect"
+            >
+                <el-menu-item index="hotsearch">
+                    <el-icon><trend-charts /></el-icon>
+                    <template #title>平台热榜</template>
+                </el-menu-item>
+                <el-menu-item index="dashboard">
+                    <el-icon><data-line /></el-icon>
+                    <template #title>舆情仪表盘</template>
+                </el-menu-item>
+                <el-menu-item index="monitor">
+                    <el-icon><monitor /></el-icon>
+                    <template #title>舆情检测</template>
+                </el-menu-item>
+                <el-menu-item index="warning">
+                    <el-icon><bell /></el-icon>
+                    <template #title>预警中心</template>
+                </el-menu-item>
+                <el-menu-item index="volume_rank">
+                    <el-icon><histogram /></el-icon>
+                    <template #title>声量热榜</template>
+                </el-menu-item>
+                <el-menu-item index="crawler">
+                    <el-icon><share /></el-icon>
+                    <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="settings">
+                    <el-icon><setting /></el-icon>
+                    <template #title>系统配置</template>
+                </el-menu-item>
+            </el-menu>
+        </div>
+
+        <div class="main-container">
+            <div class="header">
+                <div style="display: flex; align-items: center;">
+                    <el-icon class="collapse-btn" @click="isCollapse = !isCollapse">
+                        <expand v-if="isCollapse"></expand>
+                        <fold v-else></fold>
+                    </el-icon>
+                    <el-breadcrumb separator="/">
+                        <el-breadcrumb-item>首页</el-breadcrumb-item>
+                        <el-breadcrumb-item>声量热榜</el-breadcrumb-item>
+                    </el-breadcrumb>
+                </div>
+            </div>
+
+            <div class="content">
+                <el-card class="rank-card" shadow="never">
+                    <template #header>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size: 18px; font-weight: 800; font-family: 'Orbitron', sans-serif; color: var(--primary-color);">INFLUENCE RANKING</span>
+                            <el-radio-group v-model="platformFilter" size="small">
+                                <el-radio-button label="all">全部</el-radio-button>
+                                <el-radio-button label="weibo">微博</el-radio-button>
+                                <el-radio-button label="douyin">抖音</el-radio-button>
+                                <el-radio-button label="zhihu">知乎</el-radio-button>
+                            </el-radio-group>
+                        </div>
+                    </template>
+
+                    <div v-loading="loading" element-loading-background="rgba(0,0,0,0.5)">
+                        <div v-for="(item, index) in filteredRankData" :key="item.id" class="rank-item">
+                            <div class="rank-number">{{ index + 1 }}</div>
+                            <el-avatar :src="item.avatar" class="author-avatar"></el-avatar>
+                            <div class="author-info">
+                                <div class="author-name">
+                                    {{ item.name }}
+                                    <span class="platform-tag">{{ item.platform }}</span>
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">{{ item.description }}</div>
+                            </div>
+                            <div class="stats-grid">
+                                <div class="stat-item">
+                                    <span class="stat-label">粉丝数</span>
+                                    <span class="stat-value">{{ formatNumber(item.followers) }}</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">互动总量</span>
+                                    <span class="stat-value">{{ formatNumber(item.engagement) }}</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">影响力指数</span>
+                                    <span class="stat-value">{{ item.influence }}</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">情感倾向</span>
+                                    <el-tag :type="item.sentiment > 0.6 ? 'success' : (item.sentiment < 0.4 ? 'danger' : 'warning')" size="small" effect="dark">
+                                        {{ item.sentiment > 0.6 ? '正面' : (item.sentiment < 0.4 ? '负面' : '中性') }}
+                                    </el-tag>
+                                </div>
+                            </div>
+                        </div>
+                        <el-empty v-if="!loading && filteredRankData.length === 0" description="暂无数据"></el-empty>
+                    </div>
+                </el-card>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted, watch } = Vue;
+        const app = createApp({
+            setup() {
+                const isCollapse = ref(false);
+                const platformFilter = ref('all');
+                
+                const rankData = ref([]);
+                const loading = ref(false);
+
+                const fetchRankData = async () => {
+                    loading.value = true;
+                    try {
+                        const response = await axios.get(`/api/rank/influencers?platform=${platformFilter.value}`);
+                        if (response.data.status === 'success') {
+                            rankData.value = response.data.data;
+                        }
+                    } catch (error) {
+                        console.error('Fetch rank data error:', error);
+                        ElementPlus.ElMessage.error('获取榜单数据失败');
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const filteredRankData = computed(() => {
+                    return rankData.value;
+                });
+
+                const handleMenuSelect = (index) => {
+                    console.log('Menu selected:', index);
+                    if (!index) return;
+                    
+                    const currentPath = window.location.pathname;
+                    const targetPath = index === 'dashboard' ? '/' : `/${index}`;
+                    
+                    if (currentPath === targetPath || (currentPath === '/' && index === 'dashboard')) {
+                        console.log('Already on target page:', index);
+                        return;
+                    }
+
+                    const externalPages = ['hotsearch', 'volume_rank', 'crawler', 'monitor', 'warning', 'settings'];
+                    if (externalPages.includes(index)) {
+                        window.location.href = `/${index}`;
+                    } else if (index === 'dashboard') {
+                        window.location.href = '/';
+                    }
+                };
+
+                watch(platformFilter, () => {
+                    fetchRankData();
+                });
+
+                const formatNumber = (num) => {
+                    if (!num) return '0';
+                    if (num >= 100000000) return (num / 100000000).toFixed(1) + '亿';
+                    if (num >= 10000) return (num / 10000).toFixed(1) + '万';
+                    return num;
+                };
+
+                onMounted(() => {
+                    fetchRankData();
+                    const container = document.getElementById('dataStream');
+                    for (let i = 0; i < 20; i++) {
+                        const p = document.createElement('div');
+                        p.className = 'data-particle';
+                        p.style.left = Math.random() * 100 + 'vw';
+                        p.style.animationDuration = (Math.random() * 3 + 2) + 's';
+                        p.style.animationDelay = Math.random() * 5 + 's';
+                        container.appendChild(p);
+                    }
+                });
+
+                return { isCollapse, platformFilter, filteredRankData, formatNumber, handleMenuSelect };
+            }
+        });
+        for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+            app.component(key, component);
+        }
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>

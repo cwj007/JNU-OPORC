@@ -10,23 +10,266 @@
     <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
     <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
     <style>
-        body { margin: 0; background-color: #f5f7fa; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-        .detail-container { max-width: 1200px; margin: 20px auto; padding: 20px; }
-        .page-header { display: flex; align-items: center; margin-bottom: 20px; background: #fff; padding: 15px 20px; border-radius: 4px; box-shadow: 0 1px 4px rgba(0,21,41,.08); }
-        .back-btn { margin-right: 20px; }
-        .content-card { background: #fff; padding: 30px; border-radius: 4px; margin-bottom: 20px; }
-        .article-title { font-size: 24px; font-weight: bold; margin-bottom: 20px; color: #303133; }
-        .article-meta { display: flex; gap: 20px; color: #909399; font-size: 14px; margin-bottom: 30px; padding-bottom: 15px; border-bottom: 1px solid #ebeef5; }
-        .article-body { font-size: 16px; line-height: 1.8; color: #606266; white-space: pre-wrap; margin-bottom: 30px; }
-        .img-gallery { display: flex; flex-wrap: wrap; gap: 15px; margin-top: 20px; }
-        .img-item { width: 200px; height: 200px; border-radius: 8px; cursor: pointer; border: 1px solid #eee; }
-        .analysis-section { margin-top: 40px; }
-        .detail-label { font-weight: bold; color: #606266; width: 100px; display: inline-block; }
-        .detail-row { margin-bottom: 15px; }
+        :root {
+            --bg-color: #0a0e17;
+            --card-bg: rgba(26, 31, 46, 0.7);
+            --border-color: rgba(0, 240, 255, 0.15);
+            --primary-color: #00f0ff;
+            --accent-color: #b967ff;
+            --text-primary: #e0e6ed;
+            --text-secondary: #cccccc;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', 'Roboto', 'PingFang SC', sans-serif;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 50% 50%, rgba(0, 240, 255, 0.05) 0%, transparent 50%),
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 100% 100%, 40px 40px, 40px 40px;
+            color: var(--text-primary);
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* 数据流动画背景 */
+        body::after {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, 
+                transparent 0%, 
+                rgba(0, 240, 255, 0.05) 50%, 
+                transparent 100%);
+            background-size: 100% 8px;
+            z-index: -1;
+            pointer-events: none;
+            animation: scanline 10s linear infinite;
+        }
+
+        @keyframes scanline {
+            0% { transform: translateY(-100%); }
+            100% { transform: translateY(100%); }
+        }
+
+        .data-stream-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -2;
+            pointer-events: none;
+            overflow: hidden;
+        }
+
+        .data-particle {
+            position: absolute;
+            width: 1px;
+            height: 40px;
+            background: linear-gradient(to bottom, transparent, var(--primary-color));
+            opacity: 0.2;
+            animation: particle-fall linear infinite;
+        }
+
+        @keyframes particle-fall {
+            from { transform: translateY(-100px); }
+            to { transform: translateY(100vh); }
+        }
+
+        .detail-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        /* 顶部导航科技化 */
+        .page-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 30px;
+            background: rgba(6, 12, 33, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 15px 25px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .back-btn {
+            background: rgba(0, 210, 255, 0.1) !important;
+            border: 1px solid var(--primary-color) !important;
+            color: var(--primary-color) !important;
+            transition: all 0.3s ease !important;
+        }
+
+        .back-btn:hover {
+            background: var(--primary-color) !important;
+            color: #fff !important;
+            box-shadow: 0 0 15px var(--primary-color);
+        }
+
+        .el-breadcrumb__inner, .el-breadcrumb__separator {
+            color: var(--text-secondary) !important;
+        }
+
+        .el-breadcrumb__item:last-child .el-breadcrumb__inner {
+            color: var(--primary-color) !important;
+            font-weight: bold;
+        }
+
+        /* 内容卡片科技化 */
+        .content-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            padding: 40px;
+            border-radius: 16px;
+            margin-bottom: 30px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .content-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 150px;
+            height: 150px;
+            background: radial-gradient(circle at top right, rgba(0, 210, 255, 0.1), transparent 70%);
+            pointer-events: none;
+        }
+
+        .article-title {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 25px;
+            color: var(--primary-color);
+            text-shadow: 0 0 10px rgba(0, 210, 255, 0.3);
+        }
+
+        .article-meta {
+            display: flex;
+            gap: 25px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 35px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .article-body {
+            font-size: 17px;
+            line-height: 1.8;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+            margin-bottom: 35px;
+            letter-spacing: 0.5px;
+        }
+
+        .img-gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 25px;
+        }
+
+        .img-item {
+            width: 220px;
+            height: 220px;
+            border-radius: 12px;
+            cursor: pointer;
+            border: 1px solid var(--border-color);
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .img-item:hover {
+            transform: scale(1.05);
+            border-color: var(--primary-color);
+            box-shadow: 0 0 20px rgba(0, 210, 255, 0.2);
+        }
+
+        /* 分析部分科技化 */
+        .el-card {
+            background-color: var(--card-bg) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--text-primary) !important;
+            backdrop-filter: blur(10px);
+            border-radius: 16px !important;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
+        }
+
+        .el-card__header {
+            border-bottom: 1px solid var(--border-color) !important;
+            color: var(--primary-color) !important;
+            font-weight: bold;
+            font-size: 18px;
+        }
+
+        .detail-label {
+            font-weight: bold;
+            color: var(--text-secondary);
+            width: 100px;
+            display: inline-block;
+        }
+
+        .detail-row {
+            margin-bottom: 20px;
+        }
+
+        .analysis-reason {
+            color: var(--text-primary);
+            font-size: 14px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            line-height: 1.7;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .ocr-box {
+            margin-top: 15px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 12px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            min-height: 120px;
+            border: 1px dashed var(--border-color);
+            font-family: 'Fira Code', monospace;
+        }
+
+        /* 滚动条美化 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-color);
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
     </style>
 </head>
 <body>
     <div id="app">
+        <!-- 数据流动画容器 -->
+        <div class="data-stream-container" id="dataStream"></div>
+
         <div class="detail-container" v-loading="loading">
             <!-- Header -->
             <div class="page-header">
@@ -166,7 +409,23 @@
                     window.location.href = '/';
                 };
 
-                onMounted(fetchDetail);
+                onMounted(() => {
+                    fetchDetail();
+
+                    // 初始化数据流粒子动画
+                    const container = document.getElementById('dataStream');
+                    if (container) {
+                        const particleCount = 20;
+                        for (let i = 0; i < particleCount; i++) {
+                            const particle = document.createElement('div');
+                            particle.className = 'data-particle';
+                            particle.style.left = Math.random() * 100 + 'vw';
+                            particle.style.animationDuration = (Math.random() * 3 + 2) + 's';
+                            particle.style.animationDelay = Math.random() * 5 + 's';
+                            container.appendChild(particle);
+                        }
+                    }
+                });
 
                 return {
                     article, loading,

@@ -11,17 +11,25 @@ async def get_monitoring_list(
     sentiment: str = None, 
     keyword: str = None,
     date_start: str = None,
-    date_end: str = None
+    date_end: str = None,
+    use_sync_date: bool = False
 ):
     """从数据库分页、筛选获取舆情列表"""
     try:
-        base_query = """
-            SELECT note_id, NULL as comment_id, content, author, source, url, created_at, ip_location, 
+        # 根据参数决定使用 created_at 还是 sync_date 进行排序和过滤
+        # 如果是 created_at，需要提取日期部分进行比较
+        if use_sync_date:
+            date_col = "sync_date"
+        else:
+            date_col = "substr(created_at, 1, 10)"
+        
+        base_query = f"""
+            SELECT note_id, NULL as comment_id, content, author, source, url, created_at, sync_date, sync_time, ip_location, 
                    sentiment, fine_grained_sentiment, intent, keywords, visual_objects, ocr_text, 
                    liked_count, comments_count, shared_count, 'article' as type
             FROM content
             UNION ALL
-            SELECT note_id, comment_id, content, author, source, NULL as url, created_at, ip_location, 
+            SELECT note_id, comment_id, content, author, source, NULL as url, created_at, sync_date, sync_time, ip_location, 
                    sentiment, fine_grained_sentiment, intent, keywords, visual_objects, ocr_text,
                    comment_like_count as liked_count, sub_comment_count as comments_count, 0 as shared_count, 'comment' as type
             FROM comments
@@ -41,11 +49,11 @@ async def get_monitoring_list(
             params.append(f"%{keyword}%")
 
         if date_start:
-            where_clauses.append("created_at >= ?")
+            where_clauses.append(f"{date_col} >= ?")
             params.append(date_start)
         
         if date_end:
-            where_clauses.append("created_at <= ?")
+            where_clauses.append(f"{date_col} <= ?")
             params.append(date_end)
 
         full_query = f"SELECT * FROM ({base_query}) WHERE 1=1"
@@ -56,9 +64,17 @@ async def get_monitoring_list(
         if where_clauses:
             count_query += " AND " + " AND ".join(where_clauses)
 
-        full_query += " ORDER BY created_at DESC"
-        full_query += " LIMIT ? OFFSET ?"
-        params_with_limit = params + [size, (page - 1) * size]
+        if use_sync_date:
+            full_query += f" ORDER BY sync_date DESC, sync_time DESC, created_at DESC"
+        else:
+            full_query += f" ORDER BY created_at DESC"
+        
+        # 如果 size 为 -1，则返回全部数据
+        if size != -1:
+            full_query += " LIMIT ? OFFSET ?"
+            params_with_limit = params + [size, (page - 1) * size]
+        else:
+            params_with_limit = params
 
         items = query_db(full_query, tuple(params_with_limit))
         total_res = query_db(count_query, tuple(params), one=True)
