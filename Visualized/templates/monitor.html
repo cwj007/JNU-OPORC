@@ -529,7 +529,7 @@
                             @close="deleteTask(task.id)"
                         >
                             {{ task.name }}
-                            <el-icon class="task-warning-icon" @click.stop="openWarningConfig(task)" style="margin-left: 5px; cursor: pointer;"><bell /></el-icon>
+                            <el-icon v-if="task.warningEnabled" class="task-warning-icon" @click.stop="openWarningConfig(task)" style="margin-left: 5px; cursor: pointer;"><bell /></el-icon>
                         </el-tag>
                     </div>
                     <el-button type="primary" class="cyber-btn-tech" size="small" @click="openTaskDialog" style="flex: none;">
