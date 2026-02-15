@@ -2,30 +2,23 @@ import pandas as pd
 import json
 import os
 import re
-import httpx
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
 from ..config import MEDIA_CRAWLER_DATA_DIR, IMAGE_EXTENSIONS, CACHE_DIR
 from Transformers import utils
+from Transformers.processors.data_loader import WeiboCSVLoader, WeiboSQLiteLoader, ZhihuSQLiteLoader
 
 class DataManager:
     def __init__(self):
         self.data_dir = MEDIA_CRAWLER_DATA_DIR
-        self._client = None
-        self._client_lock = threading.Lock()
-
-    def get_client(self):
-        with self._client_lock:
-            if self._client is None:
-                # 缩短超时时间，避免单张图片下载卡死整个流程
-                self._client = httpx.Client(follow_redirects=True, timeout=5.0)
-            return self._client
-
-    def __del__(self):
-        if self._client:
-            self._client.close()
+        
+        # Loaders
+        self.csv_loader = WeiboCSVLoader()
+        self.sqlite_loader = WeiboSQLiteLoader()
+        self.zhihu_loader = ZhihuSQLiteLoader()
 
     def detect_platform(self, file_path: str) -> str:
         """Identify platform (weibo/zhihu) based on file path."""
@@ -36,44 +29,11 @@ class DataManager:
             return "zhihu"
         return "unknown"
 
-    def _download_image(self, url: str, save_path: Path):
-        """如果图片不存在，则通过代理下载。"""
-        if save_path.exists():
-            return True
-            
-        # 微博图片防盗链处理
-        processed_url = url
-        if "sinaimg.cn" in url:
-            if "://" in url:
-                clean_url = url.split("://", 1)[1]
-            else:
-                clean_url = url
-            sub_parts = clean_url.split("/")
-            if len(sub_parts) >= 3:
-                sub_parts[1] = "large"
-            processed_url = f"https://i1.wp.com/{'/'.join(sub_parts)}"
-
-        try:
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Referer': 'https://weibo.com/'
-            }
-            client = self.get_client()
-            response = client.get(processed_url, headers=headers)
-            if response.status_code == 200:
-                with open(save_path, 'wb') as f:
-                    f.write(response.content)
-                return True
-        except Exception as e:
-            pass # 失败则跳过，不影响主流程
-        return False
-
-    def _find_images(self, platform: str, parent_note_id: str, current_id: str, is_post: bool, pictures_str: Optional[str]) -> List[str]:
+    def _find_images(self, platform: str, parent_note_id: str, current_id: str, is_post: bool, pictures_str: Optional[str], source_type: str = "csv") -> List[str]:
         """
         根据最新的目录规则查找或下载图片：
-        1. 文章图片：data/weibo/csv/{note_id}/imgs/{note_id}/{note_id}.jpg
-        2. 评论图片：data/weibo/csv/{note_id}/imgs/{comment_id}/{comment_id}.jpg
+        1. 文章图片：data/weibo/{source_type}/{note_id}/imgs/{note_id}/{note_id}.jpg
+        2. 评论图片：data/weibo/{source_type}/{note_id}/imgs/{comment_id}/{comment_id}.jpg
         """
         if not pictures_str or pd.isna(pictures_str):
             return []
@@ -84,8 +44,8 @@ class DataManager:
             return []
             
         images = []
-        # 最新标准目录: MediaCrawler/data/weibo/csv/{parent_note_id}/imgs/{current_id}/
-        base_dir = self.data_dir / platform / "csv" / parent_note_id / "imgs" / current_id
+        # 最新标准目录: MediaCrawler/data/weibo/{source_type}/{parent_note_id}/imgs/{current_id}/
+        base_dir = self.data_dir / platform / source_type / parent_note_id / "imgs" / current_id
         
         for i, url in enumerate(urls):
             # 确定本地文件名规则
@@ -112,23 +72,36 @@ class DataManager:
                 
         return images
 
-    def load_weibo_data(self, posts_file: str, comments_file: str, existing_ids: set = None) -> List[Dict[str, Any]]:
-        """加载微博 CSV 数据并返回扁平化的项目列表。"""
-        date_str = Path(posts_file).stem.split('_')[-1]
+    def load_weibo_data(self, posts_file: str = None, comments_file: str = None, 
+                       source_type: str = "csv", date: str = None, 
+                       existing_ids: set = None) -> List[Dict[str, Any]]:
+        """
+        加载微博数据并返回扁平化的项目列表。
+        支持 CSV (默认) 和 SQLite 数据源。
+        """
+        posts_data = []
+        comments_data = []
+        date_str = datetime.now().strftime("%Y-%m-%d")
         
-        posts_df = pd.read_csv(posts_file, on_bad_lines='warn', engine='python', encoding='utf-8-sig')
-        comments_df = pd.read_csv(comments_file, on_bad_lines='warn', engine='python', encoding='utf-8-sig')
-        
-        # 预处理：确保 ID 是字符串
-        posts_df['note_id'] = posts_df['note_id'].astype(str)
-        posts_df = posts_df.where(pd.notnull(posts_df), None)
-        
-        comments_df['note_id'] = comments_df['note_id'].astype(str)
-        comments_df['comment_id'] = comments_df['comment_id'].astype(str)
-        comments_df = comments_df.where(pd.notnull(comments_df), None)
+        # 1. Load Data
+        if source_type == "csv":
+            if not posts_file or not comments_file:
+                raise ValueError("CSV source requires posts_file and comments_file")
+            
+            date_str = Path(posts_file).stem.split('_')[-1]
+            posts_data, comments_data = self.csv_loader.load_data(posts_file, comments_file)
+            
+        elif source_type == "sqlite":
+            if date:
+                date_str = date
+            posts_data, comments_data = self.sqlite_loader.load_data(date=date)
+            
+        else:
+            raise ValueError(f"Unsupported source_type: {source_type}")
 
         # --- 核心优化：上下文缓存到磁盘 ---
-        context_cache = {str(r['note_id']): r.get('content') for _, r in posts_df.iterrows() if r.get('content')}
+        # Note: In dicts, keys are strings
+        context_cache = {str(r['note_id']): r.get('content') for r in posts_data if r.get('content')}
         cache_file = CACHE_DIR / "context_cache.json"
         
         # 合并旧缓存（如果有）
@@ -166,17 +139,17 @@ class DataManager:
                 
             content = row.get('content')
             # 确保内容不只是空白字符
-            clean_content = str(content).strip() if content and not pd.isna(content) else ""
+            clean_content = str(content).strip() if content else ""
             
             pictures_str = row.get('pictures')
             
             # 优化：如果文字和图片配置同时为空，标记为无效并剔除
-            if not clean_content and (not pictures_str or pd.isna(pictures_str)):
+            if not clean_content and not pictures_str:
                 with invalid_ids_lock:
                     invalid_note_ids.add(note_id)
                 return None
             
-            images = self._find_images("weibo", note_id, note_id, is_post=True, pictures_str=pictures_str)
+            images = self._find_images("weibo", note_id, note_id, is_post=True, pictures_str=pictures_str, source_type=source_type)
             
             # 如果图片查找失败（物理文件不存在）且内容也为空，则无法分析，标记为无效并剔除
             if not clean_content and not images:
@@ -188,7 +161,7 @@ class DataManager:
                 "note_id": note_id,
                 "comment_id": "0",
                 "top_id": str(row.get('top_id')) if row.get('top_id') else None,
-                "url": row.get('note_url', row.get('url', f"https://m.weibo.cn/detail/{note_id}")),
+                "url": row.get('note_url') or row.get('url') or f"https://m.weibo.cn/detail/{note_id}",
                 "content": clean_content or "[图片内容]", # 为纯图片提供占位符
                 "author": row.get('nickname'),
                 "created_at": row.get('create_date_time'),
@@ -202,36 +175,36 @@ class DataManager:
                 "ip_location": row.get('ip_location', '')
             }
 
-        posts_list = [None] * len(posts_df)
+        posts_list = [None] * len(posts_data)
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(process_post, (idx, row)): idx for idx, row in posts_df.iterrows()}
+            futures = {executor.submit(process_post, (idx, row)): idx for idx, row in enumerate(posts_data)}
             for future in futures:
                 idx = futures[future]
                 res = future.result()
                 posts_list[idx] = res
         
-        # 过滤掉 None (被跳过或无效的数据)，同时保持原始 CSV 顺序
+        # 过滤掉 None (被跳过或无效的数据)，同时保持原始顺序
         posts_list = [p for p in posts_list if p is not None]
 
         if post_processed_count > 0:
             utils.logger.info(f"[DataManager.load_weibo_data] 文章表已跳过 {post_processed_count} 条已处理记录。")
 
         # 2. 处理评论数据 (CPU 并行)
-        total_raw_comments = len(comments_df)
+        total_raw_comments = len(comments_data)
         utils.logger.info(f"[DataManager.load_weibo_data] 正在读取 {total_raw_comments} 条评论数据...")
         
         comment_processed_count = 0
         
         # 构建文章内容缓存，确保即使是纯图片文章也能提供背景提示，而不是空字符串
         full_posts_content_cache = {}
-        for _, r in posts_df.iterrows():
+        for r in posts_data:
             nid = str(r['note_id'])
             c = r.get('content')
-            clean_c = str(c).strip() if c and not pd.isna(c) else ""
+            clean_c = str(c).strip() if c else ""
             if not clean_c:
                 # 如果没有文字，检查是否有图片配置
                 pics = r.get('pictures')
-                if pics and not pd.isna(pics):
+                if pics:
                     full_posts_content_cache[nid] = "[图片内容]"
                 else:
                     full_posts_content_cache[nid] = ""
@@ -239,7 +212,7 @@ class DataManager:
                 full_posts_content_cache[nid] = clean_c
 
         # 构建当前批次所有评论的内容映射，用于对话链上下文溯源
-        full_comments_content_cache = {str(row['comment_id']): row.get('content') for _, row in comments_df.iterrows()}
+        full_comments_content_cache = {str(row['comment_id']): row.get('content') for row in comments_data}
         
         # 垃圾评论关键词过滤
         spam_keywords = ["扫码", "加群", "无门槛", "网页链接", "投票", "点击链接", "免费领取", "私聊", "看我主页"]
@@ -266,7 +239,7 @@ class DataManager:
                 
             content = row.get('content')
             # 确保内容不只是空白字符
-            clean_content = str(content).strip() if content and not pd.isna(content) else ""
+            clean_content = str(content).strip() if content else ""
             
             # --- 核心优化：垃圾评论/无意义评论过滤 ---
             if clean_content:
@@ -286,10 +259,10 @@ class DataManager:
             pictures_str = row.get('pictures')
             
             # 如果文字和图片配置同时为空，直接剔除
-            if not clean_content and (not pictures_str or pd.isna(pictures_str)):
+            if not clean_content and not pictures_str:
                 return None
             
-            comment_images = self._find_images("weibo", note_id, comment_id, is_post=False, pictures_str=pictures_str)
+            comment_images = self._find_images("weibo", note_id, comment_id, is_post=False, pictures_str=pictures_str, source_type=source_type)
             
             # 如果图片查找失败（物理文件不存在）且内容也为空，直接剔除
             if not clean_content and not comment_images:
@@ -299,11 +272,11 @@ class DataManager:
             
             # 顶级评论的 parent_comment_id 与其 comment_id 相同
             raw_parent_id = row.get('parent_comment_id')
-            parent_comment_id = str(raw_parent_id) if raw_parent_id and not pd.isna(raw_parent_id) else comment_id
+            parent_comment_id = str(raw_parent_id) if raw_parent_id else comment_id
             
             # 优化 2：评论的字段有一个 sub_comment_count 子评论数量，
             # 如果这个子评论数不大于 0 则表示没有子评论数据。就不需要缓存处理。
-            sub_comment_count = int(row.get('sub_comment_count', 0))
+            sub_comment_count = int(row.get('sub_comment_count') or 0)
             
             # 获取对话链上下文：如果不是顶级评论，则获取父评论内容
             reply_to_content = ""
@@ -315,7 +288,7 @@ class DataManager:
                 "note_id": note_id,
                 "comment_id": comment_id,
                 "top_id": None,
-                "url": row.get('url', f"https://m.weibo.cn/detail/{note_id}"),
+                "url": row.get('url') or f"https://m.weibo.cn/detail/{note_id}",
                 "content": clean_content or "[图片评论]", # 纯图片评论占位符
                 "author": row.get('nickname'),
                 "created_at": row.get('create_date_time'),
@@ -325,18 +298,18 @@ class DataManager:
                 "data_date": date_str,
                 "parent_content": parent_content,      # 文章内容
                 "reply_to_content": reply_to_content,  # 父评论内容（对话链上下文）
-                "comment_like_count": row.get('liked_count', 0), # 统一命名为 comment_like_count
+                "comment_like_count": row.get('comment_like_count') or row.get('liked_count', 0), # 统一命名为 comment_like_count
                 "sub_comment_count": sub_comment_count,
                 "ip_location": row.get('ip_location', ''),
                 "gender": row.get('gender', ''),
                 "parent_comment_id": parent_comment_id
             }
 
-        # 使用固定长度列表并按索引填入，以确保并行处理后依然维持 CSV 原始顺序
-        comments_list = [None] * len(comments_df)
+        # 使用固定长度列表并按索引填入，以确保并行处理后依然维持原始顺序
+        comments_list = [None] * len(comments_data)
         with ThreadPoolExecutor(max_workers=10) as executor:
             # 显式传递 idx
-            futures = {executor.submit(process_row, (idx, row)): idx for idx, row in comments_df.iterrows()}
+            futures = {executor.submit(process_row, (idx, row)): idx for idx, row in enumerate(comments_data)}
             for future in futures:
                 idx = futures[future]
                 res = future.result()
@@ -352,11 +325,205 @@ class DataManager:
             for i in range(sample_count):
                 item = final_list[i]
                 utils.logger.info(f"[DataManager.load_weibo_data] 样本: [{item.get('type')}] ID: {item.get('note_id')}_{item.get('comment_id')} | Content: {item.get('content')[:50]}...")
-
+        
         if comment_processed_count > 0:
             utils.logger.info(f"[DataManager.load_weibo_data] 评论表已跳过 {comment_processed_count} 条已处理记录。")
             
-        utils.logger.info(f"[DataManager.load_weibo_data] 加载完成: 过滤后剩余 {len(final_list)} 条新数据待处理 (已跳过 {len(comments_df) + len(posts_df) - len(final_list)} 条重复或无效数据)")
+        utils.logger.info(f"[DataManager.load_weibo_data] 加载完成: 过滤后剩余 {len(final_list)} 条新数据待处理 (已跳过 {len(comments_data) + len(posts_data) - len(final_list)} 条重复或无效数据)")
+        return final_list
+
+    def load_zhihu_data(self, date: str = None, existing_ids: set = None) -> List[Dict[str, Any]]:
+        """
+        加载知乎数据并返回扁平化的项目列表。
+        仅支持 SQLite 数据源。
+        """
+        posts_data = []
+        comments_data = []
+        date_str = date if date else datetime.now().strftime("%Y-%m-%d")
+        
+        # 1. Load Data
+        posts_data, comments_data = self.zhihu_loader.load_data(date=date)
+            
+        # --- 核心优化：上下文缓存到磁盘 ---
+        # Note: In dicts, keys are strings
+        context_cache = {str(r['note_id']): r.get('content') for r in posts_data if r.get('content')}
+        cache_file = CACHE_DIR / "zhihu_context_cache.json"
+        
+        # 合并旧缓存（如果有）
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    old_cache = json.load(f)
+                    old_cache.update(context_cache)
+                    context_cache = old_cache
+            except: pass
+            
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump(context_cache, f, ensure_ascii=False, indent=2)
+        utils.logger.info(f"[DataManager.load_zhihu_data] 已同步 {len(context_cache)} 条文章上下文到磁盘缓存: {cache_file.name}")
+
+        # 1. 处理文章数据 (CPU 并行)
+        utils.logger.info(f"[DataManager.load_zhihu_data] 正在读取文章数据 (已处理过的 ID 将被自动跳过)...")
+        
+        post_processed_count = 0
+        def process_post(row_tuple):
+            nonlocal post_processed_count
+            idx, row = row_tuple
+            note_id = str(row['note_id'])
+            
+            # --- 逻辑去重 (根据已存在文件) ---
+            if existing_ids and f"{note_id}_0" in existing_ids:
+                post_processed_count += 1
+                return None
+                
+            content = row.get('content')
+            title = row.get('title', '')
+            # 确保内容不只是空白字符
+            clean_content = str(content).strip() if content else ""
+            
+            # 知乎内容通常较长，结合标题
+            full_content = f"{title}\n{clean_content}".strip()
+            
+            if not full_content:
+                return None
+            
+            # 知乎目前暂不处理图片
+            images = []
+            
+            return {
+                "note_id": note_id,
+                "comment_id": "0",
+                "top_id": None,
+                "url": row.get('note_url') or f"https://www.zhihu.com/question/{row.get('question_id')}/answer/{note_id}",
+                "content": full_content,
+                "author": row.get('nickname'),
+                "created_at": row.get('create_date_time'),
+                "source": "zhihu",
+                "type": "post",
+                "images": images,
+                "data_date": date_str,
+                "liked_count": row.get('liked_count', 0),
+                "comments_count": row.get('comments_count', 0),
+                "shared_count": 0,
+                "ip_location": None
+            }
+
+        posts_list = [None] * len(posts_data)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(process_post, (idx, row)): idx for idx, row in enumerate(posts_data)}
+            for future in futures:
+                idx = futures[future]
+                res = future.result()
+                posts_list[idx] = res
+        
+        # 过滤掉 None
+        posts_list = [p for p in posts_list if p is not None]
+
+        if post_processed_count > 0:
+            utils.logger.info(f"[DataManager.load_zhihu_data] 文章表已跳过 {post_processed_count} 条已处理记录。")
+
+        # 2. 处理评论数据 (CPU 并行)
+        total_raw_comments = len(comments_data)
+        utils.logger.info(f"[DataManager.load_zhihu_data] 正在读取 {total_raw_comments} 条评论数据...")
+        
+        comment_processed_count = 0
+        
+        # 构建文章内容缓存
+        full_posts_content_cache = {}
+        for r in posts_data:
+            nid = str(r['note_id'])
+            c = r.get('content')
+            t = r.get('title', '')
+            clean_c = f"{t}\n{c}".strip()
+            full_posts_content_cache[nid] = clean_c
+
+        # 构建当前批次所有评论的内容映射
+        full_comments_content_cache = {str(row['comment_id']): row.get('content') for row in comments_data}
+        
+        # 垃圾评论关键词过滤 (沿用微博的，可能需要针对知乎调整)
+        spam_keywords = ["扫码", "加群", "无门槛", "网页链接", "投票", "点击链接", "免费领取", "私聊", "看我主页"]
+        nonsense_pattern = re.compile(r'(.)\1{10,}') 
+
+        def process_row(row_tuple):
+            nonlocal comment_processed_count
+            idx, row = row_tuple
+            note_id = str(row['note_id'])
+            comment_id = str(row['comment_id'])
+            
+            # --- 逻辑去重 (根据已存在文件) ---
+            if existing_ids and f"{note_id}_{comment_id}" in existing_ids:
+                comment_processed_count += 1
+                return None
+                
+            content = row.get('content')
+            clean_content = str(content).strip() if content else ""
+            
+            if clean_content:
+                if any(kw in clean_content for kw in spam_keywords):
+                    return None
+                if nonsense_pattern.search(clean_content):
+                    return None
+                if len(clean_content) < 2:
+                    return None
+            else:
+                return None
+            
+            # 知乎暂无评论图片
+            comment_images = []
+            
+            parent_content = full_posts_content_cache.get(note_id, "")
+            
+            raw_parent_id = row.get('parent_comment_id')
+            parent_comment_id = str(raw_parent_id) if raw_parent_id else comment_id
+            
+            sub_comment_count = int(row.get('sub_comment_count') or 0)
+            
+            reply_to_content = ""
+            if parent_comment_id != comment_id:
+                reply_to_content = full_comments_content_cache.get(parent_comment_id, "")
+
+            return {
+                "note_id": note_id,
+                "comment_id": comment_id,
+                "top_id": None,
+                "url": "", # 知乎评论链接较难构造，暂空
+                "content": clean_content,
+                "author": row.get('nickname'),
+                "created_at": row.get('create_date_time'),
+                "source": "zhihu",
+                "type": "comment",
+                "images": comment_images,
+                "data_date": date_str,
+                "parent_content": parent_content,
+                "reply_to_content": reply_to_content,
+                "comment_like_count": row.get('comment_like_count', 0),
+                "sub_comment_count": sub_comment_count,
+                "ip_location": row.get('ip_location', ''),
+                "gender": row.get('gender', ''),
+                "parent_comment_id": parent_comment_id
+            }
+
+        comments_list = [None] * len(comments_data)
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(process_row, (idx, row)): idx for idx, row in enumerate(comments_data)}
+            for future in futures:
+                idx = futures[future]
+                res = future.result()
+                comments_list[idx] = res
+        
+        final_list = posts_list + [c for c in comments_list if c is not None]
+        
+        if final_list:
+            sample_count = min(3, len(final_list))
+            utils.logger.info(f"[DataManager.load_zhihu_data] DEBUG: 成功加载 {len(final_list)} 条数据。前 {sample_count} 条样本:")
+            for i in range(sample_count):
+                item = final_list[i]
+                utils.logger.info(f"[DataManager.load_zhihu_data] 样本: [{item.get('type')}] ID: {item.get('note_id')}_{item.get('comment_id')} | Content: {item.get('content')[:50]}...")
+        
+        if comment_processed_count > 0:
+            utils.logger.info(f"[DataManager.load_zhihu_data] 评论表已跳过 {comment_processed_count} 条已处理记录。")
+            
+        utils.logger.info(f"[DataManager.load_zhihu_data] 加载完成: 过滤后剩余 {len(final_list)} 条新数据待处理 (已跳过 {len(comments_data) + len(posts_data) - len(final_list)} 条重复或无效数据)")
         return final_list
 
     def compare_data(self, old_data: List[Dict[str, Any]], new_data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:

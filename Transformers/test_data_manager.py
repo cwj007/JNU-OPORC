@@ -15,8 +15,6 @@ def test_weibo_loading():
     utils.logger.info(f"[test_data_manager.test_weibo_loading] Comments: {WEIBO_COMMENTS_FILE}")
     
     dm = DataManager()
-    # Mock download to avoid network errors
-    dm._download_image = lambda url, path: True
     
     data = dm.load_weibo_data(str(WEIBO_POSTS_FILE), str(WEIBO_COMMENTS_FILE))
     

@@ -98,7 +98,7 @@ FINE_GRAINED_SENTIMENT_CATEGORIES = [item for sublist in FINE_GRAINED_SENTIMENT_
 INTENT_CATEGORIES = [item for sublist in INTENT_CATEGORIES_MAPPING.values() for item in sublist] 
 
 # 提示词：引导模型进行图文消解、情感识别和反讽判定 
-ANALYSIS_PROMPT = """你是一个专业的**多模态舆情专家**。请分析“目标”内容的情感与意图，Context仅作背景参考。
+ANALYSIS_PROMPT = """你是一个专业的**多模态舆情专家**。请分析“目标”内容的情感与意图。
 
 分类标准： 
 - 正面: 情感[{fg_pos}], 意图[{intent_pos}] 
@@ -106,9 +106,9 @@ ANALYSIS_PROMPT = """你是一个专业的**多模态舆情专家**。请分析�
 - 负面: 情感[{fg_neg}], 意图[{intent_neg}] 
 
 核心指南：
-1. **识别反讽**：文字表面夸奖但实际描述负面事实（如“取消奖金却说老板体贴”）必须判定为“负面”并标记 irony_detected=true。
-2. **图文消解**：若图片揭示了与文字相反的负面事实（如文字说“环境好”但图片是“废墟”），判定为“负面”并标记 irony_detected=true。
-3. **事实优先**：涉及利益受损（欠薪、裁员、福利削减）的客观事实，情感应判定为“负面”。
+1. **内容优先**：严格基于“目标”文本和图片内容进行分析，严禁基于Context或外部知识臆造并不存在的背景或含义（例如不要臆想不存在的比赛对手或事件）。
+2. **反讽判定**：仅当文本明显表扬但实际指向明确的负面事实（如“欠薪半年真是好公司”）或图文存在直接且强烈的事实冲突时，才判定为反讽。正常的期待、假设（如“只要...就能...”）不应视为反讽。
+3. **事实导向**：涉及利益受损（欠薪、裁员、福利削减）的客观事实，情感应判定为“负面”。
 
 核心约束： 
 1. 情感/意图必须选自对应主类别的列表。 
@@ -121,11 +121,12 @@ ANALYSIS_PROMPT = """你是一个专业的**多模态舆情专家**。请分析�
 - fine_grained_sentiment: 细粒度标签 
 - intent: 意图标签 
 - irony_detected: true/false 
-- reasoning: 简短理由(必须说明判定逻辑，尤其是反讽逻辑) 
+- reasoning: 简短理由(必须说明判定逻辑，尤其是反讽逻辑，严禁编造事实) 
 - keywords: 关键词列表 
 - objects: 视觉对象列表 
 - ocr_text: OCR文字 
 """
+
 
 # Output settings
 TRANSFORMERS_DIR = BASE_DIR / "Transformers"

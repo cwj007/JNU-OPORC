@@ -1,5 +1,6 @@
 import json
 import os
+import csv
 import sqlite3
 import threading
 import queue
@@ -14,8 +15,9 @@ from ..config import PLATFORM_MAP, HISTORICAL_LABELED_DIR, TRANSFORMERS_DIR, CAC
 from Transformers import utils
 
 class Exporter:
-    def __init__(self, output_file: str):
+    def __init__(self, output_file: str, formats: List[str] = None):
         self.output_file = Path(output_file)
+        self.formats = formats or ["json"]
         self.db_path = CACHE_DIR / "processed_ids.db"
         self._ensure_table_exists()
         
@@ -102,6 +104,34 @@ class Exporter:
         conn.close()
         return exists
 
+    def get_post_analysis(self, note_id: str) -> Optional[Dict[str, Any]]:
+        """从数据库获取已处理的文章分析结果（用于为评论提供上下文）。"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        try:
+            # 优先查找该 note_id 且 comment_id 为 0 或空的记录
+            cursor.execute('''
+                SELECT sentiment, intent, visual_objects, ocr_text, content 
+                FROM processed_items 
+                WHERE note_id = ? AND (comment_id = '0' OR comment_id IS NULL OR comment_id = '')
+                LIMIT 1
+            ''', (note_id,))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "sentiment": row[0],
+                    "intent": row[1],
+                    "visual_objects": row[2].split('|') if row[2] else [],
+                    "ocr_text": row[3],
+                    "content": row[4]
+                }
+            return None
+        except Exception as e:
+            utils.logger.error(f"[Exporter.get_post_analysis] 查询失败: {e}")
+            return None
+        finally:
+            conn.close()
+
     def _mark_ids_as_processed(self, entries_for_db: List[tuple]):
         """批量将 ID 和分析结果存入数据库。"""
         conn = sqlite3.connect(self.db_path)
@@ -150,6 +180,9 @@ class Exporter:
             except queue.Empty:
                 continue
             except Exception as e:
+                # 打印完整的错误堆栈，方便调试
+                import traceback
+                traceback.print_exc()
                 utils.logger.error(f"  [Exporter._async_write_worker] 后台线程异常: {e}")
 
     def _process_export_task(self, analyzed_data: List[Dict[str, Any]], append: bool, use_lock: bool):
@@ -196,10 +229,10 @@ class Exporter:
             content = str(entry.get("content", ""))
             visual_objects = json.dumps(entry.get("visual_objects", []), ensure_ascii=False)
             ocr_text = str(entry.get("ocr_text", ""))
+            
+            # 安全获取可选字段
             author = str(entry.get("author", ""))
             source = str(entry.get("source", ""))
-            
-            # 区分文章和评论的计数
             liked_count = entry.get("liked_count") or entry.get("comment_like_count") or 0
             comments_count = entry.get("comments_count") or entry.get("sub_comment_count") or 0
             shared_count = entry.get("shared_count") or 0
@@ -226,14 +259,16 @@ class Exporter:
         if not valid_entries:
             return
 
-        # 2. 写入 JSONL 文件 (使用文件锁保护多进程安全)
-        mode = 'a' if append else 'w'
-        if use_lock:
-            lock_path = f"{self.output_file}.lock"
-            with FileLock(lock_path):
-                self._write_to_files(valid_entries, data_date, mode)
-        else:
-            self._write_to_files(valid_entries, data_date, mode)
+        # 2. 写入文件 (根据配置格式)
+        # 强制执行 JSONL 写入逻辑，以确保 History 备份和主文件更新
+        # _write_to_jsonl 内部会处理主文件和 History 文件的写入
+        self._write_to_jsonl(valid_entries, data_date, append, use_lock)
+            
+        if "csv" in self.formats:
+            self._write_to_csv(valid_entries, data_date, append, use_lock)
+
+        if "sqlite" in self.formats:
+            self._write_to_sqlite_export(valid_entries, data_date)
 
         # 3. 写入数据库索引
         self._mark_ids_as_processed(db_entries)
@@ -243,7 +278,7 @@ class Exporter:
             self._update_top_topics(top_entries)
         
         # 5. 输出存储日志
-        utils.logger.info(f"[Exporter._sync_worker] 存储: {len(valid_entries)} 条新记录已异步同步 (SQLite 索引已更新)")
+        utils.logger.info(f"[Exporter._sync_worker] 存储: {len(valid_entries)} 条新记录已异步同步 (Formats: {self.formats})")
 
     def _update_top_topics(self, top_entries: Dict[str, str]):
         """批量更新 top_topics 表。"""
@@ -265,35 +300,154 @@ class Exporter:
         conn.commit()
         conn.close()
 
-    def _write_to_files(self, valid_entries, data_date, mode):
-        """物理写入文件：通过临时文件原子性替换，防止写入中断导致损坏。"""
+    def _write_to_jsonl(self, valid_entries, data_date, append, use_lock):
+        """写入 JSONL 文件。"""
         # 1. 写入临时文件
-        temp_main = f"{self.output_file}.tmp"
+        # 注意：这里我们使用 output_file 作为 JSONL 的路径 (如果它以 .jsonl 结尾)
+        # 如果 output_file 没有扩展名，我们应该加上 .jsonl
+        # 但为了保持兼容性，我们假设 output_file 就是 jsonl 路径
+        jsonl_file = self.output_file
+        if jsonl_file.suffix != '.jsonl':
+             jsonl_file = jsonl_file.with_suffix('.jsonl')
+
+        temp_main = f"{jsonl_file}.tmp"
+        mode = 'a' if append else 'w'
+        
         try:
             with open(temp_main, 'w', encoding='utf-8') as f:
                 for entry in valid_entries:
                     f.write(json.dumps(entry, ensure_ascii=False) + '\n')
             
-            # 2. 如果提供了 data_date，则只写入该日期的历史文件
-            # 如果没有 data_date，则写入默认的 output_file
-            if data_date:
-                history_file = HISTORICAL_LABELED_DIR / f"labeled_results_{data_date}.jsonl"
-                with open(history_file, 'a', encoding='utf-8') as f:
+            # 2. 无论是否有 data_date，都写入主文件 (labeled_results.jsonl)
+            def write_main():
+                with open(jsonl_file, 'a', encoding='utf-8') as f:
                     with open(temp_main, 'r', encoding='utf-8') as tf:
                         f.write(tf.read())
-                
-                # 更新聚合 JSON (针对前端展示，也会按日期备份)
-                self._export_aggregated_data(valid_entries, data_date, True)
+                        
+            if use_lock:
+                 with FileLock(f"{jsonl_file}.lock"):
+                     write_main()
             else:
-                # 兼容模式：写入主文件
-                with open(self.output_file, 'a', encoding='utf-8') as f:
-                    with open(temp_main, 'r', encoding='utf-8') as tf:
-                        f.write(tf.read())
-                self._export_aggregated_data(valid_entries, None, True)
+                 write_main()
+
+            # 3. 写入历史文件 (如果有 data_date 则使用 data_date，否则使用当前日期)
+            target_date = data_date if data_date else datetime.now().strftime("%Y-%m-%d")
+            
+            # Debug log to confirm writing
+            utils.logger.info(f"[Exporter] Writing backup to history file: labeled_results_{target_date}.jsonl")
+            
+            history_file = HISTORICAL_LABELED_DIR / f"labeled_results_{target_date}.jsonl"
+            with open(history_file, 'a', encoding='utf-8') as f:
+                with open(temp_main, 'r', encoding='utf-8') as tf:
+                    f.write(tf.read())
+            
+            # 更新聚合 JSON
+            self._export_aggregated_data(valid_entries, target_date, True)
             
         finally:
             if os.path.exists(temp_main):
                 os.remove(temp_main)
+
+    def _write_to_csv(self, valid_entries, data_date, append, use_lock):
+        """写入 CSV 文件。"""
+        csv_file = self.output_file.with_suffix(".csv")
+        
+        # Flatten entries
+        flat_entries = []
+        headers = set()
+        
+        for entry in valid_entries:
+            flat = entry.copy()
+            # Flatten sentiment_analysis
+            sa = flat.pop('sentiment_analysis', {})
+            flat.update(sa)
+            
+            # Convert lists/dicts to string
+            for k, v in flat.items():
+                if isinstance(v, (list, dict)):
+                    flat[k] = json.dumps(v, ensure_ascii=False)
+                elif v is None:
+                    flat[k] = ""
+            
+            flat_entries.append(flat)
+            headers.update(flat.keys())
+            
+        # Define standard header order
+        ordered_headers = ['note_id', 'comment_id', 'content', 'sentiment', 'intent', 'fine_grained_sentiment', 'irony_detected', 'reasoning']
+        # Add remaining headers
+        ordered_headers.extend(sorted([h for h in headers if h not in ordered_headers]))
+        
+        mode = 'a' if append and csv_file.exists() else 'w'
+        write_header = not (append and csv_file.exists())
+        
+        def write_action():
+            # utf-8-sig for Excel compatibility
+            with open(csv_file, mode, newline='', encoding='utf-8-sig') as f:
+                writer = csv.DictWriter(f, fieldnames=ordered_headers)
+                if write_header:
+                    writer.writeheader()
+                writer.writerows(flat_entries)
+                
+        if use_lock:
+            with FileLock(f"{csv_file}.lock"):
+                write_action()
+        else:
+            write_action()
+
+    def _write_to_sqlite_export(self, valid_entries, data_date):
+        """导出到用户可见的 SQLite 数据库。"""
+        db_file = self.output_file.with_suffix(".db")
+        conn = sqlite3.connect(db_file)
+        
+        flat_entries = []
+        all_keys = set()
+        for entry in valid_entries:
+            flat = entry.copy()
+            sa = flat.pop('sentiment_analysis', {})
+            flat.update(sa)
+            
+            processed = {}
+            for k, v in flat.items():
+                if isinstance(v, (list, dict)):
+                    processed[k] = json.dumps(v, ensure_ascii=False)
+                else:
+                    processed[k] = v
+            flat_entries.append(processed)
+            all_keys.update(processed.keys())
+            
+        # Create table
+        cols_def = []
+        for k in sorted(all_keys):
+            cols_def.append(f'"{k}" TEXT') 
+            
+        cols_sql = ", ".join(cols_def)
+        # 使用 labeled_data 作为表名
+        create_sql = f"CREATE TABLE IF NOT EXISTS labeled_data ({cols_sql})"
+        
+        try:
+            cursor = conn.cursor()
+            cursor.execute(create_sql)
+            
+            # Add missing columns if any
+            cursor.execute("PRAGMA table_info(labeled_data)")
+            existing_cols = {row[1] for row in cursor.fetchall()}
+            for k in all_keys:
+                if k not in existing_cols:
+                    cursor.execute(f'ALTER TABLE labeled_data ADD COLUMN "{k}" TEXT')
+            
+            # Insert data
+            for item in flat_entries:
+                keys = list(item.keys())
+                placeholders = ",".join(["?"] * len(keys))
+                cols = ",".join([f'"{k}"' for k in keys])
+                values = [item[k] for k in keys]
+                cursor.execute(f"INSERT INTO labeled_data ({cols}) VALUES ({placeholders})", values)
+                
+            conn.commit()
+        except Exception as e:
+            utils.logger.error(f"Error exporting to SQLite: {e}")
+        finally:
+            conn.close()
 
     def close(self):
         """关闭 Exporter，确保所有数据写完。"""
@@ -385,18 +539,18 @@ class Exporter:
 
             if not is_comment:
                 # 填充主贴信息
-                target["post_content"] = item["content"]
+                target["post_content"] = item.get("content", "")
                 target["post_analysis"] = analysis
-                target["post_author"] = item["author"]
-                target["created_at"] = item["created_at"]
-                target["images"] = item["image_paths"]
+                target["post_author"] = item.get("author", "")
+                target["created_at"] = item.get("created_at", "")
+                target["images"] = item.get("image_paths", [])
             else:
                 # 添加评论
                 target["comments"].append({
-                    "comment_id": item["comment_id"],
-                    "content": item["content"],
-                    "author": item["author"],
-                    "created_at": item["created_at"],
+                    "comment_id": item.get("comment_id"),
+                    "content": item.get("content", ""),
+                    "author": item.get("author", ""),
+                    "created_at": item.get("created_at", ""),
                     "analysis": analysis
                 })
 

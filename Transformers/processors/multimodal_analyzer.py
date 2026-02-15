@@ -23,6 +23,7 @@ class MultimodalAnalyzer:
         self._analysis_cache = {} # 全量缓存: signature -> analysis
         self._vision_cache = {}   # 视觉特征缓存: img_md5 -> {objects, ocr_text}
         self._text_pool = {}      # 语义池: text -> analysis (用于相似度匹配)
+        self._post_context_cache = {} # 文章分析结果缓存: note_id -> analysis (用于评论上下文)
         self._load_persistent_cache()
         self.adaptive_batch_size = None # 动态调整的批大小
         self.prefetch_queue = queue.Queue(maxsize=5) 
@@ -40,12 +41,22 @@ class MultimodalAnalyzer:
                     self._vision_cache = data.get("vision", {})
                     self._text_pool = data.get("text_pool", {})
                 utils.logger.info(f"[MultimodalAnalyzer._load_persistent_cache] 已加载持久化缓存: {len(self._analysis_cache)} 条记录, {len(self._text_pool)} 条语义记录")
+            except json.JSONDecodeError as e:
+                utils.logger.error(f"[MultimodalAnalyzer._load_persistent_cache] 缓存文件损坏: {e}")
+                # 备份损坏的文件
+                backup_path = cache_path.with_suffix(f".json.bak.{int(time.time())}")
+                try:
+                    cache_path.rename(backup_path)
+                    utils.logger.warning(f"[MultimodalAnalyzer._load_persistent_cache] 已将损坏的缓存文件备份为: {backup_path.name}，并将使用空缓存启动。")
+                except Exception as backup_error:
+                     utils.logger.error(f"[MultimodalAnalyzer._load_persistent_cache] 备份损坏文件失败: {backup_error}")
             except Exception as e:
                 utils.logger.error(f"[MultimodalAnalyzer._load_persistent_cache] 加载失败: {e}")
 
     def _save_persistent_cache(self):
         """将缓存保存到磁盘。"""
         cache_path = CACHE_DIR / "analysis_cache.json"
+        temp_path = cache_path.with_suffix(".tmp")
         try:
             # 限制语义池大小，防止无限增长
             if len(self._text_pool) > 5000:
@@ -53,14 +64,25 @@ class MultimodalAnalyzer:
                 keys = list(self._text_pool.keys())
                 self._text_pool = {k: self._text_pool[k] for k in keys[2500:]}
 
-            with open(cache_path, 'w', encoding='utf-8') as f:
+            # 先写入临时文件，确保写入原子性，防止文件损坏
+            with open(temp_path, 'w', encoding='utf-8') as f:
                 json.dump({
                     "analysis": self._analysis_cache,
                     "vision": self._vision_cache,
                     "text_pool": self._text_pool
                 }, f, ensure_ascii=False, indent=2)
+            
+            # 写入成功后替换原文件
+            if temp_path.exists():
+                temp_path.replace(cache_path)
+                
         except Exception as e:
             utils.logger.error(f"[MultimodalAnalyzer._save_persistent_cache] 保存失败: {e}")
+            if temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except:
+                    pass
 
     def _check_fast_path(self, text: str) -> Optional[Dict[str, Any]]:
         """快速判定短文本或无意义回复（1ms 级）。"""
@@ -357,25 +379,42 @@ class MultimodalAnalyzer:
                         
                         context_parts = []
                         if parent_content:
-                            # 优化：如果文章背景是纯图片，尝试从全量缓存或视觉缓存中检索其分析结果
-                            if parent_content == "[图片内容]":
-                                # 1. 尝试从全量分析缓存中查找该文章的分析结果 (signature 为 key)
-                                # 注意：文章的 comment_id 始终为 "0"
-                                # 我们这里需要一个 note_id 到 analysis 的快速映射
-                                # 实际上 process_batch 运行完阶段 1 后，_analysis_cache 已经更新
-                                for sig, analysis in self._analysis_cache.items():
-                                    # 简单判断是否属于该文章 (这种方式略慢，但作为降级方案)
-                                    if f"note_id: {item.get('note_id')}" in str(analysis) and '"comment_id": "0"' in str(analysis):
-                                        visual_desc = analysis.get("visual_objects", [])
-                                        ocr_desc = analysis.get("ocr_text", "")
-                                        if visual_desc or ocr_desc:
-                                            parent_content = f"[纯图片文章内容 - 视觉识别: {' '.join(visual_desc)} | OCR: {ocr_desc}]"
-                                            break
-
-                            # 文章背景：保留前 150 字作为核心背景
+                            # 尝试获取文章的分析结果（情感、视觉信息）
+                            note_id = item.get("note_id")
+                            post_analysis = None
+                            
+                            # 1. 查内存缓存
+                            if note_id in self._post_context_cache:
+                                post_analysis = self._post_context_cache[note_id]
+                            # 2. 查 Exporter 数据库 (如果提供了 exporter)
+                            elif exporter:
+                                post_analysis = exporter.get_post_analysis(note_id)
+                                if post_analysis:
+                                    self._post_context_cache[note_id] = post_analysis
+                            
+                            # 构建增强的背景信息
                             p_text = _preprocess_text(parent_content)
-                            truncated_p = p_text[:150] + "..." if len(p_text) > 150 else p_text
-                            context_parts.append(f"[文章背景]: {truncated_p}")
+                            
+                            if post_analysis:
+                                # 如果有分析结果，注入情感和视觉信息
+                                p_sentiment = post_analysis.get("sentiment", "未知")
+                                p_objects = post_analysis.get("visual_objects", [])
+                                p_ocr = post_analysis.get("ocr_text", "")
+                                
+                                # 如果原 parent_content 只是占位符，尝试用分析结果中的 content 替换
+                                if (p_text == "[图片内容]" or not p_text) and post_analysis.get("content"):
+                                    p_text = _preprocess_text(post_analysis.get("content"))
+
+                                extra_info = []
+                                if p_sentiment: extra_info.append(f"情感:{p_sentiment}")
+                                if p_objects: extra_info.append(f"视觉:{','.join(p_objects[:5])}")
+                                if p_ocr: extra_info.append(f"OCR:{p_ocr[:50]}...")
+                                
+                                context_parts.append(f"[文章背景 ({' '.join(extra_info)})]: {p_text[:200]}")
+                            else:
+                                # 降级：仅使用文本
+                                truncated_p = p_text[:150] + "..." if len(p_text) > 150 else p_text
+                                context_parts.append(f"[文章背景]: {truncated_p}")
                         
                         if reply_to_content:
                             # 对话链上下文：子评论回复的对象内容，保留前 100 字
@@ -488,6 +527,12 @@ class MultimodalAnalyzer:
                                     item["analysis"] = analysis
                                     # 注意：这里直接修改 item 字典，外层 analyzed_data 也会同步更新
                                     valid_items.append(item)
+                                    
+                                    # [NEW] 如果是文章，缓存分析结果供后续评论使用
+                                    note_id = item.get("note_id")
+                                    comment_id = str(item.get("comment_id", "0"))
+                                    if note_id and (comment_id == "0" or not comment_id):
+                                        self._post_context_cache[note_id] = analysis.copy()
                                 
                                 if exporter and valid_items:
                                     exporter.export(valid_items, append=True, use_lock=use_lock)
@@ -542,10 +587,21 @@ class MultimodalAnalyzer:
                                 batch_results[b_idx] = item["analysis"]
                 
                 # 处理已经命中的缓存
-                if cached_indices and exporter:
+                if cached_indices:
                     cached_items = [batch_items[idx] for idx in cached_indices]
-                    # 再次确保缓存命中的项不会导致重复写入（防止同一批次内多次命中相同 sig）
-                    exporter.export(cached_items, append=True, use_lock=use_lock)
+                    
+                    # [NEW] 缓存命中的文章也需要更新到 context cache
+                    for item in cached_items:
+                        note_id = item.get("note_id")
+                        comment_id = str(item.get("comment_id", "0"))
+                        if note_id and (comment_id == "0" or not comment_id):
+                            analysis = item.get("analysis")
+                            if analysis:
+                                self._post_context_cache[note_id] = analysis.copy()
+
+                    if exporter:
+                        # 再次确保缓存命中的项不会导致重复写入（防止同一批次内多次命中相同 sig）
+                        exporter.export(cached_items, append=True, use_lock=use_lock)
                 
                 for b_idx, item in enumerate(batch_items):
                     item["analysis"] = batch_results[b_idx]
