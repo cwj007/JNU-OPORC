@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JNU-OPORC 预警中心</title>
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
+    <!-- Custom Style -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&family=Fira+Code&display=swap" rel="stylesheet">
+    <!-- Vue 3 -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <!-- Element Plus -->
+    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/locale/zh-cn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+    <!-- Axios -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar -->
+        <div class="sidebar" :class="{ collapsed: isCollapse }">
+            <div class="sidebar-logo">{{ isCollapse ? 'OPORC' : 'JNU-OPORC 舆情哨兵' }}</div>
+            <el-menu
+                active-text-color="var(--primary-color)"
+                background-color="transparent"
+                class="el-menu-vertical"
+                :default-active="activeMenu"
+                :collapse="isCollapse"
+                text-color="var(--text-secondary)"
+                @select="handleMenuSelect"
+            >
+                <el-menu-item index="hotsearch">
+                    <el-icon><trend-charts /></el-icon>
+                    <template #title>平台热榜</template>
+                </el-menu-item>
+                <el-menu-item index="dashboard">
+                    <el-icon><data-line></data-line></el-icon>
+                    <template #title>舆情仪表盘</template>
+                </el-menu-item>
+                <el-menu-item index="monitor">
+                    <el-icon><monitor></monitor></el-icon>
+                    <template #title>舆情检测</template>
+                </el-menu-item>
+                <el-menu-item index="warning">
+                    <el-icon><bell></bell></el-icon>
+                    <template #title>预警中心</template>
+                </el-menu-item>
+                <el-menu-item index="volume_rank">
+                    <el-icon><histogram /></el-icon>
+                    <template #title>声量热榜</template>
+                </el-menu-item>
+                <el-menu-item index="crawler">
+                    <el-icon><share /></el-icon>
+                    <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="settings">
+                    <el-icon><setting></setting></el-icon>
+                    <template #title>系统配置</template>
+                </el-menu-item>
+            </el-menu>
+        </div>
+
+        <!-- Main -->
+        <div class="main-container">
+            <div class="header">
+                <div style="display: flex; align-items: center;">
+                    <el-icon class="collapse-btn" @click="isCollapse = !isCollapse">
+                        <expand v-if="isCollapse"></expand>
+                        <fold v-else></fold>
+                    </el-icon>
+                    <el-breadcrumb separator="/">
+                        <el-breadcrumb-item>首页</el-breadcrumb-item>
+                        <el-breadcrumb-item>预警中心</el-breadcrumb-item>
+                    </el-breadcrumb>
+                </div>
+                <div class="user-info">
+                    <el-tag type="info">管理员</el-tag>
+                </div>
+            </div>
+
+            <div class="content">
+                <!-- 统计图表区域 -->
+                <el-row :gutter="20" style="margin-bottom: 20px;">
+                    <el-col :span="12">
+                        <el-card shadow="never" class="tech-card">
+                            <div id="alertLevelChart" style="height: 300px;"></div>
+                        </el-card>
+                    </el-col>
+                    <el-col :span="12">
+                        <el-card shadow="never" class="tech-card">
+                            <div id="alertTrendChart" style="height: 300px;"></div>
+                        </el-card>
+                    </el-col>
+                </el-row>
+
+                <el-card shadow="never" class="tech-card">
+                    <!-- Decorative Elements -->
+                    <div class="card-scanline"></div>
+                    <div class="card-corner-top-right"></div>
+                    <div class="card-corner-bottom-left"></div>
+                    
+                    <template #header>
+                        <div class="tech-card-header">
+                            <el-tabs v-model="warningActiveTab" class="tech-tabs">
+                                <el-tab-pane label="预警历史" name="history"></el-tab-pane>
+                                <el-tab-pane label="预警规则" name="rules"></el-tab-pane>
+                            </el-tabs>
+                            <el-button v-if="warningActiveTab === 'rules'" type="primary" size="small" class="cyber-btn-tech" @click="openRuleDialog">
+                                <el-icon style="margin-right: 5px"><plus /></el-icon> 新建预警规则
+                            </el-button>
+                        </div>
+                    </template>
+
+                    <!-- 预警历史表格 -->
+                    <el-table v-if="warningActiveTab === 'history'" :data="allAlerts" style="width: 100%" class="alerts-table">
+                        <el-table-column prop="time" label="预警时间" width="180">
+                            <template #default="scope">
+                                <span class="tech-time">{{ scope.row.time }}</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="title" label="预警描述" min-width="200">
+                            <template #default="scope">
+                                <div class="tech-description">
+                                    <el-icon class="alert-icon" :class="scope.row.level === 'high' ? 'is-danger' : 'is-warning'">
+                                        <warning />
+                                    </el-icon>
+                                    {{ scope.row.title }}
+                                </div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="type" label="类型" width="120">
+                            <template #default="scope">
+                                <el-tag size="small" effect="plain">{{ scope.row.type }}</el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="级别" width="100">
+                            <template #default="scope">
+                                <span :class="['tech-tag', scope.row.level === 'high' ? 'tag-danger' : 'tag-warning']">
+                                    {{ scope.row.level === 'high' ? '高' : '中' }}
+                                </span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="状态" width="100">
+                            <template #default="scope">
+                                <span :class="['tech-tag', scope.row.status === 'unread' ? 'tag-info' : 'tag-success']">
+                                    {{ scope.row.status === 'unread' ? '未处理' : '已处理' }}
+                                </span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="100" fixed="right">
+                            <template #default="scope">
+                                <el-button 
+                                    link 
+                                    class="cyber-btn-detail"
+                                    size="small" 
+                                    @click="handleReadAlert(scope.row)"
+                                    :disabled="scope.row.status === 'read'"
+                                >
+                                    {{ scope.row.status === 'read' ? '完成' : '处理' }}
+                                </el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+
+                    <!-- 预警规则表格 -->
+                    <el-table v-if="warningActiveTab === 'rules'" :data="alertRules" style="width: 100%" class="alerts-table">
+                        <el-table-column prop="name" label="规则名称" min-width="150"></el-table-column>
+                        <el-table-column prop="keyword" label="关键词" width="120"></el-table-column>
+                        <el-table-column label="条件" width="200">
+                            <template #default="scope">
+                                <span class="tech-text">
+                                    {{ scope.row.time_window }}h内 {{ scope.row.sentiment }} > {{ scope.row.threshold }}
+                                </span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="状态" width="100">
+                            <template #default="scope">
+                                <el-switch v-model="scope.row.is_active" :active-value="1" :inactive-value="0" disabled></el-switch>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="100" fixed="right">
+                            <template #default="scope">
+                                <el-button link type="danger" size="small" @click="handleDeleteRule(scope.row.id)">删除</el-button>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </el-card>
+
+                <!-- 新建规则对话框 -->
+                <el-dialog v-model="ruleDialogVisible" title="新建预警规则" width="500px" custom-class="tech-dialog">
+                    <el-form :model="ruleForm" label-width="100px" class="tech-form">
+                        <el-form-item label="规则名称">
+                            <el-input v-model="ruleForm.name" placeholder="例如：品牌负面爆发预警"></el-input>
+                        </el-form-item>
+                        <el-form-item label="监控关键词">
+                            <el-input v-model="ruleForm.keyword" placeholder="留空则监控全部"></el-input>
+                        </el-form-item>
+                        <el-form-item label="时间窗口(h)">
+                            <el-input-number v-model="ruleForm.time_window" :min="1" :max="168"></el-input-number>
+                        </el-form-item>
+                        <el-form-item label="预警情感">
+                            <el-select v-model="ruleForm.sentiment">
+                                <el-option label="负面" value="负面"></el-option>
+                                <el-option label="全部" value="全部"></el-option>
+                            </el-select>
+                        </el-form-item>
+                        <el-form-item label="阈值(条数)">
+                            <el-input-number v-model="ruleForm.threshold" :min="1"></el-input-number>
+                        </el-form-item>
+                        <el-form-item label="重大危机模式">
+                            <el-switch v-model="ruleForm.is_crisis" :active-value="1" :inactive-value="0"></el-switch>
+                            <span style="margin-left: 10px; font-size: 12px; color: #909399;">开启后触发政治/法律敏感词即预警</span>
+                        </el-form-item>
+                    </el-form>
+                    <template #footer>
+                        <el-button @click="ruleDialogVisible = false">取消</el-button>
+                        <el-button type="primary" @click="handleCreateRule">确定</el-button>
+                    </template>
+                </el-dialog>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted, reactive, watch, nextTick } = Vue;
+        // Fix: Use global variable provided by the locale script, with fallback
+        const ElementPlusLocaleZhCn = window.ElementPlusLocaleZhCn || {};
+
+        const app = createApp({
+            setup() {
+                const isCollapse = ref(false);
+                const activeMenu = ref('warning');
+                const warningActiveTab = ref('history');
+                const ruleDialogVisible = ref(false);
+                
+                const allAlerts = ref([]);
+                const alertRules = ref([]);
+                const alertReport = ref({
+                    level_dist: [],
+                    trend: [],
+                    type_dist: []
+                });
+
+                const ruleForm = ref({
+                    name: '',
+                    keyword: '',
+                    threshold: 50,
+                    time_window: 24,
+                    sentiment: '负面',
+                    is_crisis: 0,
+                    notify_methods: 'system',
+                    is_active: 1
+                });
+
+                const handleMenuSelect = (index) => {
+                    if (index === 'warning') return;
+                    
+                    const routes = {
+                        dashboard: '/',
+                        hotsearch: '/hotsearch',
+                        monitor: '/monitor',
+                        warning: '/warning',
+                        volume_rank: '/volume_rank',
+                        crawler: '/crawler',
+                        settings: '/?menu=settings'
+                    };
+                    
+                    if (routes[index]) {
+                        window.location.href = routes[index];
+                    }
+                };
+
+                const fetchAlerts = async () => {
+                    try {
+                        const res = await axios.get('/api/alerts/list');
+                        allAlerts.value = res.data;
+                    } catch (e) {
+                        console.error('Failed to fetch alerts', e);
+                    }
+                };
+
+                const fetchRules = async () => {
+                    try {
+                        const res = await axios.get('/api/alerts/rules');
+                        alertRules.value = res.data;
+                    } catch (e) {
+                        console.error('Failed to fetch rules', e);
+                    }
+                };
+
+                const fetchAlertReport = async () => {
+                    try {
+                        const res = await axios.get('/api/alerts/report');
+                        alertReport.value = res.data;
+                        nextTick(() => {
+                            initAlertCharts();
+                        });
+                    } catch (e) {
+                        console.error('Failed to fetch alert report', e);
+                    }
+                };
+
+                const initAlertCharts = () => {
+                    // Level Distribution Chart
+                    const levelDom = document.getElementById('alertLevelChart');
+                    if (levelDom) {
+                        const levelChart = echarts.init(levelDom);
+                        const data = alertReport.value.level_dist.map(item => ({
+                            name: item.level === 'high' ? '高' : (item.level === 'medium' ? '中' : '低'),
+                            value: item.count
+                        }));
+                        levelChart.setOption({
+                            title: { text: '预警级别分布', textStyle: { color: '#fff' }, left: 'center' },
+                            tooltip: { trigger: 'item' },
+                            series: [{
+                                type: 'pie',
+                                radius: ['40%', '70%'],
+                                data: data,
+                                label: { color: '#fff' }
+                            }]
+                        });
+                        window.addEventListener('resize', () => levelChart.resize());
+                    }
+
+                    // Trend Chart
+                    const trendDom = document.getElementById('alertTrendChart');
+                    if (trendDom) {
+                        const trendChart = echarts.init(trendDom);
+                        const dates = alertReport.value.trend.map(item => item.date);
+                        const counts = alertReport.value.trend.map(item => item.count);
+                        trendChart.setOption({
+                            title: { text: '预警趋势', textStyle: { color: '#fff' }, left: 'center' },
+                            tooltip: { trigger: 'axis' },
+                            xAxis: { type: 'category', data: dates, axisLabel: { color: '#fff' } },
+                            yAxis: { type: 'value', axisLabel: { color: '#fff' } },
+                            series: [{
+                                data: counts,
+                                type: 'line',
+                                smooth: true,
+                                areaStyle: { opacity: 0.3 }
+                            }]
+                        });
+                        window.addEventListener('resize', () => trendChart.resize());
+                    }
+                };
+
+                const openRuleDialog = () => {
+                    ruleForm.value = {
+                        name: '',
+                        keyword: '',
+                        threshold: 50,
+                        time_window: 24,
+                        sentiment: '负面',
+                        is_crisis: 0,
+                        notify_methods: 'system',
+                        is_active: 1
+                    };
+                    ruleDialogVisible.value = true;
+                };
+
+                const handleCreateRule = async () => {
+                    try {
+                        await axios.post('/api/alerts/rules', ruleForm.value);
+                        ruleDialogVisible.value = false;
+                        fetchRules();
+                        ElementPlus.ElMessage.success('规则创建成功');
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('规则创建失败');
+                    }
+                };
+
+                const handleDeleteRule = async (id) => {
+                    try {
+                        await axios.delete(`/api/alerts/rules/${id}`);
+                        fetchRules();
+                        ElementPlus.ElMessage.success('规则删除成功');
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('规则删除失败');
+                    }
+                };
+
+                const handleReadAlert = async (alert) => {
+                    try {
+                        await axios.post(`/api/alerts/read/${alert.id}`);
+                        fetchAlerts();
+                        ElementPlus.ElMessage.success('已处理该预警');
+                    } catch (e) {
+                        console.error('Failed to mark alert as read', e);
+                    }
+                };
+
+                onMounted(() => {
+                    fetchAlerts();
+                    fetchRules();
+                    fetchAlertReport();
+                });
+
+                return {
+                    isCollapse,
+                    activeMenu,
+                    warningActiveTab,
+                    ruleDialogVisible,
+                    allAlerts,
+                    alertRules,
+                    alertReport,
+                    ruleForm,
+                    handleMenuSelect,
+                    openRuleDialog,
+                    handleCreateRule,
+                    handleDeleteRule,
+                    handleReadAlert
+                };
+            }
+        });
+
+        // Register Icons
+        if (typeof ElementPlusIconsVue !== 'undefined') {
+            for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+                app.component(key, component);
+            }
+        }
+
+        app.use(ElementPlus, {
+            locale: ElementPlusLocaleZhCn
+        });
+        app.mount('#app');
+    </script>
+</body>
+</html>

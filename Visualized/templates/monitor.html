@@ -1,0 +1,1845 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JNU-OPORC 舆情检测</title>
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
+    <!-- Custom Style -->
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&family=Fira+Code&display=swap" rel="stylesheet">
+    <!-- Vue 3 -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <!-- Element Plus -->
+    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/locale/zh-cn.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+    <!-- Axios -->
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <!-- ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
+    <style>
+        /* 补充一些针对本页面的特定微调，尽量复用 style.css */
+        .filter-container {
+            /* margin-bottom: 20px; Removed to reduce bottom space */
+        }
+        .filter-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 12px;
+        }
+        .filter-item {
+            display: flex;
+            align-items: center;
+            height: 32px; /* Ensure consistent height */
+        }
+        .filter-label {
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 900;
+            margin-right: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            display: flex;
+            align-items: center;
+            white-space: nowrap;
+        }
+        .custom-tag {
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            color: var(--primary-color);
+        }
+        .keyword-highlight {
+            color: #e6a23c;
+            font-weight: bold;
+        }
+        .article-content {
+            line-height: 1.8;
+            font-size: 15px;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+        }
+        .task-card {
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex !important;
+            align-items: center;
+            height: 32px;
+            padding: 0 12px !important;
+        }
+        .task-card .el-tag__content {
+            display: flex;
+            align-items: center;
+        }
+        .task-warning-icon {
+            margin-left: 8px !important;
+            margin-right: 4px;
+            transition: all 0.3s ease;
+        }
+        .task-warning-icon:hover {
+            color: #e6a23c;
+            animation: bell-swing 1s ease-in-out infinite;
+        }
+        @keyframes bell-swing {
+            0%, 100% { transform: rotate(0deg); }
+            20% { transform: rotate(15deg); }
+            40% { transform: rotate(-10deg); }
+            60% { transform: rotate(5deg); }
+            80% { transform: rotate(-5deg); }
+        }
+        .task-card.active {
+            border-color: var(--primary-color) !important;
+            background: rgba(0, 240, 255, 0.15) !important;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+        }
+        .task-card:hover {
+            border-color: var(--primary-color) !important;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+            background: rgba(0, 240, 255, 0.15);
+        }
+        /* 隐藏滚动条但保持滚动功能 */
+        .hide-scrollbar {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none; /* Chrome, Safari and Opera */
+        }
+        /* 自适应布局增强 */
+        @media (max-width: 1200px) {
+            .filter-card {
+                height: auto !important;
+                min-height: 92px;
+            }
+            .search-box {
+                flex: 1 1 100% !important;
+                margin-bottom: 15px;
+                padding-left: 0 !important;
+            }
+            .filter-row {
+                justify-content: flex-start !important;
+                gap: 15px !important;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .filter-item {
+                width: 100%;
+                margin-bottom: 10px;
+            }
+            .time-filter {
+                flex-direction: column;
+                align-items: flex-start !important;
+                width: 100%;
+            }
+            .time-filter .el-radio-group {
+                margin-bottom: 10px;
+            }
+            .cyber-date-picker {
+                width: 100% !important;
+                margin-left: 0 !important;
+            }
+            .left-filters {
+                gap: 10px !important;
+            }
+            .action-group {
+                width: 100%;
+                margin-top: 10px;
+            }
+            .action-group .el-button {
+                width: 100%;
+            }
+        }
+
+        /* 统一滚动条样式 */
+        .content::-webkit-scrollbar {
+            width: 6px;
+        }
+        .content::-webkit-scrollbar-thumb {
+            background: rgba(0, 240, 255, 0.2);
+            border-radius: 3px;
+        }
+
+        /* 覆盖 Element Plus 的一些默认样式以适应深色主题 */
+        .el-dialog {
+            background: #1a1f2e !important;
+            border: 1px solid rgba(0, 240, 255, 0.2) !important;
+        }
+        .el-dialog__title {
+            color: #fff !important;
+        }
+        .el-dialog__body {
+            color: var(--text-primary) !important;
+        }
+        .el-picker-panel {
+            background-color: #1a1f2e !important;
+            border: 1px solid rgba(0, 240, 255, 0.2) !important;
+            color: #fff !important;
+        }
+        .el-date-table td.available:hover {
+            color: var(--primary-color) !important;
+        }
+        .el-select-dropdown__item.hover, .el-select-dropdown__item:hover {
+            background-color: rgba(0, 240, 255, 0.1) !important;
+        }
+        .el-select-dropdown {
+            background-color: #1a1f2e !important;
+            border: 1px solid rgba(0, 240, 255, 0.2) !important;
+        }
+        
+        /* 详情页样式增强 */
+        .detail-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+            margin-right: 0;
+            color: var(--text-secondary);
+        }
+        .detail-keyword-group {
+            margin: 15px 0;
+            padding: 10px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 8px;
+        }
+        .current-comment {
+            background: rgba(64, 158, 255, 0.15);
+            border: 1px solid rgba(64, 158, 255, 0.3);
+            border-radius: 4px;
+            padding: 5px;
+        }
+        
+        /* 优化 Table Filter 弹窗布局 */
+        .el-table-filter {
+            padding: 8px 0 !important;
+            border-radius: 8px !important;
+            border: 1px solid rgba(0, 240, 255, 0.2) !important;
+            background-color: #1a1f2e !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+        }
+        .el-table-filter__list {
+            padding: 5px 0 !important;
+        }
+        .el-table-filter__list-item {
+            padding: 8px 20px !important;
+            color: var(--text-primary) !important;
+            line-height: 1.5 !important;
+        }
+        .el-table-filter__list-item:hover {
+            background-color: rgba(0, 240, 255, 0.1) !important;
+            color: var(--primary-color) !important;
+        }
+        .el-table-filter__list-item.is-active {
+            background-color: rgba(0, 240, 255, 0.15) !important;
+            color: var(--primary-color) !important;
+            font-weight: bold !important;
+        }
+        .el-table-filter__bottom {
+            padding: 12px 15px !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            gap: 15px !important;
+        }
+        .el-table-filter__bottom button {
+            font-size: 12px !important;
+            padding: 5px 15px !important;
+            border-radius: 4px !important;
+            line-height: 1 !important;
+            height: 24px !important;
+            background: transparent !important;
+            border: 1px solid rgba(255,255,255,0.2) !important;
+            cursor: pointer !important;
+            transition: all 0.2s !important;
+        }
+        .el-table-filter__bottom button:hover {
+            border-color: var(--primary-color) !important;
+            color: var(--primary-color) !important;
+        }
+        /* 禁用状态 */
+        .el-table-filter__bottom button.is-disabled {
+            border-color: rgba(255,255,255,0.1) !important;
+            color: rgba(255,255,255,0.3) !important;
+            cursor: not-allowed !important;
+        }
+        /* Checkbox 样式微调 */
+        .el-table-filter__checkbox-group label.el-checkbox {
+            margin-right: 0 !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+
+        /* 鼠标悬停行样式优化 - 强制覆盖所有可能的白色背景 */
+        .el-table__body tr:hover > td,
+        .el-table__body tr.hover-row > td,
+        .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
+            background-color: rgba(0, 240, 255, 0.1) !important;
+            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.05) !important;
+            --el-table-row-hover-bg-color: rgba(0, 240, 255, 0.1) !important;
+        }
+
+        /* 筛选区 Cyber 风格 */
+        .cyber-search-wrapper {
+            width: 100%; /* 这里改为 100%，由外部 search-box 控制总宽度 */
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 8px;
+            padding: 1px;
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .cyber-search-inner {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            height: 32px;
+            overflow: hidden;
+            border-radius: 7px;
+        }
+
+        .cyber-select {
+            height: 100% !important;
+            width: 85px !important; /* 固定4个汉字左右的宽度 */
+            flex: none !important;
+        }
+
+        .cyber-select .el-select__wrapper {
+            background-color: #e6e8eb !important;
+            box-shadow: none !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-right: none !important;
+            border-radius: 8px 0 0 8px !important;
+            padding: 0 4px 0 8px !important; /* 调整内边距 */
+            transition: all 0.3s;
+            z-index: 2;
+            height: 100% !important;
+            min-height: 100% !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+
+        /* 修复选中文字或占位符的颜色和对齐 */
+        .cyber-select .el-select__selected-item,
+        .cyber-select .el-select__placeholder {
+            color: #333 !important;
+            font-weight: 600 !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 100% !important;
+        }
+
+        .cyber-select .el-select__selected-item span,
+        .cyber-select .el-select__placeholder span {
+            color: #333 !important;
+        }
+
+        .cyber-select .el-select__wrapper:hover {
+            background-color: #fff !important;
+        }
+
+        .cyber-select .el-select__suffix {
+            color: #606266 !important;
+            display: flex !important;
+            align-items: center !important;
+        }
+
+        .cyber-input {
+            flex: 1 !important; /* 占据中间剩余所有空间 */
+            width: auto !important;
+            display: flex !important;
+            height: 100% !important;
+        }
+
+        .cyber-input .el-input__wrapper {
+            background-color: rgba(255, 255, 255, 0.05) !important;
+            box-shadow: none !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+            border-left: 1px solid rgba(0, 0, 0, 0.1) !important; 
+            border-radius: 0 !important;
+            margin-left: 0 !important;
+            z-index: 1;
+            height: 100% !important;
+            min-height: 100% !important;
+            width: 100%;
+        }
+        
+        .cyber-input .el-input__inner {
+            color: var(--text-primary) !important;
+            padding-left: 20px !important;
+            height: 100% !important;
+        }
+        
+        /* 搜索按钮优化 */
+        .cyber-search-btn {
+            background-color: var(--primary-color) !important;
+            border: 1px solid var(--primary-color) !important;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.2) !important;
+            color: #000 !important;
+            border-radius: 0 8px 8px 0 !important;
+            padding: 0 !important;
+            width: 42px !important; /* 固定图标宽度，略宽于图标 */
+            height: 100% !important;
+            min-height: 100% !important;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            margin: 0 !important;
+            flex: none !important;
+        }
+
+        .cyber-search-btn:hover {
+            filter: brightness(1.1);
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.4) !important;
+        }
+        
+        .cyber-search-btn .el-icon {
+            font-size: 16px;
+        }
+        
+        /* 移除冗余的单选组样式，统一使用 style.css 中的科技感定义 */
+        .cyber-radio-group .el-radio-button__inner {
+            padding: 8px 15px !important;
+        }
+
+        .cyber-select-small .el-select__wrapper {
+            background-color: rgba(255, 255, 255, 0.05) !important;
+            box-shadow: none !important;
+            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            border-radius: 6px !important;
+            width: fit-content !important;
+            min-width: 100% !important;
+        }
+        
+        .cyber-select-small {
+            width: auto !important;
+            min-width: 100px;
+        }
+        
+        .cyber-btn-success {
+            background: rgba(103, 194, 58, 0.1) !important;
+            border: 1px solid rgba(103, 194, 58, 0.3) !important;
+            color: #67c23a !important;
+            transition: all 0.3s;
+        }
+        .cyber-btn-success:hover {
+            background: rgba(103, 194, 58, 0.2) !important;
+            box-shadow: 0 0 10px rgba(103, 194, 58, 0.2) !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Sidebar -->
+        <div class="sidebar" :class="{ collapsed: isCollapse, 'mobile-active': isMobileMenuShow }">
+            <div class="sidebar-logo">
+                {{ isCollapse ? 'OPORC' : 'JNU-OPORC 舆情哨兵' }}
+            </div>
+            <el-menu
+                active-text-color="var(--primary-color)"
+                background-color="transparent"
+                class="el-menu-vertical"
+                :default-active="activeMenu"
+                :collapse="isCollapse"
+                text-color="var(--text-secondary)"
+                @select="handleMenuSelect"
+            >
+                <el-menu-item index="hotsearch">
+                    <el-icon><trend-charts /></el-icon>
+                    <template #title>平台热榜</template>
+                </el-menu-item>
+                <el-menu-item index="dashboard">
+                    <el-icon><data-line /></el-icon>
+                    <template #title>舆情仪表盘</template>
+                </el-menu-item>
+                <el-menu-item index="monitor">
+                    <el-icon><monitor /></el-icon>
+                    <template #title>舆情检测</template>
+                </el-menu-item>
+                <el-menu-item index="warning">
+                    <el-icon><bell /></el-icon>
+                    <template #title>预警中心</template>
+                </el-menu-item>
+                <el-menu-item index="volume_rank">
+                    <el-icon><histogram /></el-icon>
+                    <template #title>声量热榜</template>
+                </el-menu-item>
+                <el-menu-item index="crawler">
+                    <el-icon><share /></el-icon>
+                    <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="settings">
+                    <el-icon><setting /></el-icon>
+                    <template #title>系统配置</template>
+                </el-menu-item>
+            </el-menu>
+        </div>
+
+        <!-- Mobile Mask -->
+        <div v-if="isMobileMenuShow" class="mobile-mask" @click="isMobileMenuShow = false"></div>
+
+        <!-- Main Container -->
+        <div class="main-container">
+            <!-- Header -->
+            <div class="header">
+                <div style="display: flex; align-items: center;">
+                    <el-icon class="collapse-btn" @click="toggleSidebar">
+                        <expand v-if="isCollapse || (!isCollapse && isMobileMenuShow)"></expand>
+                        <fold v-else></fold>
+                    </el-icon>
+                    <el-breadcrumb separator="/">
+                        <el-breadcrumb-item>首页</el-breadcrumb-item>
+                        <el-breadcrumb-item>舆情检测</el-breadcrumb-item>
+                    </el-breadcrumb>
+                </div>
+                <div style="display: flex; align-items: center; gap: 20px;">
+                    <div class="user-info">
+                        <el-tag type="info" effect="dark">管理员</el-tag>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content hide-scrollbar">
+                <!-- 任务快捷栏 -->
+                <div class="dashboard-header-tech" style="padding: 10px 15px; margin-bottom: 20px; min-height: auto; gap: 20px;">
+                    <div class="hide-scrollbar" style="display: flex; align-items: center; overflow-x: auto; overflow-y: hidden; gap: 10px; flex: 1; padding-bottom: 5px;">
+                        <span style="font-weight: bold; color: var(--text-secondary); white-space: nowrap; text-transform: uppercase; letter-spacing: 1.5px; font-size: 13px;">当前任务：</span>
+                        <el-tag 
+                            :effect="currentTaskId === 'all' ? 'dark' : 'plain'"
+                            class="task-card"
+                            :class="{ active: currentTaskId === 'all' }"
+                            @click="switchTask({id: 'all'})"
+                        >
+                            全部数据
+                        </el-tag>
+                        <el-tag 
+                            v-for="task in tasks" 
+                            :key="task.id"
+                            :effect="currentTaskId === task.id ? 'dark' : 'plain'"
+                            class="task-card"
+                            :class="{ active: currentTaskId === task.id }"
+                            @click="switchTask(task)"
+                            closable
+                            @close="deleteTask(task.id)"
+                        >
+                            {{ task.name }}
+                            <el-icon class="task-warning-icon" @click.stop="openWarningConfig(task)" style="margin-left: 5px; cursor: pointer;"><bell /></el-icon>
+                        </el-tag>
+                    </div>
+                    <el-button type="primary" class="cyber-btn-tech" size="small" @click="openTaskDialog" style="flex: none;">
+                        <el-icon style="margin-right: 5px"><plus /></el-icon> 新建检测任务
+                    </el-button>
+                </div>
+
+                <!-- 筛选区域 -->
+                <el-card shadow="never" :body-style="{ padding: '0px' }" class="tech-card filter-card" style="margin-bottom: 20px; border: none; background: rgba(20, 30, 40, 0.6); overflow: hidden; min-height: 92px;">
+                    <div class="filter-container" style="padding: 8px 15px; height: 100%; box-sizing: border-box;">
+                        <div style="padding: 0 10px;">
+                          <!-- 第一行：搜索与核心筛选 -->
+                          <div class="filter-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 20px;">
+                            <!-- 左侧：搜索框 -->
+                            <div class="search-box" style="flex: 1 1 500px; max-width: 600px;">
+                                <div class="cyber-search-wrapper">
+                                    <div class="cyber-search-inner">
+                                        <el-select v-model="filter.matchMode" placeholder="范围" size="small" class="cyber-select">
+                                            <el-option label="全文" value="full"></el-option>
+                                            <el-option label="标题" value="title"></el-option>
+                                            <el-option label="正文" value="content"></el-option>
+                                        </el-select>
+                                        <el-input
+                                            v-model="filter.keywords"
+                                            placeholder="输入关键词搜索舆情..."
+                                            clearable
+                                            size="small"
+                                            @clear="handleFilterChange"
+                                            @keyup.enter="handleFilterChange"
+                                            class="cyber-input"
+                                        ></el-input>
+                                        <el-button @click="handleFilterChange" size="small" class="cyber-search-btn">
+                                            <el-icon><search /></el-icon>
+                                        </el-button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 右侧：时间选择 -->
+                            <div class="time-filter" style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-left: auto; transition: all 0.3s ease;">
+                                <span class="filter-label">时间范围</span>
+                                <el-radio-group v-model="filter.timeRange" size="small" @change="handleFilterChange" class="cyber-radio-group">
+                                    <el-radio-button label="24h">24小时</el-radio-button>
+                                    <el-radio-button label="today">今天</el-radio-button>
+                                    <el-radio-button label="3d">3天</el-radio-button>
+                                    <el-radio-button label="7d">7天</el-radio-button>
+                                    <el-radio-button label="30d">30天</el-radio-button>
+                                    <el-radio-button label="custom">自定义</el-radio-button>
+                                </el-radio-group>
+                                <transition name="el-fade-in">
+                                    <el-date-picker
+                                        v-if="filter.timeRange === 'custom'"
+                                        v-model="filter.customTime"
+                                        type="datetimerange"
+                                        range-separator="-"
+                                        start-placeholder="开始"
+                                        end-placeholder="结束"
+                                        size="small"
+                                        style="width: 240px; margin-left: 10px;"
+                                        @change="handleFilterChange"
+                                        class="cyber-date-picker"
+                                        popper-class="cyber-date-panel"
+                                    ></el-date-picker>
+                                </transition>
+                            </div>
+                        </div>
+
+                        <!-- 第二行：高级筛选与操作 -->
+                        <div class="filter-row" style="display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 30px; margin-bottom: 0;">
+                            <div class="left-filters" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; width: 580px; flex: none;">
+                                <!-- 平台 -->
+                                <div class="filter-item">
+                                    <span class="filter-label">平台</span>
+                                    <el-select
+                                        v-model="filter.platforms"
+                                        multiple
+                                        placeholder="全平台"
+                                        style="width: auto; min-width: 120px; max-width: 400px;"
+                                        size="small"
+                                        @change="handleFilterChange"
+                                        class="cyber-select-small"
+                                    >
+                                        <el-option label="微博" value="weibo"></el-option>
+                                        <el-option label="知乎" value="zhihu"></el-option>
+                                        <el-option label="抖音" value="douyin" disabled></el-option>
+                                        <el-option label="B站" value="bilibili" disabled></el-option>
+                                    </el-select>
+                                </div>
+                                
+                                <!-- 排序 -->
+                                <div class="filter-item">
+                                    <span class="filter-label">排序</span>
+                                    <el-select v-model="filter.sortBy" size="small" style="width: auto; min-width: 110px;" @change="handleFilterChange" class="cyber-select-small">
+                                        <el-option label="最新发布" value="time_desc"></el-option>
+                                        <el-option label="最早发布" value="time_asc"></el-option>
+                                        <el-option label="匹配度" value="relevance"></el-option>
+                                    </el-select>
+                                </div>
+                                
+                                <!-- 合并开关 -->
+                                <div class="filter-item">
+                                    <el-tooltip content="将同一话题下的文章聚合显示" placement="top">
+                                        <span class="filter-label" style="width: auto; cursor: help; margin-right: 12px;">以板块名称聚合</span>
+                                    </el-tooltip>
+                                    <el-switch 
+                                        v-model="filter.mergeQuery" 
+                                        size="small"
+                                        active-color="var(--primary-color)"
+                                        @change="handleFilterChange"
+                                    ></el-switch>
+                                </div>
+                            </div>
+
+                            <!-- 右侧：导出按钮 -->
+                            <div class="action-group" style="margin-left: auto;">
+                                <el-button type="success" plain size="small" @click="exportData" class="cyber-btn-tech">
+                                    <el-icon style="margin-right: 5px;"><download /></el-icon> 导出数据
+                                </el-button>
+                            </div>
+                        </div>
+                        </div>
+                    </div>
+                </el-card>
+
+                <!-- 列表展示 -->
+                <el-card shadow="never" class="tech-card hide-scrollbar" v-loading="loading" element-loading-background="rgba(0, 0, 0, 0.7)">
+                    <div class="hide-scrollbar">
+                        <el-table :data="tableData" style="width: 100%" @sort-change="handleSortChange" class="hide-scrollbar">
+                        <el-table-column prop="top_id" label="内容摘要" min-width="300">
+                            <template #default="scope">
+                                <div style="cursor: pointer;" @click="showDetail(scope.row)">
+                                    <div v-if="scope.row.top_id && scope.row.top_id !== '无标题'" style="font-weight: bold; color: var(--text-primary); margin-bottom: 5px;">
+                                        <span v-html="highlightKeyword(scope.row.top_id)"></span>
+                                    </div>
+                                    <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+                                        <span v-if="scope.row.top_name" v-html="highlightKeyword(scope.row.top_name)"></span>
+                                        <span v-else v-html="highlightKeyword(scope.row.content)"></span>
+                                    </div>
+                                    <el-tag v-if="scope.row.is_merged" size="small" type="warning" effect="dark" style="margin-top: 5px;">聚合 {{ scope.row.merge_count }} 条</el-tag>
+                                </div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="source" label="来源" width="100">
+                            <template #default="scope">
+                                <el-tag :type="scope.row.source === 'weibo' ? 'danger' : 'primary'" size="small" effect="plain">
+                                    {{ scope.row.source }}
+                                </el-tag>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="publish_time" label="发布时间" width="160" sortable="custom">
+                            <template #default="scope">
+                                <div style="display: flex; flex-direction: column; line-height: 1.2;">
+                                    <span style="font-weight: 500; font-family: 'Inter', sans-serif;">{{ scope.row.publish_time ? scope.row.publish_time.split(' ')[0] : '' }}</span>
+                                    <span style="font-size: 12px; color: var(--text-secondary); font-family: 'Fira Code', monospace;">{{ scope.row.publish_time ? scope.row.publish_time.split(' ')[1] : '' }}</span>
+                                </div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="author" label="作者" width="120">
+                            <template #default="scope">
+                                <el-tooltip
+                                    :content="scope.row.author"
+                                    placement="top"
+                                    :disabled="!scope.row.author || scope.row.author.length <= 8"
+                                >
+                                    <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                        {{ scope.row.author }}
+                                    </div>
+                                </el-tooltip>
+                            </template>
+                        </el-table-column>
+                        <el-table-column 
+                            prop="sentiment" 
+                            label="情感分析" 
+                            width="160" 
+                            sortable
+                            :sort-method="sortSentiment"
+                            :filters="[
+                                { text: '正面', value: '正面' },
+                                { text: '中性', value: '中性' },
+                                { text: '负面', value: '负面' }
+                            ]"
+                            :filter-method="filterSentiment"
+                            filter-placement="bottom-end"
+                        >
+                            <template #default="scope">
+                                <span :class="'sentiment-' + getSentimentClass(scope.row.sentiment)">
+                                    {{ scope.row.sentiment }} ({{ scope.row.sentiment_score }}%)
+                                </span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column prop="relevance" label="匹配度" width="100" sortable="custom">
+                            <template #default="scope">
+                                <el-progress :percentage="scope.row.relevance" :color="customColors" :show-text="false"></el-progress>
+                                <span style="font-size: 12px;">{{ scope.row.relevance }}%</span>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="180" fixed="right" align="center">
+                            <template #default="scope">
+                                <div style="display: flex; justify-content: center; align-items: center; gap: 4px;">
+                                    <el-button size="small" @click="showDetail(scope.row)" class="cyber-btn-detail">
+                                         <div class="ui-prefix"><span></span><span></span><span></span></div>详情
+                                     </el-button>
+                                    <el-button size="small" @click="deleteContent(scope.row)" class="cyber-btn-delete">
+                                        <el-icon style="margin-right: 4px;"><delete /></el-icon>删除
+                                    </el-button>
+                                </div>
+                            </template>
+                        </el-table-column>
+                    </el-table>
+                </div>
+                </el-card>
+            </div>
+        </div>
+
+        <!-- 任务创建/编辑弹窗 -->
+        <el-dialog v-model="taskDialogVisible" title="舆情检测任务配置" width="90%" style="max-width: 600px;" destroy-on-close>
+            <el-form :model="taskForm" label-width="100px">
+                <el-form-item label="任务名称">
+                    <el-input v-model="taskForm.name" placeholder="请输入任务名称"></el-input>
+                </el-form-item>
+                <el-form-item label="任务分组">
+                    <el-select v-model="taskForm.group" allow-create filterable placeholder="选择或新建分组" style="width: 100%">
+                        <el-option v-for="g in groups" :key="g" :label="g" :value="g"></el-option>
+                    </el-select>
+                </el-form-item>
+                <el-form-item label="关键词配置">
+                    <el-input 
+                        v-model="taskForm.keywords" 
+                        type="textarea" 
+                        :rows="3" 
+                        placeholder="支持逻辑运算：'上海 & 疫情' 表示并且，'上海 | 北京' 表示或。多个组合请换行。"
+                    ></el-input>
+                </el-form-item>
+                <el-form-item label="屏蔽词">
+                    <el-input v-model="taskForm.excludeWords" placeholder="包含这些词的内容将被过滤，以逗号分隔"></el-input>
+                </el-form-item>
+                <el-form-item label="监控源">
+                    <el-checkbox-group v-model="taskForm.platforms">
+                        <el-checkbox label="weibo">微博</el-checkbox>
+                        <el-checkbox label="zhihu">知乎</el-checkbox>
+                    </el-checkbox-group>
+                </el-form-item>
+                <el-divider content-position="left">预警配置</el-divider>
+                <el-form-item label="开启预警">
+                    <el-switch v-model="taskForm.warningEnabled"></el-switch>
+                </el-form-item>
+                <template v-if="taskForm.warningEnabled">
+                    <el-form-item label="预警触发词">
+                        <el-input v-model="taskForm.warningKeywords" placeholder="出现这些词时触发预警，例如：维权, 事故"></el-input>
+                    </el-form-item>
+                    <el-form-item label="通知方式">
+                        <el-checkbox-group v-model="taskForm.notifyMethods">
+                            <el-checkbox label="system">系统推送</el-checkbox>
+                            <el-checkbox label="email">邮件推送</el-checkbox>
+                        </el-checkbox-group>
+                    </el-form-item>
+                </template>
+                <el-form-item label="检测频率">
+                    <el-radio-group v-model="taskForm.frequency">
+                        <el-radio label="realtime">实时</el-radio>
+                        <el-radio label="1h">每小时</el-radio>
+                        <el-radio label="24h">每天</el-radio>
+                    </el-radio-group>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="taskDialogVisible = false">取消</el-button>
+                <el-button type="primary" @click="saveTask">保存配置</el-button>
+            </template>
+        </el-dialog>
+
+        <!-- 舆情详情弹窗 -->
+        <el-dialog v-model="detailVisible" :title="currentDetail.is_merged_view ? currentDetail.top_id + ' (共 ' + currentDetail.total_items + ' 篇)' : currentDetail.top_id" width="90%" style="max-width: 1000px;" destroy-on-close top="5vh" class="tech-dialog">
+            <div class="detail-container" style="padding: 0; max-width: 100%;">
+                
+                <!-- 聚合视图 -->
+                <div v-if="currentDetail.is_merged_view">
+                    <div class="section-title" style="font-weight: bold; margin-bottom: 20px; color: var(--text-primary); font-size: 18px;">
+                        话题聚合：{{ currentDetail.top_id }} ({{ currentDetail.total_items }}条)
+                    </div>
+                    
+                    <div class="merged-items-list">
+                        <div v-for="item in currentDetail.items" :key="item.id" class="merged-item" style="margin-bottom: 20px; background: rgba(255,255,255,0.02); border-radius: 8px; overflow: hidden;">
+                            <!-- Item Header (Click to expand) -->
+                            <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; padding: 15px; background: rgba(255,255,255,0.03);" @click="toggleExpand(item)">
+                                <div style="font-weight: bold; font-size: 16px; color: var(--text-primary); display: flex; align-items: center;">
+                                    <el-icon v-if="item.is_expanded" style="margin-right: 8px;"><caret-bottom /></el-icon>
+                                    <el-icon v-else style="margin-right: 8px;"><caret-right /></el-icon>
+                                    <span v-html="highlightKeyword(item.title)"></span>
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">
+                                    {{ item.created_at }} | {{ item.source }}
+                                </div>
+                            </div>
+                            
+                            <!-- Expanded Content -->
+                            <div v-if="item.is_expanded" v-loading="item.loading" style="padding: 15px; border-top: 1px solid rgba(255,255,255,0.05);">
+                                <!-- Meta Tags -->
+                                <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                                    <el-tag size="small" :type="item.sentiment === '正面' ? 'success' : (item.sentiment === '负面' ? 'danger' : 'info')">
+                                        {{ item.sentiment }}
+                                    </el-tag>
+                                    <el-tag v-for="kw in item.trained_keywords" :key="kw" size="small" effect="plain" style="border-color: var(--primary-color); color: var(--primary-color);">
+                                        {{ kw }}
+                                    </el-tag>
+                                </div>
+
+                                <!-- Content -->
+                                <div class="article-body" style="font-size: 14px; margin-bottom: 15px; line-height: 1.6;" v-html="highlightKeyword(item.content)"></div>
+                                
+                                <!-- Images -->
+                                <div v-if="item.images && item.images.length > 0" class="image-gallery hide-scrollbar" style="display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; margin-bottom: 15px;">
+                                    <el-image 
+                                        v-for="(img, idx) in item.images" 
+                                        :key="idx" 
+                                        :src="img" 
+                                        :preview-src-list="item.images"
+                                        fit="cover"
+                                        style="width: 100px; height: 100px; border-radius: 4px; flex-shrink: 0;"
+                                        lazy
+                                        loading="lazy"
+                                    ></el-image>
+                                </div>
+
+                                <!-- Comments Preview -->
+                                <div v-if="item.comments && item.comments.length > 0" style="margin-top: 15px; background: rgba(0,0,0,0.1); padding: 10px; border-radius: 4px;">
+                                    <div style="font-size: 12px; font-weight: bold; margin-bottom: 10px; color: var(--text-secondary);">
+                                        热门评论 ({{ item.comments.length }})
+                                    </div>
+                                    <div v-for="comment in item.comments.slice(0, 5)" :key="comment.id" style="margin-bottom: 8px; border-bottom: 1px dashed rgba(255,255,255,0.1); padding-bottom: 8px;">
+                                        <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px;">
+                                            <span style="color: var(--text-primary); font-weight: bold;">{{ comment.user }}</span>
+                                            <span :class="'sentiment-' + getSentimentClass(comment.sentiment)">{{ comment.sentiment }}</span>
+                                        </div>
+                                        <div style="font-size: 13px; color: var(--text-secondary);" v-html="highlightKeyword(comment.text)"></div>
+                                    </div>
+                                    <div v-if="item.comments.length > 5" style="text-align: center; font-size: 12px; color: var(--primary-color); cursor: pointer; margin-top: 5px;" @click.stop="showDetail(item)">
+                                        查看全部 {{ item.comments.length }} 条评论
+                                    </div>
+                                </div>
+                                <div v-else-if="!item.loading && (!item.comments || item.comments.length === 0)" style="margin-top: 15px; font-size: 12px; color: var(--text-secondary); text-align: center;">
+                                    暂无评论数据
+                                </div>
+
+                                <!-- Action Buttons -->
+                                <div style="display: flex; justify-content: flex-end; margin-top: 15px;">
+                                    <el-button type="primary" size="small" @click.stop="showDetail(item)">
+                                        进入详情页
+                                        <el-icon class="el-icon--right"><arrow-right /></el-icon>
+                                    </el-button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Load More Button -->
+                        <div v-if="currentDetail.items && currentDetail.items.length < currentDetail.total_items" style="text-align: center; margin-top: 20px;">
+                            <el-button @click="loadMoreMergedItems" type="primary" plain :loading="currentDetail.loadingMore">加载更多文章 ({{ currentDetail.total_items - currentDetail.items.length }}剩余)</el-button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 单篇视图 (保持原有逻辑) -->
+                <div v-else class="article-detail-container">
+                    <!-- Meta Info -->
+                    <div class="article-meta tech-meta" style="margin-bottom: 20px;">
+                        <div class="detail-meta-item"><el-icon><user /></el-icon> 作者：{{ currentDetail.author }}</div>
+                        <div class="detail-meta-item"><el-icon><timer /></el-icon> 发表时间：{{ currentDetail.publish_time }}</div>
+                        <div class="detail-meta-item">
+                            <span style="color: var(--text-secondary);">数据来源：</span>
+                            <el-tag size="small" :class="'source-tag-' + currentDetail.source" style="margin-left: -2px;">{{ currentDetail.source }}</el-tag>
+                        </div>
+                        <div class="detail-meta-item" style="margin-left: auto;">
+                            <el-link type="primary" :href="currentDetail.url" target="_blank" :underline="false" class="tech-link">
+                                查看原文 <el-icon><top-right /></el-icon>
+                            </el-link>
+                        </div>
+                    </div>
+
+                    <!-- Sentiment & Keywords -->
+                    <div style="margin-bottom: 20px;">
+                        <div v-if="!isEditingSentiment" style="display: flex; align-items: center; gap: 15px;">
+                            <span class="detail-label" style="width: auto; margin-right: 0;">情感倾向</span>
+                            <div style="flex: 0 1 150px;">
+                                <el-progress 
+                                    :percentage="currentDetail.sentiment_score" 
+                                    :color="getSentimentColor(currentDetail.sentiment)"
+                                    :show-text="false"
+                                    :stroke-width="8"
+                                    class="tech-progress"
+                                ></el-progress>
+                            </div>
+                            <span :style="{ color: getSentimentColor(currentDetail.sentiment), fontWeight: 'bold', fontSize: '14px' }">
+                                {{ currentDetail.sentiment }}
+                            </span>
+                            
+                            <el-button type="primary" link size="small" @click="toggleEditSentiment" class="tech-edit-btn" style="margin-left: auto;">
+                                <el-icon style="margin-right: 4px"><edit /></el-icon>
+                                修改标注
+                            </el-button>
+                        </div>
+                        
+                        <div v-else style="display: flex; gap: 10px; align-items: center;">
+                            <span class="detail-label" style="width: auto; margin-right: 0;">情感倾向</span>
+                            <el-radio-group v-model="tempSentiment" size="small">
+                                <el-radio-button label="正面">正面</el-radio-button>
+                                <el-radio-button label="中性">中性</el-radio-button>
+                                <el-radio-button label="负面">负面</el-radio-button>
+                            </el-radio-group>
+                            <el-button type="success" size="small" @click="saveSentiment">保存修正</el-button>
+                            <el-button type="info" link size="small" @click="toggleEditSentiment" style="margin-left: auto;">取消</el-button>
+                        </div>
+                    </div>
+
+                    <div class="detail-keyword-group">
+                        <div style="margin-bottom: 8px; font-size: 12px; color: var(--text-secondary); display: flex; align-items: center;">
+                            <el-icon style="margin-right: 4px;"><collection-tag /></el-icon>
+                            训练提取关键词：
+                        </div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                            <el-tag 
+                                v-for="kw in currentDetail.trained_keywords" 
+                                :key="kw" 
+                                size="small" 
+                                class="tech-keyword-tag"
+                            >{{ kw }}</el-tag>
+                        </div>
+                    </div>
+                    
+                    <div class="detail-keyword-group">
+                        <div style="margin-bottom: 5px; font-size: 12px; color: var(--text-secondary);">评论高频词：</div>
+                        <el-tag 
+                            v-for="kw in currentDetail.comment_keywords" 
+                            :key="kw" 
+                            size="small" 
+                            type="info" 
+                            effect="dark" 
+                            style="margin-right: 8px;"
+                        >{{ kw }}</el-tag>
+                    </div>
+
+                    <!-- Content -->
+                    <div class="article-content-section" style="margin-top: 20px; margin-bottom: 20px;">
+                        <div class="section-title tech-section-title">文章详情</div>
+                        <div class="article-body tech-article-body" v-html="highlightKeyword(currentDetail.content)"></div>
+                    </div>
+
+                    <!-- Images -->
+                    <div v-if="currentDetail.images && currentDetail.images.length" class="img-gallery">
+                        <!-- 模式1：收起状态，只显示第一张 -->
+                        <div v-if="!currentDetail.showAllImages">
+                            <div class="img-wrapper" style="position: relative; display: inline-block; cursor: pointer;">
+                                <el-image 
+                                    :src="currentDetail.images[0]"
+                                    class="img-item"
+                                    :preview-src-list="currentDetail.images"
+                                    :initial-index="0"
+                                    fit="cover"
+                                    lazy
+                                    loading="lazy"
+                                    style="width: 150px; height: 150px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);"
+                                ></el-image>
+                                <div v-if="currentDetail.images.length > 1" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; backdrop-filter: blur(4px); pointer-events: none;">
+                                    共 {{ currentDetail.images.length }} 张
+                                </div>
+                            </div>
+                            <div v-if="currentDetail.images.length > 1" style="margin-left: 15px; display: inline-block; vertical-align: bottom; margin-bottom: 10px;">
+                                <el-button type="primary" plain size="small" @click="expandAllImages">
+                                    <el-icon style="margin-right: 5px"><picture /></el-icon> 展开所有图片
+                                </el-button>
+                            </div>
+                        </div>
+
+                        <!-- 模式2：展开状态，显示所有图片网格 (使用原生img提升性能) -->
+                        <div v-else class="img-grid" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                            <div 
+                                v-for="(img, index) in currentDetail.images.slice(0, currentDetail.visibleImageCount)" 
+                                :key="index"
+                                class="img-item-wrapper"
+                                style="width: 120px; height: 120px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; cursor: pointer;"
+                                @click="openPreview(index)"
+                            >
+                                <img 
+                                    :src="getThumbnailUrl(img)"
+                                    style="width: 100%; height: 100%; object-fit: cover;"
+                                    loading="lazy"
+                                    decoding="async"
+                                />
+                            </div>
+                            
+                            <!-- 隐藏的 el-image 用于触发全屏预览 -->
+                            <div style="width: 0; height: 0; overflow: hidden;">
+                                <el-image 
+                                    ref="previewImageRef"
+                                    :src="previewImagesList[0] || (currentDetail.images && currentDetail.images[0])"
+                                    :preview-src-list="previewImagesList"
+                                    :initial-index="currentDetail.previewIndex"
+                                    hide-on-click-modal
+                                ></el-image>
+                            </div>
+
+                            <div v-if="currentDetail.visibleImageCount < currentDetail.images.length" style="width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                                <el-icon class="is-loading"><loading /></el-icon>
+                            </div>
+                            <div style="width: 100%; margin-top: 10px;">
+                                <el-button type="info" link size="small" @click="currentDetail.showAllImages = false">
+                                    <el-icon style="margin-right: 5px"><arrow-up /></el-icon> 收起图片
+                                </el-button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Comments Section -->
+                    <div class="article-comments-section">
+                        <el-divider content-position="left">评论分析 ({{ currentDetail.total_comments || currentDetail.comments.length }})</el-divider>
+                        <div class="comment-list hide-scrollbar" style="max-height: 400px; overflow-y: auto;">
+                            <div v-for="comment in currentDetail.comments" :key="comment.id" class="comment-item" :class="{ 'current-comment': comment.is_current }">
+                                <div class="comment-header">
+                                    <span style="font-weight: bold; font-size: 13px;">{{ comment.user }}</span>
+                                    <span class="sentiment-tag" :class="'sentiment-' + getSentimentClass(comment.sentiment)">
+                                        {{ comment.sentiment }}
+                                    </span>
+                                </div>
+                                <div class="comment-content" v-html="highlightKeyword(comment.text)"></div>
+                                
+                                <!-- 评论图片 -->
+                                <div v-if="comment.images && comment.images.length > 0" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
+                                    <div 
+                                        v-for="(img, idx) in comment.images" 
+                                        :key="idx"
+                                        style="width: 60px; height: 60px; border-radius: 4px; overflow: hidden; cursor: pointer; border: 1px solid rgba(255,255,255,0.1);"
+                                        @click="openPreview(idx, comment.images)"
+                                    >
+                                        <img 
+                                            :src="getThumbnailUrl(img)" 
+                                            style="width: 100%; height: 100%; object-fit: cover;"
+                                            loading="lazy"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div style="margin-top: 5px; font-size: 11px; color: var(--text-secondary);">{{ comment.time }}</div>
+                            </div>
+                            
+                            <!-- Load More Button -->
+                            <div v-if="currentDetail.total_comments && currentDetail.comments.length < currentDetail.total_comments" style="text-align: center; margin-top: 15px; padding-bottom: 10px;">
+                                <el-button @click="loadMoreComments" size="small" type="primary" plain :loading="currentDetail.loadingComments">加载更多评论 ({{ currentDetail.total_comments - currentDetail.comments.length }}剩余)</el-button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </el-dialog>
+
+        <!-- 任务预警配置对话框 -->
+        <el-dialog v-model="warningConfigVisible" title="配置任务预警" width="400px" custom-class="tech-dialog">
+            <el-form :model="warningRuleForm" label-width="100px" class="tech-form">
+                <el-form-item label="监控关键词">
+                    <el-input v-model="warningRuleForm.keyword" disabled></el-input>
+                </el-form-item>
+                <el-form-item label="触发条件">
+                    <span style="color: #fff;">{{ warningRuleForm.time_window }}小时内 {{ warningRuleForm.sentiment }}信息 > {{ warningRuleForm.threshold }}条</span>
+                </el-form-item>
+                <el-form-item label="阈值(条数)">
+                    <el-input-number v-model="warningRuleForm.threshold" :min="1"></el-input-number>
+                </el-form-item>
+                <el-form-item label="时间窗口(h)">
+                    <el-input-number v-model="warningRuleForm.time_window" :min="1" :max="168"></el-input-number>
+                </el-form-item>
+                <el-form-item label="重大危机模式">
+                    <el-switch v-model="warningRuleForm.is_crisis" :active-value="1" :inactive-value="0"></el-switch>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="warningConfigVisible = false">取消</el-button>
+                <el-button type="primary" @click="saveWarningConfig">保存规则</el-button>
+            </template>
+        </el-dialog>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted, computed, watch } = Vue;
+
+        const app = createApp({
+            setup() {
+                const { ElMessage, ElMessageBox } = ElementPlus;
+                const isCollapse = ref(false);
+                const isMobileMenuShow = ref(false);
+                const activeMenu = ref('monitor');
+                const loading = ref(false);
+                const tableData = ref([]);
+                const currentTaskId = ref('all');
+                const taskDialogVisible = ref(false);
+                const detailVisible = ref(false);
+                const currentDetail = ref({});
+                const isEditingSentiment = ref(false);
+                const tempSentiment = ref('');
+
+                // Helper for decoding URL-encoded strings
+                const safeDecode = (str) => {
+                    if (!str) return str;
+                    try {
+                        return decodeURIComponent(str);
+                    } catch (e) {
+                        return str;
+                    }
+                };
+
+                const toggleSidebar = () => {
+                    if (window.innerWidth <= 768) {
+                        isMobileMenuShow.value = !isMobileMenuShow.value;
+                    } else {
+                        isCollapse.value = !isCollapse.value;
+                    }
+                };
+
+                // 监听窗口大小变化
+                onMounted(() => {
+                    window.addEventListener('resize', () => {
+                        if (window.innerWidth > 768) {
+                            isMobileMenuShow.value = false;
+                        }
+                    });
+                });
+
+                // 分页/切片显示控制
+                // const mergedDisplayLimit = ref(10); // Deprecated by backend pagination
+                // const displayedMergedItems = computed(() => ...); // Deprecated
+
+                // 监听详情页关闭或切换
+                watch(detailVisible, (newVal) => {
+                    if (!newVal) {
+                        // Reset logic if needed
+                    }
+                });
+                
+                // 评论分页相关 (后端分页)
+                // const commentsDisplayLimit = ref(20); // Deprecated
+                // const displayedComments = computed(() => ...); // Deprecated
+
+                // 分批加载图片，避免卡顿
+                const expandAllImages = () => {
+                    currentDetail.value.showAllImages = true;
+                    currentDetail.value.visibleImageCount = 1;
+                    
+                    const total = currentDetail.value.images.length;
+                    const interval = setInterval(() => {
+                        if (currentDetail.value.visibleImageCount < total) {
+                            currentDetail.value.visibleImageCount++;
+                        } else {
+                            clearInterval(interval);
+                        }
+                    }, 300); // 每300ms加载一张
+                };
+                
+                // 图片预览控制
+                const previewImageRef = ref(null);
+                const previewImagesList = ref([]); // 当前预览使用的图片列表
+
+                // 获取缩略图 URL (后端实时生成)
+                const getThumbnailUrl = (url) => {
+                    if (!url) return '';
+                    // 适配 Image Server 的缩略图路由
+                    if (url.includes('/media/')) {
+                        return url.replace('/media/', '/thumbnail/media/');
+                    }
+                    if (url.includes('/logos/')) {
+                        return url.replace('/logos/', '/thumbnail/logos/');
+                    }
+                    return url;
+                };
+
+                const openPreview = (index, images = null) => {
+                    // 如果指定了图片列表（如评论图片），则更新预览列表
+                    if (images && images.length > 0) {
+                        previewImagesList.value = images;
+                    } else {
+                        // 默认为文章图片
+                        previewImagesList.value = currentDetail.value.images || [];
+                    }
+
+                    currentDetail.value.previewIndex = index;
+                    // 等待 DOM 更新，initial-index 生效
+                    setTimeout(() => {
+                        if (previewImageRef.value) {
+                            // 模拟点击隐藏的 el-image 触发预览
+                            const imgEl = previewImageRef.value.$el.querySelector('img');
+                            if (imgEl) imgEl.click();
+                        }
+                    }, 50);
+                };
+
+                // 加载更多评论
+                const loadMoreComments = async () => {
+                    if (currentDetail.value.loadingComments) return;
+                    currentDetail.value.loadingComments = true;
+                    
+                    try {
+                        const noteId = encodeURIComponent(String(currentDetail.value.note_id).trim());
+                        const nextPage = (currentDetail.value.commentsPage || 1) + 1;
+                        
+                        // 复用 detail 接口，但只取 comments 部分
+                        // 注意：后端 detail 接口返回的是完整对象，包含文章内容等。
+                        // 如果文章内容很大，这样会浪费带宽。
+                        // 理想情况应该有一个单独的 /comments 接口。
+                        // 但为了快速修复，我们先用 detail 接口，后端虽然查了文章，但对于单篇详情来说还好。
+                        // 关键是评论只返回了 20 条。
+                        
+                        const response = await axios.get(`/api/monitoring/detail/${noteId}/0`, {
+                            params: { comments_page: nextPage, comments_size: 20 }
+                        });
+                        const data = response.data;
+                        const newComments = data.comments || [];
+                        
+                        if (newComments.length > 0) {
+                            // 格式化新评论（如果需要的话，目前后端返回的格式已经符合前端要求）
+                            currentDetail.value.comments.push(...newComments);
+                            currentDetail.value.commentsPage = nextPage;
+                        } else {
+                            ElMessage.info("没有更多评论了");
+                        }
+                    } catch (e) {
+                        console.error("Failed to load more comments", e);
+                        ElMessage.error("加载更多评论失败");
+                    } finally {
+                        currentDetail.value.loadingComments = false;
+                    }
+                };
+
+                // 加载更多聚合文章
+                const loadMoreMergedItems = async () => {
+                    if (currentDetail.value.loadingMore) return;
+                    currentDetail.value.loadingMore = true;
+                    
+                    try {
+                        const nextPage = currentDetail.value.page + 1;
+                        const queryId = currentDetail.value.queryId;
+                        const response = await axios.get(`/api/monitoring/topic_detail/${encodeURIComponent(queryId)}`, {
+                            params: { page: nextPage, size: 10 }
+                        });
+                        const newItems = response.data;
+                        
+                        if (newItems.length > 0) {
+                            const formattedNewItems = newItems.map(item => ({
+                                ...item,
+                                id: item.note_id,
+                                title: item.title || (item.content ? item.content.substring(0, 30) + '...' : '无标题'),
+                                sentiment_score: item.sentiment_score || 0,
+                                sentiment: item.sentiment || '中性',
+                                trained_keywords: item.trained_keywords || [],
+                                comment_keywords: [],
+                                images: item.images || [],
+                                is_expanded: false
+                            }));
+                            
+                            currentDetail.value.items.push(...formattedNewItems);
+                            currentDetail.value.page = nextPage;
+                        } else {
+                            ElMessage.info("没有更多数据了");
+                        }
+                    } catch (e) {
+                        console.error("Failed to load more items", e);
+                        ElMessage.error("加载更多失败");
+                    } finally {
+                        currentDetail.value.loadingMore = false;
+                    }
+                };
+
+                // Task Data
+                const tasks = ref([]);
+
+                const groups = computed(() => [...new Set(tasks.value.map(t => t.group))]);
+
+                // Filter State
+                const filter = reactive({
+                    timeRange: '24h',
+                    customTime: [],
+                    platforms: ['weibo'],
+                    matchMode: 'full',
+                    sortBy: 'time_desc',
+                    mergeQuery: false,
+                    keywords: '' // 用户手动输入的关键词
+                });
+
+                // Pagination
+                const pagination = reactive({
+                    page: 1,
+                    size: 10,
+                    total: 0
+                });
+
+                // Task Form
+                const taskForm = reactive({
+                    id: null,
+                    name: '',
+                    group: '',
+                    keywords: '',
+                    excludeWords: '',
+                    platforms: ['weibo', 'zhihu'],
+                    warningEnabled: false,
+                    warningKeywords: '',
+                    notifyMethods: ['system'],
+                    frequency: 'realtime'
+                });
+                
+                // 预警配置状态
+                const warningConfigVisible = ref(false);
+                const warningRuleForm = reactive({
+                    taskId: null,
+                    keyword: '',
+                    threshold: 50,
+                    time_window: 24,
+                    sentiment: '负面',
+                    is_crisis: 0
+                });
+
+                const openWarningConfig = (task) => {
+                    if (task.id === 'all') return;
+                    warningRuleForm.taskId = task.id;
+                    warningRuleForm.keyword = task.keywords || ''; // 默认使用任务关键词
+                    warningConfigVisible.value = true;
+                };
+
+                const saveWarningConfig = async () => {
+                    try {
+                        // 创建针对该任务的预警规则
+                        const ruleData = {
+                            name: `任务预警-${warningRuleForm.taskId}`,
+                            keyword: warningRuleForm.keyword,
+                            threshold: warningRuleForm.threshold,
+                            time_window: warningRuleForm.time_window,
+                            sentiment: warningRuleForm.sentiment,
+                            is_crisis: warningRuleForm.is_crisis,
+                            notify_methods: 'system',
+                            is_active: 1
+                        };
+                        await axios.post('/api/alerts/rules', ruleData);
+                        ElMessage.success('预警规则已创建');
+                        warningConfigVisible.value = false;
+                    } catch (e) {
+                        ElMessage.error('创建失败');
+                    }
+                };
+
+                // Navigation
+                const handleMenuSelect = (index) => {
+                    if (index === 'monitor') return;
+                    
+                    // 处理 SPA 模块 (dashboard, settings)
+                    const spaModules = ['dashboard', 'settings'];
+                    if (spaModules.includes(index)) {
+                        const path = index === 'dashboard' ? '/' : `/?menu=${index}`;
+                        window.location.href = path;
+                        return;
+                    }
+                    
+                    // 处理外部页面
+                    window.location.href = `/${index}`;
+                };
+
+                // Methods
+                const fetchTasks = async () => {
+                    try {
+                        const res = await axios.get('/api/monitoring/tasks');
+                        tasks.value = res.data;
+                    } catch (e) {
+                        console.error("Failed to fetch tasks", e);
+                        ElMessage.error("获取任务列表失败");
+                    }
+                };
+
+                const switchTask = (task) => {
+                    currentTaskId.value = task.id;
+                    fetchData();
+                };
+
+                const deleteTask = (id) => {
+                    ElMessageBox.confirm('确定删除该任务吗？', '提示', { type: 'warning' })
+                        .then(async () => {
+                            try {
+                                await axios.delete(`/api/monitoring/tasks/${id}`);
+                                ElMessage.success('删除成功');
+                                await fetchTasks();
+                                
+                                if (currentTaskId.value === id) {
+                                    if (tasks.value.length > 0) {
+                                        switchTask(tasks.value[0]);
+                                    } else {
+                                        switchTask({id: 'all'});
+                                    }
+                                }
+                            } catch (e) {
+                                console.error(e);
+                                ElMessage.error('删除失败');
+                            }
+                        });
+                };
+
+                const deleteContent = (row) => {
+                    ElMessageBox.confirm('确定删除这条内容吗？此操作不可恢复。', '提示', { type: 'warning' })
+                        .then(async () => {
+                            try {
+                                // 如果是聚合条目，暂不支持直接删除整个话题（或者可以提示）
+                                if (row.is_merged) {
+                                    ElMessage.warning('聚合话题暂不支持直接删除，请进入详情页删除具体文章');
+                                    return;
+                                }
+                                
+                                await axios.delete(`/api/monitoring/content/${row.note_id}`);
+                                ElMessage.success('删除成功');
+                                fetchData(); // 刷新列表
+                            } catch (e) {
+                                console.error(e);
+                                ElMessage.error('删除失败');
+                            }
+                        });
+                };
+
+                const openTaskDialog = () => {
+                    // Reset form
+                    Object.assign(taskForm, {
+                        id: null, name: '', group: '', keywords: '', excludeWords: '',
+                        platforms: ['weibo', 'zhihu'], warningEnabled: false,
+                        warningKeywords: '', notifyMethods: ['system'], frequency: 'realtime'
+                    });
+                    taskDialogVisible.value = true;
+                };
+
+                const saveTask = async () => {
+                    if (!taskForm.name || !taskForm.keywords) {
+                        ElMessage.warning('请填写必要信息');
+                        return;
+                    }
+                    try {
+                        const res = await axios.post('/api/monitoring/tasks', taskForm);
+                        ElMessage.success('任务保存成功');
+                        taskDialogVisible.value = false;
+                        await fetchTasks();
+                        
+                        // Switch to new/updated task
+                        // If it was an update, id remains same. If create, we might need to find it or just pick the first one (latest)
+                        // The API returns the id if update, or success. Let's just pick the latest one (first in list)
+                        if (tasks.value.length > 0) {
+                            switchTask(tasks.value[0]);
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('保存失败');
+                    }
+                };
+
+                const handleFilterChange = () => {
+                    pagination.page = 1;
+                    fetchData();
+                };
+
+                const handleSortChange = ({ prop, order }) => {
+                    if (prop === 'publish_time') {
+                        filter.sortBy = order === 'ascending' ? 'time_asc' : 'time_desc';
+                        fetchData();
+                    } else if (prop === 'relevance') {
+                        filter.sortBy = 'relevance';
+                        fetchData();
+                    }
+                    // For sentiment (client-side sort), do not trigger fetch
+                };
+
+                // Real Data Fetch
+                const fetchData = async () => {
+                    loading.value = true;
+                    try {
+                        const task = tasks.value.find(t => t.id === currentTaskId.value) || {};
+                        const keywords = task.keywords || '';
+                        
+                        // Calculate Date Range
+                        let dateStart = '';
+                        let dateEnd = '';
+                        const now = new Date();
+                        
+                        if (filter.timeRange === 'custom' && filter.customTime && filter.customTime.length === 2) {
+                            dateStart = formatDate(filter.customTime[0]);
+                            dateEnd = formatDate(filter.customTime[1]);
+                        } else {
+                            let startTime = new Date();
+                            if (filter.timeRange === '24h') startTime.setHours(startTime.getHours() - 24);
+                            else if (filter.timeRange === 'today') startTime.setHours(0, 0, 0, 0);
+                            else if (filter.timeRange === 'yesterday') {
+                                startTime.setDate(startTime.getDate() - 1);
+                                startTime.setHours(0, 0, 0, 0);
+                                dateEnd = formatDate(new Date(new Date().setHours(0,0,0,0))); // End of yesterday is start of today
+                            }
+                            else if (filter.timeRange === '3d') startTime.setDate(startTime.getDate() - 3);
+                            else if (filter.timeRange === '7d') startTime.setDate(startTime.getDate() - 7);
+                            else if (filter.timeRange === '15d') startTime.setDate(startTime.getDate() - 15);
+                            else if (filter.timeRange === '30d') startTime.setDate(startTime.getDate() - 30);
+                            
+                            dateStart = formatDate(startTime);
+                        }
+
+                        // Extract main keyword (simple logic: take first part before & or |)
+                        let mainKeyword = keywords.split(/[&|]/)[0].trim();
+                        // 如果用户手动输入了关键词，优先级最高
+                        if (filter.keywords) mainKeyword = filter.keywords;
+
+                        const params = {
+                            page: pagination.page,
+                            size: pagination.size,
+                            keyword: mainKeyword,
+                            keyword_mode: filter.matchMode,
+                            date_start: dateStart,
+                            date_end: dateEnd,
+                            merge_query: filter.mergeQuery,
+                            sort_by: filter.sortBy
+                        };
+
+                        const response = await axios.get('/api/monitoring/list', { params });
+                        const data = response.data;
+
+                        tableData.value = data.items.map(item => ({
+                            id: item.is_merged ? item.original_top_id || item.top_id : (item.note_id + (item.comment_id ? '_' + item.comment_id : '')),
+                            note_id: item.note_id,
+                            comment_id: item.comment_id || "0",
+                            top_id: safeDecode(item.top_id || item.title || (item.content ? item.content.substring(0, 30) + '...' : '无标题')),
+                            top_name: safeDecode(item.top_name),
+                            original_top_id: item.original_top_id, // 保存原始 top_id 用于查询详情
+                            content: item.content,
+                            comment_content: item.comment_content,
+                            source: item.source,
+                            author: item.author,
+                            publish_time: item.created_at,
+                            sentiment: item.sentiment || '中性',
+                            sentiment_score: item.sentiment_score || 0,
+                            relevance: item.relevance || 0,
+                            is_merged: item.is_merged || false,
+                            merge_count: item.merge_count || 0,
+                            url: item.url
+                        }));
+                        pagination.total = data.total;
+                    } catch (e) {
+                        console.error("Fetch error:", e);
+                        ElMessage.error('获取数据失败');
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const formatDate = (date) => {
+                    if (!date) return '';
+                    const d = new Date(date);
+                    const year = d.getFullYear();
+                    const month = String(d.getMonth() + 1).padStart(2, '0');
+                    const day = String(d.getDate()).padStart(2, '0');
+                    const hour = String(d.getHours()).padStart(2, '0');
+                    const minute = String(d.getMinutes()).padStart(2, '0');
+                    const second = String(d.getSeconds()).padStart(2, '0');
+                    return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+                };
+
+                const toggleExpand = async (item) => {
+                    item.is_expanded = !item.is_expanded;
+                    if (item.is_expanded && !item.has_details) {
+                        item.loading = true;
+                        try {
+                            const res = await axios.get(`/api/monitoring/detail/${item.note_id}/0`);
+                            const detail = res.data;
+                            // Merge details
+                            item.comments = detail.comments || [];
+                            item.images = detail.images || item.images;
+                            item.trained_keywords = detail.trained_keywords || item.trained_keywords;
+                            item.has_details = true;
+                        } catch (e) {
+                            console.error("Failed to load item details", e);
+                        } finally {
+                            item.loading = false;
+                        }
+                    }
+                };
+
+                const showDetail = async (row) => {
+                    isEditingSentiment.value = false;
+                    try {
+                        // 统一逻辑：
+                        // 1. 如果是表格聚合行 (is_merged=true)，打开聚合列表视图
+                        // 2. 如果是具体文章 (无论来自表格还是聚合列表)，打开单篇详情视图
+                        
+                        if (row.is_merged) {
+                            // --- 聚合视图 ---
+                            // 获取 top_id 下的所有文章列表 (分页: 第1页)
+                            const queryId = row.original_top_id || row.top_id;
+                            // 使用正确的 API 路径 /api/monitoring/topic_detail
+                            const response = await axios.get(`/api/monitoring/topic_detail/${encodeURIComponent(queryId)}`, {
+                                params: { page: 1, size: 10 }
+                            });
+                            const items = response.data;
+                            
+                            // 构建聚合详情数据
+                            currentDetail.value = {
+                                is_merged_view: true,
+                                top_id: row.top_id, // 显示可读名称
+                                total_items: row.merge_count || items.length, // 使用列表页的聚合数作为总数
+                                queryId: queryId, // 保存用于后续请求
+                                page: 1,
+                                loadingMore: false,
+                                items: items.map(item => ({
+                                    ...item,
+                                    id: item.note_id, // 确保唯一ID
+                                    title: item.title || (item.content ? item.content.substring(0, 30) + '...' : '无标题'),
+                                    sentiment_score: item.sentiment_score || 0,
+                                    sentiment: item.sentiment || '中性',
+                                    trained_keywords: item.trained_keywords || [],
+                                    comment_keywords: [],
+                                    images: item.images || [],
+                                    is_expanded: false // 控制展开/折叠
+                                }))
+                            };
+                            
+                            // 默认展开第一个
+                            if (currentDetail.value.items.length > 0) {
+                                currentDetail.value.items[0].is_expanded = true;
+                            }
+                        } else {
+                            // --- 单篇详情视图 ---
+                            // 无论是从普通列表点进来的，还是从聚合列表点进来的，都走这里
+                            // 注意：如果是从聚合列表点进来的，row 是一个 item 对象，可能没有 comment_id
+                            
+                            // 防御性检查：确保 note_id 存在
+                            if (!row.note_id) {
+                                console.error("Invalid row data: missing note_id", row);
+                                ElMessage.error("数据异常：无法获取文章ID");
+                                return;
+                            }
+                            
+                            const noteId = encodeURIComponent(String(row.note_id).trim());
+                            const commentId = row.comment_id || "0";
+                            
+                            const response = await axios.get(`/api/monitoring/detail/${noteId}/${commentId}`);
+                            const data = response.data;
+                            
+                            currentDetail.value = {
+                                is_merged_view: false,
+                                ...data,
+                                commentsPage: 1, // 初始化分页
+                                loadingComments: false,
+                                showAllImages: false, // 默认收起图片
+                                visibleImageCount: 1, // 控制分批渲染
+                                publish_time: data.created_at,
+                                sentiment_score: data.sentiment_score || (data.sentiment === '正面' ? 80 : (data.sentiment === '负面' ? 20 : 50))
+                            };
+                        }
+                        
+                        detailVisible.value = true;
+                    } catch (e) {
+                        console.error("Detail fetch error:", e);
+                        ElMessage.error('获取详情失败');
+                    }
+                };
+
+                const toggleEditSentiment = () => {
+                    isEditingSentiment.value = !isEditingSentiment.value;
+                    if (isEditingSentiment.value) {
+                        tempSentiment.value = currentDetail.value.sentiment;
+                    }
+                };
+
+                const saveSentiment = async () => {
+                    try {
+                        await axios.post('/api/monitoring/update_sentiment', {
+                            note_id: currentDetail.value.note_id || currentDetail.value.id.toString(),
+                            comment_id: "0",
+                            new_sentiment: tempSentiment.value,
+                            original_data: currentDetail.value
+                        });
+                        
+                        currentDetail.value.sentiment = tempSentiment.value;
+                        currentDetail.value.sentiment_score = 100; // Manually corrected implies 100% confidence
+                        
+                        // Update local table
+                        const item = tableData.value.find(i => i.id === currentDetail.value.id);
+                        if (item) item.sentiment = tempSentiment.value;
+                        
+                        isEditingSentiment.value = false;
+                        ElMessage.success('情感修正已保存');
+                    } catch (e) {
+                        console.error(e);
+                        ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+                    }
+                };
+
+                const exportData = () => {
+                    const csvContent = "data:text/csv;charset=utf-8," 
+                        + "标题,来源,作者,时间,情感,匹配度\n"
+                        + tableData.value.map(e => `${e.top_id},${e.source},${e.author},${e.publish_time},${e.sentiment},${e.relevance}%`).join("\n");
+                    
+                    const encodedUri = encodeURI(csvContent);
+                    const link = document.createElement("a");
+                    link.setAttribute("href", encodedUri);
+                    link.setAttribute("download", "monitor_data.csv");
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                };
+
+                const getSentimentClass = (s) => {
+                    if (s === '正面') return 'positive';
+                    if (s === '负面') return 'negative';
+                    return 'neutral';
+                };
+                
+                const getSentimentColor = (s) => {
+                     if (s === '正面') return '#67C23A';
+                     if (s === '负面') return '#F56C6C';
+                     return '#E6A23C';
+                };
+
+                const handleSizeChange = (val) => {
+                    pagination.size = val;
+                    fetchData();
+                };
+                const handleCurrentChange = (val) => {
+                    pagination.page = val;
+                    fetchData();
+                };
+
+                const filterSentiment = (value, row) => {
+                    return row.sentiment === value;
+                };
+
+                const sortSentiment = (a, b) => {
+                    return (a.sentiment_score || 0) - (b.sentiment_score || 0);
+                };
+
+                // 预计算高亮正则，避免在列表渲染中重复计算
+                const highlightPattern = computed(() => {
+                    let keywordsToHighlight = [];
+                    
+                    // 1. 优先使用用户手动输入的关键词
+                    if (filter.keywords && filter.keywords.trim()) {
+                        keywordsToHighlight.push(filter.keywords.trim());
+                    } 
+                    // 2. 如果没有手动输入，且当前选择了特定任务，则高亮任务关键词
+                    else if (currentTaskId.value !== 'all') {
+                        const task = tasks.value.find(t => t.id === currentTaskId.value);
+                        if (task && task.keywords) {
+                            // 分割关键词，支持 & 和 |
+                            keywordsToHighlight = task.keywords.split(/[&|]/).map(k => k.trim()).filter(k => k);
+                        }
+                    }
+                    
+                    if (keywordsToHighlight.length === 0) return null;
+                    
+                    // 转义正则特殊字符并构建匹配模式
+                    const escapedKeywords = keywordsToHighlight.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                    // 按长度降序排列，确保先匹配长词
+                    escapedKeywords.sort((a, b) => b.length - a.length);
+                    
+                    try {
+                        return new RegExp(`(${escapedKeywords.join('|')})`, 'gi');
+                    } catch (e) {
+                        return null;
+                    }
+                });
+
+                const highlightKeyword = (text) => {
+                    if (!text) return '';
+                    
+                    // Try to decode if encoded
+                    text = safeDecode(text);
+
+                    if (!highlightPattern.value) return text;
+                    
+                    // 赛博琥珀色设计：高亮但不刺眼
+                    return text.replace(highlightPattern.value, '<span class="keyword-highlight" style="color: #ffb800; font-weight: 900; background: rgba(255, 184, 0, 0.15); padding: 0 4px; border-radius: 4px; border: 1px solid rgba(255, 184, 0, 0.3); box-shadow: 0 0 8px rgba(255, 184, 0, 0.2); text-shadow: 0 0 8px rgba(255, 184, 0, 0.6); transition: all 0.3s;">$1</span>');
+                };
+
+                const customColors = [
+                    { color: '#f56c6c', percentage: 20 },
+                    { color: '#e6a23c', percentage: 40 },
+                    { color: '#5cb87a', percentage: 60 },
+                    { color: '#1989fa', percentage: 80 },
+                    { color: '#6f7ad3', percentage: 100 },
+                ];
+
+                onMounted(async () => {
+                    await fetchTasks();
+                    fetchData();
+                });
+
+                return {
+                    isCollapse, activeMenu, loading, tableData, tasks, currentTaskId,
+                    filter, pagination, taskDialogVisible, taskForm, groups,
+                    detailVisible, currentDetail, isEditingSentiment, tempSentiment,
+                    switchTask, deleteTask, openTaskDialog, saveTask,
+                    handleMenuSelect, handleFilterChange, handleSortChange,
+                    showDetail, deleteContent, exportData, toggleEditSentiment, saveSentiment,
+                    getSentimentClass, getSentimentColor, handleSizeChange, handleCurrentChange, customColors, filterSentiment, sortSentiment, highlightKeyword, toggleExpand,
+                    loadMoreMergedItems, loadMoreComments, expandAllImages,
+                    previewImageRef, openPreview, getThumbnailUrl, previewImagesList,
+                    warningConfigVisible, warningRuleForm, openWarningConfig, saveWarningConfig
+                };
+            }
+        });
+
+        // Register Icons
+        for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+            app.component(key, component);
+        }
+
+        app.use(ElementPlus, {
+            locale: ElementPlusLocaleZhCn
+        });
+        app.mount('#app');
+    </script>
+</body>
+</html>

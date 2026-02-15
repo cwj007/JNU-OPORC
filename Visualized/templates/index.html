@@ -15,814 +15,8 @@
     <script src="https://cdn.jsdelivr.net/npm/echarts/map/js/china.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
     <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
-    <style>
-        :root {
-            --bg-color: #0a0e17;
-            --sidebar-bg: #0a0e17;
-            --card-bg: rgba(26, 31, 46, 0.45);
-            --border-color: rgba(0, 240, 255, 0.15);
-            --primary-color: #00f0ff;
-            --accent-color: #b967ff;
-            --text-primary: #e0e6ed;
-            --text-secondary: #94a3b8;
-            --sidebar-width: 240px;
-            --deep-bg: #0a0e17;
-            --dark-gray: #1a1f2e;
-        }
-
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: 'Inter', 'Roboto', 'PingFang SC', sans-serif;
-            background-color: var(--bg-color);
-            background-image: 
-                radial-gradient(circle at 50% 50%, rgba(0, 240, 255, 0.05) 0%, transparent 50%),
-                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
-            background-size: 100% 100%, 40px 40px, 40px 40px;
-            color: var(--text-primary);
-            overflow-x: hidden;
-            position: relative;
-        }
-
-        /* 扫描线效果 */
-        body::after {
-            content: "";
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(to bottom, 
-                transparent 0%, 
-                rgba(0, 240, 255, 0.05) 50%, 
-                transparent 100%);
-            background-size: 100% 8px;
-            z-index: -1;
-            pointer-events: none;
-            animation: scanline 10s linear infinite;
-        }
-
-        @keyframes scanline {
-            0% { transform: translateY(-100%); }
-            100% { transform: translateY(100%); }
-        }
-
-        .data-stream-container {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            z-index: -2;
-            pointer-events: none;
-            overflow: hidden;
-        }
-
-        .data-particle {
-            position: absolute;
-            width: 1px;
-            height: 40px;
-            background: linear-gradient(to bottom, transparent, var(--primary-color));
-            opacity: 0.2;
-            animation: particle-fall linear infinite;
-        }
-
-        @keyframes particle-fall {
-            from { transform: translateY(-100px); }
-            to { transform: translateY(100vh); }
-        }
-
-        #app {
-            display: flex;
-            height: 100vh;
-        }
-
-        .sidebar {
-            width: var(--sidebar-width);
-            background: var(--sidebar-bg); /* 与 header 背景一致 */
-            border-right: 1px solid rgba(0, 240, 255, 0.2); /* 统一边框色 */
-            color: var(--text-primary);
-            flex-shrink: 0;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-            z-index: 1001;
-            box-shadow: 10px 0 30px rgba(0, 0, 0, 0.7);
-        }
-
-        /* 同步 Header 的背景装饰效果到 Sidebar */
-        .sidebar::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            right: 0;
-            width: 1px;
-            background: linear-gradient(to bottom, 
-                transparent 0%, 
-                rgba(0, 240, 255, 0.2) 20%, 
-                rgba(0, 240, 255, 0.5) 50%, 
-                rgba(0, 240, 255, 0.2) 80%, 
-                transparent 100%);
-            z-index: 1;
-        }
-
-        .sidebar::after {
-            content: '';
-            position: absolute;
-            top: -100%;
-            left: 0;
-            width: 100%;
-            height: 50%;
-            background: linear-gradient(to bottom, 
-                transparent, 
-                rgba(0, 240, 255, 0.05), 
-                transparent);
-            transform: skewY(-30deg);
-            animation: sidebar-scan 8s infinite;
-            pointer-events: none;
-        }
-
-        @keyframes sidebar-scan {
-            0% { top: -100%; }
-            50% { top: 150%; }
-            100% { top: 150%; }
-        }
-
-        .sidebar.collapsed {
-            width: 64px;
-        }
-
-        .sidebar-logo {
-            height: 64px;
-            line-height: 64px;
-            text-align: center;
-            font-size: 18px;
-            font-weight: 800;
-            background: linear-gradient(135deg, var(--primary-color) 0%, var(--accent-color) 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
-            border-bottom: 1px solid var(--border-color);
-            letter-spacing: 2px;
-            font-family: 'Orbitron', sans-serif;
-            white-space: nowrap;
-        }
-
-        .el-menu {
-            border-right: none !important;
-            background-color: transparent !important;
-        }
-
-        .el-menu-item {
-            color: var(--text-secondary) !important;
-            margin: 4px 12px;
-            border-radius: 8px;
-            transition: all 0.3s;
-        }
-
-        .el-menu-item:hover, .el-menu-item.is-active {
-            background: rgba(0, 240, 255, 0.1) !important;
-            color: var(--primary-color) !important;
-            box-shadow: 0 0 15px rgba(0, 240, 255, 0.1);
-        }
-
-        .el-menu-item .el-icon {
-            color: inherit !important;
-        }
-
-        .main-container {
-            flex: 1;
-            overflow: hidden; /* 改为 hidden，防止整体滚动 */
-            display: flex;
-            flex-direction: column;
-            min-width: 0;
-            background: transparent;
-            height: 100vh;
-        }
-
-        .header {
-            height: 64px;
-            background: transparent !important; /* 透明化处理 */
-            backdrop-filter: blur(10px); /* 保持与 control-bar 一致的模糊度 */
-            -webkit-backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(0, 240, 255, 0.2);
-            display: flex;
-            align-items: center;
-            padding: 0 24px;
-            justify-content: space-between;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-            flex-shrink: 0;
-        }
-
-        .header::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg, 
-                transparent 0%, 
-                rgba(0, 240, 255, 0.2) 20%, 
-                rgba(0, 240, 255, 0.5) 50%, 
-                rgba(0, 240, 255, 0.2) 80%, 
-                transparent 100%);
-            z-index: 1;
-        }
-
-        .header::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 50%;
-            height: 100%;
-            background: linear-gradient(90deg, 
-                transparent, 
-                rgba(0, 240, 255, 0.05), 
-                transparent);
-            transform: skewX(-30deg);
-            animation: header-scan 6s infinite;
-            pointer-events: none;
-        }
-
-        @keyframes header-scan {
-            0% { left: -100%; }
-            50% { left: 150%; }
-            100% { left: 150%; }
-        }
-
-        .collapse-btn {
-            font-size: 22px;
-            cursor: pointer;
-            margin-right: 20px;
-            color: var(--primary-color);
-        }
-
-        .el-breadcrumb__inner {
-            background: linear-gradient(135deg, var(--primary-color) 0%, var(--accent-color) 100%);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-family: 'Orbitron', sans-serif;
-            letter-spacing: 2px;
-            font-size: 18px;
-            font-weight: 800 !important;
-            text-shadow: 0 0 20px rgba(0, 240, 255, 0.2);
-            transition: all 0.3s;
-        }
-
-        .el-breadcrumb__item:last-child .el-breadcrumb__inner {
-            font-weight: 800 !important;
-            filter: brightness(1.2);
-        }
-
-        .el-breadcrumb__separator {
-            color: rgba(255, 255, 255, 0.3) !important;
-            margin: 0 8px;
-        }
-
-        .content {
-            padding: 24px;
-            padding-top: 24px;
-            flex: 1;
-            overflow-y: auto; /* 恢复内容区域的滚动 */
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* 科技感卡片 - 全局覆盖 Element Plus */
-        .el-card {
-            background-color: var(--card-bg) !important;
-            border: 1px solid var(--border-color) !important;
-            color: var(--text-primary) !important;
-            backdrop-filter: blur(12px);
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
-            border-radius: 16px !important;
-            transition: all 0.3s ease !important;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .el-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, var(--primary-color), var(--accent-color), transparent);
-            opacity: 0.3;
-        }
-
-        .el-card:hover {
-            transform: translateY(-4px);
-            border-color: rgba(0, 240, 255, 0.4) !important;
-            box-shadow: 0 12px 40px rgba(0, 240, 255, 0.15) !important;
-        }
-
-        .el-card__header {
-            border-bottom: 1px solid var(--border-color) !important;
-            padding: 18px 24px !important;
-            background: rgba(255, 255, 255, 0.02);
-        }
-
-        .card-header span {
-            font-size: 16px;
-            font-weight: 700;
-            color: var(--primary-color);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            letter-spacing: 0.5px;
-        }
-
-        /* 统计数字卡片 */
-        .circular-stats-card {
-            background: var(--card-bg);
-            padding: 30px;
-            border-radius: 16px;
-            display: flex;
-            justify-content: space-around;
-            align-items: center;
-            border: 1px solid var(--border-color);
-            margin-bottom: 24px;
-            backdrop-filter: blur(15px);
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-        }
-
-        .circular-label {
-            color: var(--text-secondary);
-            font-size: 14px;
-            font-weight: 500;
-            margin-bottom: 8px;
-        }
-
-        .circular-value {
-            color: var(--primary-color);
-            font-size: 36px;
-            font-family: 'Orbitron', sans-serif; /* 科技感字体 */
-            text-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
-            font-weight: 800;
-        }
-
-        /* 热搜列表科技化 */
-        .hot-item {
-            border-bottom: 1px solid rgba(0, 240, 255, 0.08);
-            background: transparent;
-            padding: 12px 0;
-            transition: all 0.2s;
-        }
-
-        .hot-item:hover {
-            background: rgba(0, 240, 255, 0.05) !important;
-            padding-left: 8px;
-        }
-
-        .hot-title {
-            color: var(--text-primary) !important;
-            font-size: 14px;
-        }
-
-        .hot-title:hover {
-            color: var(--primary-color) !important;
-        }
-
-        .rank-other {
-            background-color: rgba(255, 255, 255, 0.08) !important;
-            color: var(--text-secondary) !important;
-            border-radius: 4px;
-        }
-
-        .hot-value {
-            background: rgba(0, 240, 255, 0.08) !important;
-            color: var(--primary-color) !important;
-            border: 1px solid rgba(0, 240, 255, 0.15);
-            font-family: 'Orbitron', sans-serif;
-            font-size: 11px;
-            padding: 2px 8px;
-            border-radius: 4px;
-        }
-
-        /* 表格科技化 */
-        .el-table {
-            background-color: transparent !important;
-            color: var(--text-primary) !important;
-        }
-
-        .el-table th, .el-table tr {
-            background-color: transparent !important;
-        }
-
-        .el-table td, .el-table th.is-leaf {
-            border-bottom: 1px solid var(--border-color) !important;
-        }
-
-        .el-table--enable-row-hover .el-table__body tr:hover > td {
-            background-color: rgba(0, 240, 255, 0.05) !important;
-        }
-
-        /* 表单与输入框 */
-        .el-input__wrapper {
-            background-color: rgba(255, 255, 255, 0.03) !important;
-            box-shadow: 0 0 0 1px var(--border-color) inset !important;
-            border-radius: 8px !important;
-        }
-
-        .el-input__inner {
-            color: var(--text-primary) !important;
-        }
-
-        .list-filter {
-            background: var(--card-bg) !important;
-            border: 1px solid var(--border-color);
-            backdrop-filter: blur(12px);
-            border-radius: 12px;
-            padding: 20px;
-        }
-
-        /* 热搜卡片样式优化 */
-        .hot-card {
-            margin-bottom: 20px;
-        }
-
-        .platform-info {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .platform-logo {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            object-fit: cover;
-        }
-
-        .status-info {
-            text-align: right;
-            font-size: 11px;
-            color: var(--text-secondary);
-        }
-
-        .hot-list {
-            scrollbar-width: thin;
-            scrollbar-color: var(--border-color) transparent;
-        }
-
-        .hot-item {
-            display: flex;
-            align-items: center;
-            padding: 8px 0;
-            gap: 10px;
-            border-bottom: 1px solid rgba(0, 240, 255, 0.05);
-        }
-
-        .hot-rank {
-            width: 20px;
-            height: 20px;
-            line-height: 20px;
-            text-align: center;
-            font-size: 11px;
-            border-radius: 4px;
-            font-family: 'Orbitron', sans-serif;
-            flex-shrink: 0;
-        }
-
-        .hot-item-content {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            min-width: 0;
-        }
-
-        .hot-title {
-            font-size: 13px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            color: var(--text-primary);
-            text-decoration: none;
-        }
-
-        .hot-value {
-            font-size: 11px;
-            color: var(--primary-color);
-            opacity: 0.8;
-            white-space: nowrap;
-            font-family: 'Orbitron', sans-serif;
-        }
-
-        /* 实时评论列表 */
-        .realtime-comments {
-            height: 400px;
-            overflow-y: auto;
-            padding: 10px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-
-        .comment-item {
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 8px;
-            padding: 10px;
-            border: 1px solid var(--border-color);
-            transition: all 0.3s;
-        }
-
-        .comment-item:hover {
-            background: rgba(255, 255, 255, 0.05);
-            transform: translateX(4px);
-        }
-
-        .comment-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 6px;
-        }
-
-        .comment-meta {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            color: var(--text-secondary);
-        }
-
-        .comment-content {
-            font-size: 13px;
-            line-height: 1.5;
-            color: var(--text-primary);
-        }
-
-        .sentiment-tag {
-            font-size: 10px;
-            padding: 1px 4px;
-            border-radius: 4px;
-            font-weight: bold;
-        }
-
-        .sentiment-positive {
-            color: #67C23A;
-            background: rgba(103, 194, 58, 0.1);
-            border: 1px solid rgba(103, 194, 58, 0.2);
-        }
-
-        .sentiment-negative {
-            color: #F56C6C;
-            background: rgba(245, 108, 108, 0.1);
-            border: 1px solid rgba(245, 108, 108, 0.2);
-        }
-
-        .sentiment-neutral {
-            color: #909399;
-            background: rgba(144, 147, 153, 0.1);
-            border: 1px solid rgba(144, 147, 153, 0.2);
-        }
-
-        /* 科技风仪表盘头部样式 - 2.0 HUD风格 - 融合玻璃质感 */
-        .dashboard-header-tech {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 24px;
-            padding: 16px 32px;
-            
-            /* 融合 hot-card 的玻璃质感样式 - 进一步优化 */
-            background: rgba(20, 25, 35, 0.4); /* 更通透 */
-            backdrop-filter: blur(24px) saturate(180%);
-            -webkit-backdrop-filter: blur(24px) saturate(180%);
-            
-            /* 极简无边框设计，仅保留顶部高光和底部微弱分割 */
-            border: none;
-            border-top: 1px solid rgba(255, 255, 255, 0.15); 
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 24px; 
-            
-            box-shadow: 
-                0 20px 40px rgba(0, 0, 0, 0.2),
-                inset 0 1px 0 rgba(255, 255, 255, 0.1); 
-            
-            position: relative;
-            clip-path: none;
-        }
-
-        /* 移除之前的四角装饰，保持玻璃纯净感 */
-        .dashboard-header-tech::before,
-        .dashboard-header-tech::after {
-            display: none;
-        }
-
-        .header-title-box {
-            display: flex;
-            align-items: center; /* 垂直居中 */
-            gap: 16px;
-        }
-
-        .tech-title {
-            margin: 0;
-            font-size: 28px;
-            font-weight: 800;
-            letter-spacing: 2px;
-            background: linear-gradient(180deg, #fff 0%, rgba(255,255,255,0.7) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
-            position: relative;
-            padding-left: 0; /* 移除内边距 */
-        }
-        
-        /* 移除标题前的装饰块 */
-        .tech-title::before {
-            display: none;
-        }
-
-        .tech-subtitle {
-            /* 移除副标题显示 */
-            display: none;
-        }
-
-        .header-controls {
-            display: flex;
-            align-items: center;
-        }
-
-        /* 科技风单选按钮组优化 - 适配玻璃风格 */
-        .tech-radio-group .el-radio-button {
-            margin-right: 8px;
-            --el-radio-button-checked-bg-color: transparent;
-            --el-radio-button-checked-text-color: #000;
-            --el-radio-button-checked-border-color: transparent;
-        }
-
-        .tech-radio-group .el-radio-button__inner {
-            background: rgba(255, 255, 255, 0.05) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important; /* 更柔和的边框 */
-            color: var(--text-secondary) !important;
-            box-shadow: none !important;
-            border-radius: 12px !important; /* 圆润按钮 */
-            padding: 8px 20px;
-            transition: all 0.3s;
-            transform: none; /* 移除斜切 */
-            min-width: 60px;
-            display: inline-block;
-            text-align: center;
-        }
-        
-        /* 修正文字变形 - 移除 */
-        .tech-radio-group .el-radio-button__inner span {
-            display: inline-block;
-            transform: none;
-            font-family: 'Orbitron', sans-serif;
-            font-weight: bold;
-            font-size: 12px;
-        }
-
-        /* 选中状态 - 实心高亮 */
-        .tech-radio-group .el-radio-button__original-radio:checked + .el-radio-button__inner {
-            background: var(--primary-color) !important;
-            border-color: var(--primary-color) !important;
-            color: #000 !important; /* 黑色文字对比度更高 */
-            box-shadow: 0 0 15px rgba(0, 240, 255, 0.4) !important;
-        }
-        
-        /* 悬停状态 */
-        .tech-radio-group .el-radio-button__inner:hover {
-            border-color: var(--primary-color) !important;
-            color: #fff !important;
-            background: rgba(255, 255, 255, 0.1) !important;
-        }
-
-        .tech-radio-group .el-radio-button:first-child .el-radio-button__inner {
-            border-left: 1px solid rgba(255, 255, 255, 0.1) !important;
-        }
-
-        /* 科技风日期选择器优化 */
-        .tech-date-picker {
-            background: rgba(255, 255, 255, 0.05) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
-            border-radius: 12px !important;
-            transform: none; /* 移除斜切 */
-            margin-left: 16px !important;
-        }
-        
-        .tech-date-picker .el-range-input {
-            color: var(--text-primary) !important;
-            background: transparent !important;
-            transform: none;
-        }
-        
-        .tech-date-picker .el-range-separator {
-            color: var(--text-secondary) !important;
-            transform: none;
-        }
-        
-        .tech-date-picker .el-range__icon, 
-        .tech-date-picker .el-range__close-icon {
-            transform: none;
-        }
-
-        /* 科技风图表卡片 */
-        .tech-card {
-            background: rgba(20, 25, 35, 0.6) !important;
-            backdrop-filter: blur(24px) saturate(180%);
-            -webkit-backdrop-filter: blur(24px) saturate(180%);
-            border: 1px solid rgba(255, 255, 255, 0.08) !important;
-            border-top: 1px solid rgba(255, 255, 255, 0.2) !important;
-            border-radius: 20px !important;
-            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.1) !important;
-            margin-bottom: 24px;
-            overflow: hidden;
-        }
-
-        .tech-card .el-card__header {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
-            padding: 16px 24px !important;
-            background: rgba(255, 255, 255, 0.02);
-        }
-
-        .tech-card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .tech-card-title {
-            font-size: 16px;
-            font-weight: 600;
-            color: #fff;
-            letter-spacing: 1px;
-            text-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
-        }
-
-        .tech-card-decoration {
-            width: 40px;
-            height: 4px;
-            background: var(--primary-color);
-            border-radius: 2px;
-            box-shadow: 0 0 8px var(--primary-color);
-            opacity: 0.8;
-        }
-
-        .chart-container {
-            width: 100%;
-            height: 350px;
-            min-height: 350px; /* 确保最小高度 */
-        }
-
-        /* 响应式调整 */
-        @media screen and (max-width: 1200px) {
-            .sidebar {
-                position: fixed;
-                left: -240px;
-                transition: all 0.3s;
-            }
-            .sidebar.active {
-                left: 0;
-            }
-            .main-container {
-                margin-left: 0 !important;
-            }
-        }
-
-        @media screen and (max-width: 768px) {
-            .circular-stats-card {
-                flex-direction: column;
-                gap: 20px;
-            }
-            .el-col {
-                width: 100% !important;
-            }
-        }
-
-        /* 标签样式 */
-        .tag-pink { background-color: #fb7299 !important; box-shadow: 0 0 15px rgba(251, 114, 153, 0.4); }
-        .logo-bilibili { background-color: #fb7299 !important; }
-        
-        /* 滚动条美化 */
-        ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: rgba(0, 240, 255, 0.2);
-            border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: var(--primary-color);
-        }
-        ::-webkit-scrollbar-track {
-            background: transparent;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -894,92 +88,94 @@
             <div class="content">
                 <!-- Dashboard Module -->
                 <div v-if="activeMenu === 'dashboard'">
-                    <div class="dashboard-header-tech">
-                        <div class="header-title-box">
-                            <h3 class="tech-title">舆情仪表盘</h3>
-                            <div class="tech-subtitle">PUBLIC OPINION DASHBOARD</div>
-                        </div>
-                        <div class="header-controls">
-                            <el-radio-group v-model="dateRange" @change="handleDateRangeChange" size="small" class="tech-radio-group">
-                                <el-radio-button label="1">24小时</el-radio-button>
-                                <el-radio-button label="3">3天</el-radio-button>
-                                <el-radio-button label="7">7天</el-radio-button>
-                                <el-radio-button label="31">31天</el-radio-button>
-                                <el-radio-button label="custom">自定义</el-radio-button>
-                            </el-radio-group>
-                            <el-date-picker
-                                v-if="dateRange === 'custom'"
-                                v-model="customDate"
-                                type="daterange"
-                                range-separator="至"
-                                start-placeholder="开始日期"
-                                end-placeholder="结束日期"
-                                size="small"
-                                class="tech-date-picker"
-                                style="margin-left: 10px; width: 240px;"
-                                @change="handleCustomDateChange"
-                            ></el-date-picker>
-                        </div>
-                    </div>
-
-                    <!-- 核心统计指标 -->
-                    <div class="circular-stats-card">
-                        <!-- 全部信息 -->
-                        <div class="circular-stats-item">
-                            <div class="circular-progress-wrapper">
-                                <el-progress type="circle" :percentage="100" :width="100" :stroke-width="8" color="var(--primary-color)" :show-text="false"></el-progress>
-                                <el-icon class="circular-icon" color="var(--primary-color)"><files /></el-icon>
-                            </div>
-                            <div class="circular-info">
-                                <div class="circular-label">全部信息</div>
-                                <div class="circular-value">{{ stats.total || 0 }}</div>
-                                <div style="display: flex; align-items: center; font-size: 12px; color: var(--text-secondary); margin-top: -2px; margin-bottom: 2px;">
-                                    <span>今日新增</span>
-                                    <span style="color: var(--primary-color); font-weight: bold; margin-left: 5px;">+{{ stats.today || 0 }}</span>
-                                </div>
-                                <div style="display: flex; align-items: center; font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 5px;">
-                                    <span>文章: {{ stats.articles || 0 }}</span>
-                                    <span style="margin: 0 5px;">|</span>
-                                    <span>评论: {{ stats.comments || 0 }}</span>
-                                </div>
-                                <div class="circular-percentage-bar">
-                                    <div class="circular-percentage-inner" :style="{ width: '100%', backgroundColor: 'var(--primary-color)' }"></div>
-                                </div>
+                    <!-- 核心统计指标 (合并了头部) -->
+                    <el-card shadow="never" class="tech-card" style="margin-bottom: 24px; padding: 20px;">
+                        <!-- 头部区域 -->
+                        <div class="tech-card-header" style="margin-bottom: 20px;">
+                            <span class="tech-card-title">数据概览</span>
+                            <div class="tech-card-decoration" style="margin-right: 20px;"></div>
+                            <div class="header-controls">
+                                <el-radio-group v-model="dateRange" @change="handleDateRangeChange" size="small" class="tech-radio-group">
+                                    <el-radio-button label="1">24小时</el-radio-button>
+                                    <el-radio-button label="3">3天</el-radio-button>
+                                    <el-radio-button label="7">7天</el-radio-button>
+                                    <el-radio-button label="31">31天</el-radio-button>
+                                    <el-radio-button label="custom">自定义</el-radio-button>
+                                </el-radio-group>
+                                <el-date-picker
+                                    v-if="dateRange === 'custom'"
+                                    v-model="customDate"
+                                    type="daterange"
+                                    range-separator="至"
+                                    start-placeholder="开始日期"
+                                    end-placeholder="结束日期"
+                                    size="small"
+                                    class="tech-date-picker"
+                                    style="margin-left: 10px; width: 240px;"
+                                    @change="handleCustomDateChange"
+                                ></el-date-picker>
                             </div>
                         </div>
 
-                        <!-- 负面信息 -->
-                        <div class="circular-stats-item">
-                            <div class="circular-progress-wrapper">
-                                <el-progress type="circle" :percentage="negativePercentage" :width="100" :stroke-width="8" color="#F56C6C" :show-text="false"></el-progress>
-                                <span class="circular-icon" style="font-size: 32px; margin-top: -5px;">😢</span>
-                            </div>
-                            <div class="circular-info">
-                                <div class="circular-label">负面信息</div>
-                                <div class="circular-value">{{ stats.sentiment_distribution['负面'] || 0 }}</div>
-                                <div class="circular-percentage-text" style="text-align: left; margin-top: 0; margin-bottom: 5px;">占比 {{ negativePercentage }}%</div>
-                                <div class="circular-percentage-bar">
-                                    <div class="circular-percentage-inner" :style="{ width: negativePercentage + '%', backgroundColor: '#F56C6C' }"></div>
+                        <!-- 数据区域 -->
+                        <div style="width: 100%; display: flex; justify-content: space-around; align-items: center;">
+                            <!-- 全部信息 -->
+                            <div class="circular-stats-item">
+                                <div class="circular-progress-wrapper">
+                                    <el-progress type="circle" :percentage="100" :width="100" :stroke-width="8" color="#3498DB" :show-text="false"></el-progress>
+                                    <el-icon class="circular-icon" color="#3498DB"><files /></el-icon>
+                                </div>
+                                <div class="circular-info">
+                                    <div class="circular-label">全部信息</div>
+                                    <div class="circular-value">{{ stats.total || 0 }}</div>
+                                    <div style="display: flex; align-items: center; font-size: 12px; color: var(--text-secondary); margin-top: -2px; margin-bottom: 2px;">
+                                        <span>今日新增</span>
+                                        <span style="color: #3498DB; font-weight: bold; margin-left: 5px;">+{{ stats.today || 0 }}</span>
+                                    </div>
+                                    <div style="display: flex; align-items: center; font-size: 11px; color: rgba(255,255,255,0.4); margin-bottom: 5px;">
+                                        <span>文章: {{ stats.articles || 0 }}</span>
+                                        <span style="margin: 0 5px;">|</span>
+                                        <span>评论: {{ stats.comments || 0 }}</span>
+                                    </div>
+                                    <div class="circular-percentage-bar">
+                                        <div class="circular-percentage-inner" :style="{ width: '100%', backgroundColor: '#3498DB' }"></div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- 正面&中性信息 -->
-                        <div class="circular-stats-item">
-                            <div class="circular-progress-wrapper">
-                                <el-progress type="circle" :percentage="positiveNeutralPercentage" :width="100" :stroke-width="8" color="var(--accent-color)" :show-text="false"></el-progress>
-                                <span class="circular-icon" style="font-size: 32px; margin-top: -5px;">😊</span>
+                            <!-- 负面信息 -->
+                            <div class="circular-stats-item">
+                                <div class="circular-progress-wrapper">
+                                    <el-progress type="circle" :percentage="negativePercentage" :width="100" :stroke-width="8" color="#FF5454" :show-text="false"></el-progress>
+                                    <img src="/logos/fumian.png" class="circular-icon">
+                                </div>
+                                <div class="circular-info">
+                                    <div class="circular-label">负面信息</div>
+                                    <div class="circular-value">{{ stats.sentiment_distribution['负面'] || 0 }}</div>
+                                    <div class="circular-percentage-tag" style="color: #FF5454; background: rgba(255, 84, 84, 0.1);">占比 {{ negativePercentage }}%</div>
+                                    <div class="circular-percentage-bar">
+                                        <div class="circular-percentage-inner" :style="{ width: negativePercentage + '%', backgroundColor: '#FF5454' }"></div>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="circular-info">
-                                <div class="circular-label">正面&中性信息</div>
-                                <div class="circular-value">{{ (stats.sentiment_distribution['正面'] || 0) + (stats.sentiment_distribution['中性'] || 0) }}</div>
-                                <div class="circular-percentage-text" style="text-align: left; margin-top: 0; margin-bottom: 5px;">占比 {{ positiveNeutralPercentage }}%</div>
-                                <div class="circular-percentage-bar">
-                                    <div class="circular-percentage-inner" :style="{ width: positiveNeutralPercentage + '%', backgroundColor: 'var(--accent-color)' }"></div>
+
+                            <!-- 正面&中性信息 -->
+                            <div class="circular-stats-item">
+                                <div class="circular-progress-wrapper">
+                                    <el-progress type="circle" :percentage="positiveNeutralPercentage" :width="100" :stroke-width="8" color="#1CA75F" :show-text="false"></el-progress>
+                                    <img src="/logos/zhengmian.png" class="circular-icon">
+                                </div>
+                                <div class="circular-info">
+                                    <div class="circular-label">正面&中性信息</div>
+                                    <div class="circular-value">{{ (stats.sentiment_distribution['正面'] || 0) + (stats.sentiment_distribution['中性'] || 0) }}</div>
+                                    <div class="circular-percentage-tag" style="color: #1CA75F; background: rgba(28, 167, 95, 0.1);">占比 {{ positiveNeutralPercentage }}%</div>
+                                    <div class="circular-percentage-bar">
+                                        <div class="circular-percentage-inner" :style="{ width: positiveNeutralPercentage + '%', backgroundColor: '#1CA75F' }"></div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </el-card>
 
                     <el-row :gutter="20">
                         <el-col :span="16">
@@ -990,7 +186,7 @@
                                         <div class="tech-card-decoration"></div>
                                     </div>
                                 </template>
-                                <div id="trendChart" class="chart-container"></div>
+                                <div id="trendChart" class="chart-container" style="height: 350px;"></div>
                             </el-card>
                         </el-col>
                         <el-col :span="8">
@@ -1001,7 +197,7 @@
                                         <div class="tech-card-decoration"></div>
                                     </div>
                                 </template>
-                                <div id="pieChart" class="chart-container"></div>
+                                <div id="pieChart" class="chart-container" style="height: 350px;"></div>
                             </el-card>
                         </el-col>
                     </el-row>
@@ -1009,14 +205,24 @@
                 <!-- 细粒度情感与意图分类 -->
                 <el-row :gutter="20" style="margin-top: 20px;">
                     <el-col :span="12">
-                        <el-card shadow="never">
-                            <template #header><span style="font-weight: bold;">细粒度情感分布 ({{ trendTitleRange }})</span></template>
+                        <el-card shadow="never" class="tech-card">
+                            <template #header>
+                                <div class="tech-card-header">
+                                    <span class="tech-card-title">细粒度情感分布 ({{ trendTitleRange }})</span>
+                                    <div class="tech-card-decoration"></div>
+                                </div>
+                            </template>
                             <div id="fineSentimentChart" style="height: 400px;"></div>
                         </el-card>
                     </el-col>
                     <el-col :span="12">
-                        <el-card shadow="never">
-                            <template #header><span style="font-weight: bold;">用户意图分类 ({{ trendTitleRange }})</span></template>
+                        <el-card shadow="never" class="tech-card">
+                            <template #header>
+                                <div class="tech-card-header">
+                                    <span class="tech-card-title">用户意图分类 ({{ trendTitleRange }})</span>
+                                    <div class="tech-card-decoration"></div>
+                                </div>
+                            </template>
                             <div id="intentChart" style="height: 400px;"></div>
                         </el-card>
                     </el-col>
@@ -1025,16 +231,22 @@
                 <!-- 热点词云与高频词指数 -->
                 <el-row :gutter="20" style="margin-top: 20px;">
                     <el-col :span="24">
-                        <el-card shadow="never">
+                        <el-card shadow="never" class="tech-card">
                             <div class="word-cloud-card">
                                 <!-- 左侧词云图 -->
                                 <div style="flex: 1.5; border-right: 1px solid var(--border-color); padding-right: 20px;">
-                                    <div style="font-weight: bold; margin-bottom: 20px; color: var(--primary-color);">关键词高频分布统计</div>
+                                    <div class="tech-card-header" style="margin-bottom: 20px;">
+                                        <span class="tech-card-title">关键词高频分布统计</span>
+                                        <div class="tech-card-decoration"></div>
+                                    </div>
                                     <div id="wordCloudChart" style="height: 450px;"></div>
                                 </div>
                                 <!-- 右侧列表 -->
                                 <div style="flex: 1; padding-left: 20px;">
-                                    <div style="font-weight: bold; margin-bottom: 20px; color: var(--primary-color);">高频词指数</div>
+                                    <div class="tech-card-header" style="margin-bottom: 20px;">
+                                        <span class="tech-card-title">高频词指数</span>
+                                        <div class="tech-card-decoration"></div>
+                                    </div>
                                     <el-table :data="topWords" size="small" :show-header="true" class="word-list-table" height="450">
                                         <el-table-column prop="name" label="高频词"></el-table-column>
                                         <el-table-column label="趋势" width="80" align="center">
@@ -1060,29 +272,33 @@
                     </el-col>
                 </el-row>
 
-                <!-- 热点区域地图 (移至最后) -->
+                <!-- 实时抓取评论流 -->
                 <el-row :gutter="20" style="margin-top: 20px;">
                     <el-col :span="24">
-                        <el-card shadow="never">
+                        <el-card shadow="never" class="tech-card">
                             <template #header>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <el-icon><map-location /></el-icon>
-                                    <span>实时抓取评论流</span>
+                                <div class="tech-card-header">
+                                    <span class="tech-card-title">实时抓取评论流</span>
+                                    <div class="tech-card-decoration"></div>
                                 </div>
                             </template>
-                            <div class="realtime-comments" ref="commentScrollRef">
-                                <div v-for="comment in realtimeComments" :key="comment.id" class="comment-item">
-                                    <div class="comment-header">
-                                        <div class="comment-meta">
-                                            <img :src="getLogoById(comment.platform)" style="width: 14px; height: 14px; border-radius: 50%;">
-                                            <span style="font-weight: bold; color: var(--primary-color);">{{ comment.author }}</span>
-                                            <span>{{ timeAgo(comment.time) }}</span>
+                            <div class="realtime-comments-wrapper">
+                                <div class="seamless-scroll-container" ref="scrollRef" @mouseenter="isHover = true" @mouseleave="isHover = false">
+                                    <div class="scroll-content">
+                                        <div v-for="(comment, index) in displayComments" :key="index" class="comment-item">
+                                            <div class="comment-header">
+                                                <div class="comment-meta">
+                                                    <img :src="getLogoById(comment.platform)" style="width: 14px; height: 14px; border-radius: 50%;">
+                                                    <span style="font-weight: bold; color: var(--primary-color);">{{ comment.author }}</span>
+                                                    <span>{{ timeAgo(comment.time) }}</span>
+                                                </div>
+                                                <span :class="['sentiment-tag', 'sentiment-' + (comment.sentiment_type || 'neutral')]">
+                                                    {{ comment.sentiment || '中性' }}
+                                                </span>
+                                            </div>
+                                            <div class="comment-content">{{ comment.content }}</div>
                                         </div>
-                                        <span :class="['sentiment-tag', 'sentiment-' + (comment.sentiment_type || 'neutral')]">
-                                            {{ comment.sentiment || '中性' }}
-                                        </span>
                                     </div>
-                                    <div class="comment-content">{{ comment.content }}</div>
                                 </div>
                                 <div v-if="realtimeComments.length === 0" style="text-align: center; color: var(--text-secondary); padding: 40px;">
                                     <el-empty description="暂无实时数据" :image-size="40"></el-empty>
@@ -1095,11 +311,12 @@
                 <!-- 热点区域地图 (移至最后) -->
                 <el-row :gutter="20" style="margin-top: 20px;">
                     <el-col :span="24">
-                        <el-card shadow="never">
+                        <el-card shadow="never" class="tech-card">
                             <template #header>
-                                <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <span style="font-weight: bold;">热点地区分布统计</span>
-                                    <div style="font-size: 12px; color: #909399;">数据来源: 评论 IP 属地</div>
+                                <div class="tech-card-header">
+                                    <span class="tech-card-title">热点地区分布统计</span>
+                                    <div class="tech-card-decoration"></div>
+                                    <div style="font-size: 12px; color: #909399; margin-left: 10px; margin-right: 10px;">数据来源：帖子&评论 IP 属地</div>
                                 </div>
                             </template>
                             <div style="display: flex; height: 500px;">
@@ -1136,174 +353,10 @@
 
 
 
-                <!-- Monitoring List Module -->
-                <div v-if="activeMenu === 'monitor'">
-                    <div class="dashboard-header">
-                        <h3 style="margin: 0;">舆情监测任务</h3>
-                        <el-button type="primary" size="small" @click="createTaskVisible = true">创建监控任务</el-button>
-                    </div>
+                <!-- Monitoring List Module has been moved to /monitor -->
 
-                    <div class="list-filter" style="margin-top: 20px; padding: 20px; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color);">
-                        <el-form :model="filter" label-width="80px">
-                            <el-row :gutter="20">
-                                <el-col :span="isMobile ? 24 : 6">
-                                    <el-form-item label="关键词">
-                                        <el-input v-model="filter.keyword" placeholder="关键词搜索..." clearable></el-input>
-                                    </el-form-item>
-                                </el-col>
-                                <el-col :span="isMobile ? 24 : 6">
-                                    <el-form-item label="情感倾向">
-                                        <el-select v-model="filter.sentiment" placeholder="全部" clearable style="width: 100%;">
-                                            <el-option label="正面" value="正面"></el-option>
-                                            <el-option label="中性" value="中性"></el-option>
-                                            <el-option label="负面" value="负面"></el-option>
-                                        </el-select>
-                                    </el-form-item>
-                                </el-col>
-                                <el-col :span="isMobile ? 24 : 6">
-                                    <el-form-item label="平台来源">
-                                        <el-select v-model="filter.platform" placeholder="全部平台" clearable style="width: 100%;">
-                                            <el-option label="微博" value="weibo"></el-option>
-                                            <el-option label="知乎" value="zhihu"></el-option>
-                                            <el-option label="抖音" value="douyin"></el-option>
-                                            <el-option label="百度" value="baidu"></el-option>
-                                        </el-select>
-                                    </el-form-item>
-                                </el-col>
-                                <el-col :span="isMobile ? 24 : 6">
-                                    <el-button type="primary" @click="fetchList" style="width: 100%;">开始筛选</el-button>
-                                </el-col>
-                            </el-row>
-                            <el-row :gutter="20" style="margin-top: 10px;">
-                                <el-col :span="isMobile ? 24 : 12">
-                                    <el-form-item label="时间范围">
-                                        <el-date-picker
-                                            v-model="filter.timeRange"
-                                            type="datetimerange"
-                                            range-separator="至"
-                                            start-placeholder="开始时间"
-                                            end-placeholder="结束时间"
-                                            style="width: 100%;"
-                                        ></el-date-picker>
-                                    </el-form-item>
-                                </el-col>
-                                <el-col :span="isMobile ? 24 : 6" :offset="isMobile ? 0 : 6">
-                                    <el-button @click="resetFilter" style="width: 100%;">重置筛选</el-button>
-                                </el-col>
-                            </el-row>
-                        </el-form>
-                    </div>
 
-                    <!-- 监控任务列表 (华为Mate60, OpenAI等) -->
-                    <div style="margin-top: 20px; display: flex; gap: 15px; overflow-x: auto; padding-bottom: 10px;">
-                        <el-tag 
-                            v-for="task in monitorTasks" 
-                            :key="task.id" 
-                            closable 
-                            size="large" 
-                            effect="dark"
-                            @click="filter.keyword = task.name; fetchList()"
-                            style="cursor: pointer; background: linear-gradient(90deg, var(--primary-color), var(--accent-color)); border: none;"
-                        >
-                            {{ task.name }}
-                        </el-tag>
-                    </div>
-
-                    <div style="margin-top: 20px; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); overflow: hidden;">
-                        <el-table :data="listData" stripe style="width: 100%" v-loading="loading" @selection-change="handleSelectionChange">
-                        <el-table-column type="selection" width="55"></el-table-column>
-                        <el-table-column prop="created_at" label="发布时间" width="160" sortable class-name="hidden-xs"></el-table-column>
-                        <el-table-column prop="source" label="来源" width="80"></el-table-column>
-                        <el-table-column label="作者" width="100" class-name="hidden-xs">
-                            <template #default="scope">
-                                <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" :title="scope.row.author">
-                                    {{ scope.row.author }}
-                                </div>
-                            </template>
-                        </el-table-column>
-                        <el-table-column label="类型" width="80">
-                            <template #default="scope">
-                                <el-tag :type="scope.row.type === 'article' ? '' : 'info'" size="small">
-                                    {{ scope.row.type === 'article' ? '文章' : '评论' }}
-                                </el-tag>
-                            </template>
-                        </el-table-column>
-                        <el-table-column label="内容" min-width="150">
-                            <template #default="scope">
-                                <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                    {{ scope.row.content }}
-                                </div>
-                            </template>
-                        </el-table-column>
-                        <el-table-column label="情感" width="80">
-                            <template #default="scope">
-                                <el-tag :type="getSentimentType(scope.row.sentiment_analysis.sentiment)" size="small">
-                                    {{ scope.row.sentiment_analysis.sentiment }}
-                                </el-tag>
-                            </template>
-                        </el-table-column>
-                        <el-table-column label="操作" width="90" fixed="right">
-                            <template #default="scope">
-                                <el-link type="primary" @click="showDetail(scope.row)" :underline="false">详情</el-link>
-                            </template>
-                        </el-table-column>
-                    </el-table>
-
-                    <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
-                        <el-pagination
-                            v-model:current-page="currentPage"
-                            v-model:page-size="pageSize"
-                            :page-sizes="[10, 20, 50, 100]"
-                            layout="total, sizes, prev, pager, next"
-                            :total="total"
-                            @size-change="fetchList"
-                            @current-change="fetchList"
-                        ></el-pagination>
-                    </div>
-                </div>
-
-                <!-- Alerts Module -->
-                <div v-if="activeMenu === 'warning'">
-                    <el-card shadow="never">
-                        <template #header>
-                            <div class="card-header">
-                                <span>预警规则与记录</span>
-                                <el-button type="primary" size="small">新建预警规则</el-button>
-                            </div>
-                        </template>
-                        <el-table :data="allAlerts" stripe style="width: 100%" class="alerts-table">
-                            <el-table-column prop="time" label="预警时间" width="160" class-name="hidden-xs"></el-table-column>
-                            <el-table-column prop="title" label="预警描述" min-width="150"></el-table-column>
-                            <el-table-column label="级别" width="80">
-                                <template #default="scope">
-                                    <el-tag :type="scope.row.level === 'high' ? 'danger' : 'warning'" size="small">
-                                        {{ scope.row.level === 'high' ? '高危' : '中等' }}
-                                    </el-tag>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="状态" width="80">
-                                <template #default="scope">
-                                    <el-tag :type="scope.row.status === 'unread' ? 'info' : 'success'" size="small">
-                                        {{ scope.row.status === 'unread' ? '未读' : '已处理' }}
-                                    </el-tag>
-                                </template>
-                            </el-table-column>
-                            <el-table-column label="操作" width="90" fixed="right">
-                                <template #default="scope">
-                                    <el-button 
-                                        link 
-                                        type="primary" 
-                                        size="small" 
-                                        @click="handleReadAlert(scope.row)"
-                                        :disabled="scope.row.status === 'read'"
-                                    >
-                                        {{ scope.row.status === 'read' ? '已处理' : '处理' }}
-                                    </el-button>
-                                </template>
-                            </el-table-column>
-                        </el-table>
-                    </el-card>
-                </div>
+                <!-- Alerts Module has been moved to /warning -->
 
                 <!-- Config Module -->
                 <div v-if="activeMenu === 'settings'">
@@ -1346,134 +399,7 @@
             </div>
         </div>
 
-        <!-- Create Task Dialog -->
-        <el-dialog
-            v-model="createTaskVisible"
-            title="创建舆情监控任务"
-            width="500px"
-            destroy-on-close
-        >
-            <el-form :model="newTask" label-width="100px">
-                <el-form-item label="任务名称">
-                    <el-input v-model="newTask.name" placeholder="例如：品牌口碑监控"></el-input>
-                </el-form-item>
-                <el-form-item label="监控平台">
-                    <el-select v-model="newTask.platform" placeholder="选择平台" style="width: 100%">
-                        <el-option label="全部平台" value="all"></el-option>
-                        <el-option label="微博" value="weibo"></el-option>
-                        <el-option label="抖音" value="douyin"></el-option>
-                        <el-option label="小红书" value="xhs"></el-option>
-                        <el-option label="知乎" value="zhihu"></el-option>
-                    </el-select>
-                </el-form-item>
-                <el-form-item label="监控关键词">
-                    <el-input 
-                        v-model="newTask.keywords" 
-                        type="textarea" 
-                        placeholder="请输入关键词，多个以逗号或换行分隔"
-                        :rows="3"
-                    ></el-input>
-                </el-form-item>
-                <el-form-item label="预警阈值">
-                    <el-input-number v-model="newTask.threshold" :min="1" :max="1000"></el-input-number>
-                    <span style="margin-left: 10px; color: var(--text-secondary); font-size: 12px;">(新增负面达到该值时预警)</span>
-                </el-form-item>
-            </el-form>
-            <template #footer>
-                <div class="dialog-footer">
-                    <el-button @click="createTaskVisible = false">取消</el-button>
-                    <el-button type="primary" @click="handleCreateTask">立即创建</el-button>
-                </div>
-            </template>
-        </el-dialog>
-
-        <!-- Detail Dialog -->
-        <el-dialog
-            v-model="detailVisible"
-            title="文章详情分析"
-            width="70%"
-            destroy-on-close
-        >
-            <div v-if="currentItem" v-loading="detailLoading">
-                <el-descriptions :title="currentItem.type === 'article' ? '文章基本信息' : '评论基本信息'" :column="isMobile ? 1 : 2" border>
-                    <el-descriptions-item label="作者">{{ currentItem.author }}</el-descriptions-item>
-                    <el-descriptions-item label="发布时间">{{ currentItem.created_at }}</el-descriptions-item>
-                    <el-descriptions-item label="数据来源">
-                        <el-link type="primary" :href="currentItem.url" target="_blank">{{ currentItem.source }}</el-link>
-                    </el-descriptions-item>
-                    <el-descriptions-item label="归属地" v-if="currentItem.ip_location">
-                        {{ currentItem.ip_location }}
-                    </el-descriptions-item>
-                    <el-descriptions-item label="互动数">
-                        <span v-if="currentItem.type === 'article'">
-                            赞 {{ currentItem.liked_count }} | 评 {{ currentItem.comments_count }} | 转 {{ currentItem.shared_count }}
-                        </span>
-                        <span v-else>
-                            赞 {{ currentItem.comment_like_count }} | 回复 {{ currentItem.sub_comment_count }}
-                        </span>
-                    </el-descriptions-item>
-                    <el-descriptions-item label="关键词">
-                        <el-tag v-for="kw in currentItem.keywords" :key="kw" size="small" style="margin-right: 5px;">{{ kw }}</el-tag>
-                    </el-descriptions-item>
-                    <el-descriptions-item :label="currentItem.type === 'article' ? '文章正文' : '评论内容'" :span="2">
-                        <div style="max-height: 300px; overflow-y: auto; white-space: pre-wrap; line-height: 1.6;">
-                            {{ currentItem.content }}
-                        </div>
-                    </el-descriptions-item>
-                </el-descriptions>
-
-                <div class="img-gallery" v-if="currentItem.image_paths && currentItem.image_paths.length">
-                    <el-image 
-                        v-for="img in currentItem.image_paths" 
-                        :key="img"
-                        :src="formatImageUrl(img)" 
-                        class="img-item"
-                        :preview-src-list="[formatImageUrl(img)]"
-                        fit="cover"
-                    ></el-image>
-                </div>
-
-                <h4 style="margin-top: 30px; border-left: 4px solid #409EFF; padding-left: 10px;">多模态分析结果</h4>
-                <el-tabs type="border-card" style="margin-top: 15px;">
-                    <el-tab-pane label="情感分析">
-                        <div class="detail-row">
-                            <span class="detail-label">情感倾向：</span>
-                            <el-tag :type="getSentimentType(currentItem.sentiment_analysis.sentiment)">{{ currentItem.sentiment_analysis.sentiment }}</el-tag>
-                            <el-tag type="info" style="margin-left: 10px;">{{ currentItem.sentiment_analysis.fine_grained_sentiment }}</el-tag>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">意图分类：</span>
-                            <el-tag type="warning">{{ currentItem.sentiment_analysis.intent }}</el-tag>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">分析理由：</span>
-                            <p style="color: #666; font-size: 14px; background: #f9f9f9; padding: 10px; border-radius: 4px; line-height: 1.6;">
-                                {{ currentItem.sentiment_analysis.reasoning }}
-                            </p>
-                        </div>
-                    </el-tab-pane>
-                    <el-tab-pane label="视觉识别">
-                        <div style="margin-top: 10px;">
-                            <span style="font-weight: bold;">视觉对象：</span>
-                            <el-tag v-for="obj in currentItem.visual_objects" :key="obj" type="success" size="small" style="margin-right: 5px;">{{ obj }}</el-tag>
-                            <span v-if="!currentItem.visual_objects || currentItem.visual_objects.length === 0" style="color: #999;">无视觉对象</span>
-                        </div>
-                        <div style="margin-top: 10px;">
-                            <span style="font-weight: bold;">OCR文字：</span>
-                            <div style="margin-top: 5px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 13px;">
-                                {{ currentItem.ocr_text || '未检测到文字' }}
-                            </div>
-                        </div>
-                        <div class="detail-row">
-                            <span class="detail-label">反讽检测：</span>
-                            <el-tag :type="currentItem.sentiment_analysis.irony_detected ? 'danger' : 'info'">
-                                {{ currentItem.sentiment_analysis.irony_detected ? '检测到反讽' : '未检测到反讽' }}
-                            </el-tag>
-                        </div>
-                    </el-tab-pane>
-                </el-tabs>
-            </div>
-        </el-dialog>
+        <!-- Dialogs moved to monitor.html -->
     </div>
 
     <script>
@@ -1481,7 +407,9 @@
 
         const app = createApp({
             setup() {
-                const activeMenu = ref('dashboard');
+                const urlParams = new URLSearchParams(window.location.search);
+                const initialMenu = urlParams.get('menu') || 'dashboard';
+                const activeMenu = ref(initialMenu);
                 const menuTitle = computed(() => {
                     const titles = {
                         hotsearch: '平台热榜',
@@ -1521,7 +449,30 @@
                 const intentData = ref([]);
                 const regionColors = ref(['#409EFF', '#67C23A', '#E6A23C', '#F56C6C', '#909399', '#722ED1']);
                 const realtimeComments = ref([]);
-                const commentScrollRef = ref(null);
+                const scrollRef = ref(null);
+                const isHover = ref(false);
+
+                // 渲染双份数据以实现无缝滚动
+                const displayComments = computed(() => {
+                    return [...realtimeComments.value, ...realtimeComments.value];
+                });
+
+                const startScroll = () => {
+                    const scroll = () => {
+                        const el = scrollRef.value;
+                        if (!isHover.value && el) {
+                            if (el.scrollHeight > el.clientHeight) {
+                                el.scrollTop += 1; // 滚动速度
+                                // 当滚动超过一半高度（即第一份数据的高度）时，重置回顶部
+                                if (el.scrollTop >= el.scrollHeight / 2) {
+                                    el.scrollTop = el.scrollTop - el.scrollHeight / 2;
+                                }
+                            }
+                        }
+                        requestAnimationFrame(scroll);
+                    };
+                    requestAnimationFrame(scroll);
+                };
 
                 // 模拟实时评论数据
                 const mockComments = [
@@ -1564,81 +515,12 @@
                 
                 const recentAlerts = ref([]);
                 const topWords = ref([]);
-                const allAlerts = ref([]);
                 const configSources = ref([]);
                 const monitorKeywords = ref([]);
                 const newKeyword = ref('');
                 const selectedItems = ref([]);
                 
-                // List Data
-                const listData = ref([]);
-                const total = ref(0);
-                const currentPage = ref(1);
-                const pageSize = ref(20);
-                const loading = ref(false);
-                const filter = reactive({
-                    sentiment: '',
-                    keyword: '',
-                    platform: '',
-                    timeRange: []
-                });
-
-                const resetFilter = () => {
-                    filter.sentiment = '';
-                    filter.keyword = '';
-                    filter.platform = '';
-                    filter.timeRange = [];
-                    fetchList();
-                };
-
-                const monitorTasks = ref([
-                    { id: 1, name: '华为Mate60舆情' },
-                    { id: 2, name: 'OpenAI事件' },
-                    { id: 3, name: 'Sora发布' },
-                    { id: 4, name: '春运话题' }
-                ]);
-
-                const createTaskVisible = ref(false);
-                const newTask = reactive({
-                    name: '',
-                    platform: 'all',
-                    keywords: '',
-                    threshold: 10
-                });
-
-                const handleCreateTask = async () => {
-                    if (!newTask.name || !newTask.keywords) {
-                        ElementPlus.ElMessage.warning('请填写完整任务信息');
-                        return;
-                    }
-                    try {
-                        // 实际项目中这里应该调用 API
-                        // const res = await axios.post('/api/monitoring/tasks', newTask);
-                        
-                        // 模拟添加
-                        monitorTasks.value.unshift({
-                            id: Date.now(),
-                            name: newTask.name
-                        });
-                        
-                        createTaskVisible.value = false;
-                        ElementPlus.ElMessage.success('任务创建成功');
-                        
-                        // 重置表单
-                        newTask.name = '';
-                        newTask.keywords = '';
-                        newTask.platform = 'all';
-                        newTask.threshold = 10;
-                    } catch (e) {
-                        console.error('Failed to create task', e);
-                        ElementPlus.ElMessage.error('任务创建失败');
-                    }
-                };
-
-                // Detail Data
-                const detailVisible = ref(false);
-                const currentItem = ref(null);
-                const detailLoading = ref(false);
+                // List Data - Removed as monitor is separate now
 
                 const handleMenuSelect = (index) => {
                     console.log('Menu selected:', index);
@@ -1654,7 +536,7 @@
                     }
 
                     // 处理外部页面跳转
-                    const externalPages = ['hotsearch', 'volume_rank', 'crawler'];
+                    const externalPages = ['hotsearch', 'volume_rank', 'crawler', 'monitor', 'warning'];
                     if (externalPages.includes(index)) {
                         console.log('Navigating to external page:', index);
                         window.location.href = `/${index}`;
@@ -1662,17 +544,13 @@
                     }
 
                     // 处理内部 SPA 模块的 activeMenu
-                    const spaModules = ['dashboard', 'monitor', 'warning', 'settings'];
+                    const spaModules = ['dashboard', 'settings'];
                     if (spaModules.includes(index)) {
                         activeMenu.value = index;
                     }
                     
                     if (index === 'dashboard') {
                         fetchDashboardData();
-                    } else if (index === 'monitor') {
-                        fetchList();
-                    } else if (index === 'warning') {
-                        fetchAlerts();
                     } else if (index === 'settings') {
                         fetchConfig();
                     }
@@ -1730,11 +608,11 @@
                         }
 
                         if (sentimentFineRes.data) {
-                            fineSentimentData.value = sentimentFineRes.data.filter(item => {
-                                if (!item.name) return false;
-                                let name = String(item.name).trim();
+                            // 1. 清洗与标准化
+                            const processed = sentimentFineRes.data.map(item => {
+                                let name = String(item.name || '').trim();
                                 
-                                // 处理可能存在的 JSON 格式标签
+                                // 处理 JSON 格式
                                 if (name.startsWith('[') && name.endsWith(']')) {
                                     try {
                                         const parsed = JSON.parse(name);
@@ -1744,17 +622,33 @@
                                     } catch (e) {}
                                 }
                                 
-                                item.name = name; // 更新为清洗后的名称
-                                const lowerName = name.toLowerCase();
-                                return !['none', 'nan', 'null', 'unknown', 'undefined'].includes(lowerName);
+                                // 标准化
+                                name = name.replace('／', '/');
+                                if (name.includes('/')) {
+                                    name = name.split('/')[0].trim();
+                                }
+                                
+                                return { name, value: Number(item.value) || 0 };
+                            }).filter(item => {
+                                const lowerName = item.name.toLowerCase();
+                                return item.name && !['none', 'nan', 'null', 'unknown', 'undefined'].includes(lowerName);
                             });
+
+                            // 2. 聚合重复项
+                            const aggMap = new Map();
+                            processed.forEach(item => {
+                                const current = aggMap.get(item.name) || 0;
+                                aggMap.set(item.name, current + item.value);
+                            });
+                            
+                            fineSentimentData.value = Array.from(aggMap.entries()).map(([name, value]) => ({ name, value }));
                         }
                         if (intentRes.data) {
-                            intentData.value = intentRes.data.filter(item => {
-                                if (!item.name) return false;
-                                let name = String(item.name).trim();
+                            // 1. 清洗与标准化
+                            const processed = intentRes.data.map(item => {
+                                let name = String(item.name || '').trim();
                                 
-                                // 处理可能存在的 JSON 格式标签
+                                // 处理 JSON 格式
                                 if (name.startsWith('[') && name.endsWith(']')) {
                                     try {
                                         const parsed = JSON.parse(name);
@@ -1764,10 +658,41 @@
                                     } catch (e) {}
                                 }
                                 
-                                item.name = name; // 更新为清洗后的名称
-                                const lowerName = name.toLowerCase();
-                                return !['none', 'nan', 'null', 'unknown', 'undefined', '控制'].includes(lowerName);
+                                // 标准化合并: 
+                                // 1. 处理斜杠 (质询/询问 -> 质询)
+                                name = name.replace('／', '/'); // 兼容全角斜杠
+                                if (name.includes('/')) {
+                                    name = name.split('/')[0].trim();
+                                }
+                                
+                                // 2. 同义词映射
+                                const mappings = {
+                                    '询问': '质询',
+                                    '意见': '建议',
+                                    '反馈': '建议'
+                                };
+                                if (mappings[name]) {
+                                    name = mappings[name];
+                                }
+                                
+                                return {
+                                    name: name,
+                                    value: Number(item.value) || 0
+                                };
+                            }).filter(item => {
+                                const lowerName = item.name.toLowerCase();
+                                return item.name && !['none', 'nan', 'null', 'unknown', 'undefined', '控制'].includes(lowerName);
                             });
+
+                            // 2. 聚合重复项
+                            const aggMap = new Map();
+                            processed.forEach(item => {
+                                const current = aggMap.get(item.name) || 0;
+                                aggMap.set(item.name, current + item.value);
+                            });
+                            
+                            // 3. 转回数组
+                            intentData.value = Array.from(aggMap.entries()).map(([name, value]) => ({ name, value }));
                         }
                         
                         // 处理词云数据并生成高频词指数列表
@@ -1829,25 +754,6 @@
                     }
                 };
 
-                const fetchAlerts = async () => {
-                    try {
-                        const res = await axios.get('/api/alerts/list');
-                        allAlerts.value = res.data;
-                    } catch (e) {
-                        console.error('Failed to fetch alerts', e);
-                    }
-                };
-
-                const handleReadAlert = async (alert) => {
-                    try {
-                        await axios.post(`/api/alerts/read/${alert.id}`);
-                        fetchAlerts();
-                        ElementPlus.ElMessage.success('已处理该预警');
-                    } catch (e) {
-                        console.error('Failed to mark alert as read', e);
-                    }
-                };
-
                 const fetchConfig = async () => {
                     try {
                         const [sourcesRes, keywordsRes] = await Promise.all([
@@ -1890,47 +796,13 @@
                     }, 1500);
                 };
 
-                const handleSelectionChange = (val) => {
-                    selectedItems.value = val;
-                };
-
                 const exportData = () => {
                     ElementPlus.ElMessage.success('正在导出数据...');
                     // 实际导出逻辑可以使用 sheetjs 或 后端接口
                 };
 
-                const fetchList = async () => {
-                    loading.value = true;
-                    try {
-                        const res = await axios.get('/api/monitoring/list', {
-                            params: {
-                                page: currentPage.value,
-                                size: pageSize.value,
-                                sentiment: filter.sentiment,
-                                keyword: filter.keyword
-                            }
-                        });
-                        listData.value = res.data.items;
-                        total.value = res.data.total;
-                    } catch (e) {
-                        console.error('Failed to fetch list', e);
-                    } finally {
-                        loading.value = false;
-                    }
-                };
+                // fetchList and showDetail removed as they are moved to monitor.html
 
-                const showDetail = async (row) => {
-                    detailVisible.value = true;
-                    detailLoading.value = true;
-                    try {
-                        const res = await axios.get(`/api/monitoring/detail/${row.note_id}/${row.comment_id}`);
-                        currentItem.value = res.data;
-                    } catch (e) {
-                        console.error('Failed to fetch detail', e);
-                    } finally {
-                        detailLoading.value = false;
-                    }
-                };
 
                 const getSentimentType = (s) => {
                     const types = { '正面': 'success', '中性': 'warning', '负面': 'danger' };
@@ -1961,9 +833,9 @@
                             backgroundColor: 'transparent',
                             tooltip: { 
                                 trigger: 'axis',
-                                backgroundColor: 'rgba(10, 14, 23, 0.9)',
-                                borderColor: 'var(--primary-color)',
-                                textStyle: { color: 'var(--text-primary)' },
+                                backgroundColor: 'rgba(20, 25, 35, 0.95)',
+                                borderColor: 'rgba(255, 255, 255, 0.1)',
+                                textStyle: { color: '#fff' },
                                 formatter: function(params) {
                                     let res = params[0].name + '<br/>';
                                     params.forEach(item => {
@@ -1973,8 +845,8 @@
                                 }
                             },
                             legend: { 
-                                data: ['正面', '中性', '负面', '总量'],
-                                textStyle: { color: 'var(--text-secondary)' },
+                                data: ['总量', '正面', '中性', '负面'],
+                                textStyle: { color: '#b0b8c6' },
                                 top: '0'
                             },
                             grid: {
@@ -1986,9 +858,9 @@
                             xAxis: { 
                                 type: 'category', 
                                 data: data.map(d => d.date),
-                                axisLine: { lineStyle: { color: 'var(--border-color)' } },
+                                axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.4)' } },
                                 axisLabel: {
-                                    color: 'var(--text-secondary)',
+                                    color: '#b0b8c6',
                                     interval: 0, 
                                     rotate: data.length > 15 ? 45 : 0,
                                     formatter: (value) => {
@@ -2002,9 +874,9 @@
                             },
                             yAxis: { 
                                 type: 'value',
-                                axisLine: { lineStyle: { color: 'var(--border-color)' } },
-                                axisLabel: { color: 'var(--text-secondary)' },
-                                splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.05)' } }
+                                axisLine: { show: false },
+                                axisLabel: { color: '#b0b8c6' },
+                                splitLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.3)', type: 'dashed' } }
                             },
                             dataZoom: [
                                 {
@@ -2018,23 +890,40 @@
                                     end: 100,
                                     height: 20,
                                     bottom: 10,
-                                    borderColor: 'var(--border-color)',
-                                    textStyle: { color: 'var(--text-secondary)' },
-                                    handleStyle: { color: 'var(--primary-color)' }
+                                    borderColor: 'rgba(255, 255, 255, 0.4)',
+                                    textStyle: { color: '#b0b8c6' },
+                                    handleStyle: { color: '#00f0ff' },
+                                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                    fillerColor: 'rgba(0, 240, 255, 0.3)'
                                 }
                             ],
                             series: [
                                 { 
+                                    name: '总量', 
+                                    type: 'bar', 
+                                    data: data.map(d => d.total), 
+                                    itemStyle: {
+                                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                            { offset: 0, color: '#3498DB' },
+                                            { offset: 1, color: 'rgba(52, 152, 219, 0.3)' }
+                                        ]),
+                                        borderRadius: [4, 4, 0, 0]
+                                    },
+                                    barMaxWidth: 50
+                                },
+                                { 
                                     name: '正面', 
                                     type: 'line', 
                                     data: data.map(d => d.正面), 
-                                    color: '#00ff9d', 
+                                    color: '#1CA75F', 
                                     smooth: true,
-                                    lineStyle: { width: 3, shadowBlur: 10, shadowColor: 'rgba(0, 255, 157, 0.5)' },
+                                    symbol: 'circle',
+                                    symbolSize: 6,
+                                    lineStyle: { width: 3, shadowBlur: 5, shadowColor: 'rgba(28, 167, 95, 0.3)' },
                                     areaStyle: {
                                         color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                                            { offset: 0, color: 'rgba(0, 255, 157, 0.2)' },
-                                            { offset: 1, color: 'transparent' }
+                                            { offset: 0, color: 'rgba(28, 167, 95, 0.4)' },
+                                            { offset: 1, color: 'rgba(28, 167, 95, 0.1)' } // Visible faint green
                                         ])
                                     }
                                 },
@@ -2042,25 +931,33 @@
                                     name: '中性', 
                                     type: 'line', 
                                     data: data.map(d => d.中性), 
-                                    color: 'var(--primary-color)', 
+                                    color: '#EABF95', 
                                     smooth: true,
-                                    lineStyle: { width: 3, shadowBlur: 10, shadowColor: 'rgba(0, 240, 255, 0.5)' }
+                                    symbol: 'circle',
+                                    symbolSize: 6,
+                                    lineStyle: { width: 3, shadowBlur: 5, shadowColor: 'rgba(234, 191, 149, 0.3)' },
+                                    areaStyle: {
+                                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                            { offset: 0, color: 'rgba(234, 191, 149, 0.4)' },
+                                            { offset: 1, color: 'rgba(234, 191, 149, 0.1)' } // Visible faint gold
+                                        ])
+                                    }
                                 },
                                 { 
                                     name: '负面', 
                                     type: 'line', 
                                     data: data.map(d => d.负面), 
-                                    color: '#ff4d4f', 
+                                    color: '#FF5454', 
                                     smooth: true,
-                                    lineStyle: { width: 3, shadowBlur: 10, shadowColor: 'rgba(255, 77, 79, 0.5)' }
-                                },
-                                { 
-                                    name: '总量', 
-                                    type: 'bar', 
-                                    data: data.map(d => d.total), 
-                                    color: 'var(--accent-color)', 
-                                    opacity: 0.2,
-                                    itemStyle: { borderRadius: [4, 4, 0, 0] }
+                                    symbol: 'circle',
+                                    symbolSize: 6,
+                                    lineStyle: { width: 3, shadowBlur: 5, shadowColor: 'rgba(255, 84, 84, 0.3)' },
+                                    areaStyle: {
+                                        color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                            { offset: 0, color: 'rgba(255, 84, 84, 0.4)' },
+                                            { offset: 1, color: 'rgba(255, 84, 84, 0.1)' } // Visible faint red
+                                        ])
+                                    }
                                 }
                             ]
                         };
@@ -2087,16 +984,16 @@
                             tooltip: { 
                                 trigger: 'item',
                                 backgroundColor: 'rgba(10, 14, 23, 0.9)',
-                                borderColor: 'var(--primary-color)',
-                                textStyle: { color: 'var(--text-primary)' },
+                                borderColor: '#00f0ff',
+                                textStyle: { color: '#e0e6ed' },
                                 formatter: '{b}: {c} ({d}%)' 
                             },
                             legend: { 
                                 bottom: '0%', 
                                 left: 'center',
-                                textStyle: { color: 'var(--text-secondary)' }
+                                textStyle: { color: '#94a3b8' }
                             },
-                            color: ['#00ff9d', 'var(--primary-color)', '#ff4d4f'],
+                            color: ['#1CA75F', '#EABF95', '#FF5454'],
                             series: [
                                 {
                                     name: '情感分布',
@@ -2106,22 +1003,21 @@
                                     avoidLabelOverlap: true,
                                     itemStyle: { 
                                         borderRadius: 10, 
-                                        borderColor: 'var(--bg-color)', 
-                                        borderWidth: 2 
+                                        borderWidth: 0 // Remove border to avoid black lines
                                     },
                                     label: { 
                                         show: true, 
                                         position: 'outside',
                                         formatter: '{b}\n{d}%',
                                         fontSize: 12,
-                                        color: 'var(--text-secondary)'
+                                        color: '#94a3b8'
                                     },
                                     emphasis: { 
                                         label: { 
                                             show: true, 
                                             fontSize: '18', 
                                             fontWeight: 'bold',
-                                            color: 'var(--primary-color)',
+                                            color: '#00f0ff',
                                             formatter: '{b}\n{d}%'
                                         },
                                         itemStyle: {
@@ -2130,15 +1026,15 @@
                                         }
                                     },
                                     labelLine: { 
-                                        show: true,
-                                        lineStyle: { color: 'var(--border-color)' },
+                                        show: true, 
+                                        lineStyle: { color: 'rgba(0, 240, 255, 0.4)' },
                                         length: 15,
                                         length2: 15
                                     },
                                     data: [
-                                        { value: data['正面'] || 0, name: '正面' },
-                                        { value: data['中性'] || 0, name: '中性' },
-                                        { value: data['负面'] || 0, name: '负面' }
+                                        { value: data['正面'] || 0, name: '正面', itemStyle: { color: '#1CA75F' } },
+                                        { value: data['中性'] || 0, name: '中性', itemStyle: { color: '#EABF95' } },
+                                        { value: data['负面'] || 0, name: '负面', itemStyle: { color: '#FF5454' } }
                                     ]
                                 }
                             ]
@@ -2166,8 +1062,8 @@
                             tooltip: {
                                 show: true,
                                 backgroundColor: 'rgba(10, 14, 23, 0.9)',
-                                borderColor: 'var(--primary-color)',
-                                textStyle: { color: 'var(--text-primary)' },
+                                borderColor: '#00f0ff',
+                                textStyle: { color: '#e0e6ed' },
                                 formatter: '{b}: {c}'
                             },
                             series: [{
@@ -2233,8 +1129,8 @@
                             tooltip: {
                                 trigger: 'item',
                                 backgroundColor: 'rgba(10, 14, 23, 0.9)',
-                                borderColor: 'var(--primary-color)',
-                                textStyle: { color: 'var(--text-primary)' },
+                                borderColor: '#00f0ff',
+                                textStyle: { color: '#e0e6ed' },
                                 formatter: function (params) {
                                     const val = (params.value === undefined || isNaN(params.value)) ? 0 : params.value;
                                     return params.name + ': ' + val + ' 条';
@@ -2243,13 +1139,26 @@
                             visualMap: {
                                 min: 0,
                                 max: Math.max(...cleanData.map(d => d.value), 100),
-                                left: 'left',
-                                bottom: '20',
+                                left: '30',
+                                bottom: '30',
                                 text: ['高', '低'],
-                                textStyle: { color: 'var(--text-secondary)' },
+                                textStyle: { color: '#94a3b8' },
                                 calculable: true,
+                                realtime: true,
+                                itemHeight: 200, // Taller bar for better precision
+                                itemWidth: 15,
+                                handleSize: '120%', // Larger handles for easier clicking/dragging
                                 inRange: {
-                                    color: ['rgba(0, 240, 255, 0.1)', 'rgba(0, 240, 255, 0.8)']
+                                    color: ['#a18cd1', '#fbc2eb']
+                                },
+                                outOfRange: {
+                                    color: '#323a4e'
+                                },
+                                handleStyle: {
+                                    color: '#fff',
+                                    borderColor: '#333',
+                                    shadowBlur: 4,
+                                    shadowColor: 'rgba(0, 0, 0, 0.5)'
                                 }
                             },
                             series: [
@@ -2257,22 +1166,23 @@
                                     name: '热点分布',
                                     type: 'map',
                                     mapType: 'china',
-                                    roam: false,
+                                    roam: true, // Allow zoom/pan
+                                    scaleLimit: { min: 0.8, max: 3 },
                                     label: {
                                         show: false,
-                                        color: 'var(--text-secondary)'
+                                        color: '#94a3b8'
                                     },
                                     itemStyle: {
-                                        areaColor: 'rgba(26, 31, 46, 0.5)',
-                                        borderColor: 'rgba(0, 240, 255, 0.2)',
+                                        areaColor: '#323a4e', // Default for no data
+                                        borderColor: '#fff',
                                         borderWidth: 1
                                     },
                                     emphasis: {
                                         label: { show: true, color: '#fff' },
                                         itemStyle: {
-                                            areaColor: 'var(--primary-color)',
+                                            areaColor: '#fbc2eb', // Highlight with pink
                                             shadowBlur: 20,
-                                            shadowColor: 'rgba(0, 240, 255, 0.5)'
+                                            shadowColor: 'rgba(251, 194, 235, 0.5)'
                                         }
                                     },
                                     data: cleanData
@@ -2329,8 +1239,7 @@
                                     avoidLabelOverlap: true,
                                     itemStyle: {
                                         borderRadius: 10,
-                                        borderColor: bgColor,
-                                        borderWidth: 2
+                                        borderWidth: 0 // Remove border to avoid black lines
                                     },
                                     label: { show: false },
                                     emphasis: {
@@ -2371,7 +1280,7 @@
                         // 获取 CSS 变量的值
                         const primaryColor = getComputedStyle(document.documentElement).getPropertyValue('--primary-color').trim() || '#00f0ff';
                         const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-color').trim() || '#b967ff';
-                        const borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border-color').trim() || 'rgba(0, 240, 255, 0.15)';
+                        const borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border-color').trim() || 'rgba(0, 240, 255, 0.3)';
                         const textPrimary = getComputedStyle(document.documentElement).getPropertyValue('--text-primary').trim() || '#e0e6ed';
                         const textSecondary = getComputedStyle(document.documentElement).getPropertyValue('--text-secondary').trim() || '#94a3b8';
 
@@ -2442,11 +1351,21 @@
                 };
 
                 onMounted(() => {
-                    fetchDashboardData();
-                    fetchAlerts();
+                    if (activeMenu.value === 'dashboard') fetchDashboardData();
+                    if (activeMenu.value === 'settings') fetchConfig();
+                    
+                    if (activeMenu.value !== 'dashboard' && activeMenu.value !== 'settings') {
+                         fetchDashboardData(); // Default fallback
+                    }
 
                     // 实时评论流
-                    realtimeComments.value = [...mockComments];
+
+                    // 初始数据反转，按时间旧->新排序，符合向上滚动的逻辑（旧的滚走，新的在底部出现）
+                    realtimeComments.value = [...mockComments].reverse();
+                    
+                    // 启动滚动
+                    startScroll();
+
                     setInterval(() => {
                         const newComment = {
                             id: Date.now(),
@@ -2463,11 +1382,11 @@
                             sentiment_type: ['positive', 'negative', 'neutral'][Math.floor(Math.random() * 3)],
                             time: new Date()
                         };
-                        realtimeComments.value.unshift(newComment);
-                        if (realtimeComments.value.length > 30) {
-                            realtimeComments.value.pop();
+                        realtimeComments.value.push(newComment);
+                        if (realtimeComments.value.length > 50) {
+                            realtimeComments.value.shift();
                         }
-                    }, 4000);
+                    }, 2000);
 
                     // 初始化数据流粒子动画
                     const container = document.getElementById('dataStream');
@@ -2489,12 +1408,11 @@
                     activeMenu, menuTitle, handleMenuSelect,
                     stats, negativePercentage, positiveNeutralPercentage, topWords,
                     topRegions, fineSentimentData, intentData, regionColors,
-                    listData, total, currentPage, pageSize, loading, filter, fetchList,
-                    detailVisible, currentItem, detailLoading, showDetail,
-                    getSentimentType, formatImageUrl, monitorTasks, createTaskVisible, newTask, handleCreateTask, resetFilter,
-                    recentAlerts, allAlerts, handleReadAlert, configSources, monitorKeywords, newKeyword, handleAddKeyword, handleDeleteKeyword, handleSyncSource, selectedItems,
-                    handleSelectionChange, exportData,
-                    realtimeComments, getLogoById, timeAgo
+                    getSentimentType, formatImageUrl, 
+                    configSources, monitorKeywords, newKeyword, handleAddKeyword, handleDeleteKeyword, handleSyncSource, selectedItems,
+                    exportData,
+                    realtimeComments, getLogoById, timeAgo,
+                    scrollRef, isHover, displayComments
                 };
             }
         });

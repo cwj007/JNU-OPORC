@@ -1,17 +1,32 @@
 import json
 import sqlite3
 import os
+import argparse
 from pathlib import Path
 from datetime import datetime
 
 # Config
-BASE_DIR = Path(__file__).parent.parent
+# Adjust BASE_DIR to point to JNU-OPORC root
+current_path = Path(__file__).resolve().parent
+
+def find_project_root(start_path):
+    """向上查找直到找到包含 Transformers/output 的真正项目根目录"""
+    path = start_path
+    for _ in range(4): # 最多往上找4层
+        # 检查关键数据文件或目录是否存在
+        if (path / "Transformers" / "output").exists():
+            return path
+        path = path.parent
+    return start_path.parent.parent # Fallback default
+
+BASE_DIR = find_project_root(current_path)
+
 LABELED_DATA_FILE = BASE_DIR / "Transformers" / "output" / "labeled_results.jsonl"
 AGGREGATED_DATA_FILE = BASE_DIR / "Transformers" / "output" / "aggregated_display_data.json"
 HISTORY_DIR = BASE_DIR / "Transformers" / "output" / "history"
 DB_PATH = BASE_DIR / "Transformers" / "cache" / "processed_ids.db"
 
-def sync():
+def sync(target_date=None):
     conn = sqlite3.connect(DB_PATH)
     # 启用高性能模式
     conn.execute("PRAGMA journal_mode=WAL")
@@ -70,7 +85,8 @@ def sync():
             liked_count INTEGER,
             comments_count INTEGER,
             shared_count INTEGER,
-            gender TEXT
+            gender TEXT,
+            parent_comment_id TEXT
         )'''
     
     content_sql = '''(
@@ -97,7 +113,8 @@ def sync():
             visual_objects TEXT,
             ocr_text TEXT,
             sync_date TEXT,
-            sync_time TEXT
+            sync_time TEXT,
+            top_id TEXT
         )'''
     
     comments_sql = '''(
@@ -142,30 +159,59 @@ def sync():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_processed_sync_date ON processed_items(sync_date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_processed_unique_id ON processed_items(unique_id)")
     
-    # 获取已存在的数据 ID，避免重复处理
-    cursor.execute("SELECT unique_id FROM processed_items")
-    existing_ids = {row[0] for row in cursor.fetchall()}
-    print(f"Loaded {len(existing_ids)} existing records from database.")
+    # 获取已存在的数据 ID 和 sync_date，用于增量更新判断
+    cursor.execute("SELECT unique_id, sync_date FROM processed_items")
+    existing_records = {row[0]: row[1] for row in cursor.fetchall()}
+    print(f"Loaded {len(existing_records)} existing records from database.")
 
     db_entries = []
     content_entries = []
     comment_entries = []
     # 获取待处理文件列表
     labeled_files = []
-    if LABELED_DATA_FILE.exists():
-        labeled_files.append(LABELED_DATA_FILE)
-    if HISTORY_DIR.exists():
-        history_labeled = list(HISTORY_DIR.glob("labeled_results_*.jsonl"))
-        print(f"Found {len(history_labeled)} history labeled files in {HISTORY_DIR}")
-        labeled_files.extend(history_labeled)
-
     aggregated_files = []
-    if AGGREGATED_DATA_FILE.exists():
-        aggregated_files.append(AGGREGATED_DATA_FILE)
-    if HISTORY_DIR.exists():
-        history_agg = list(HISTORY_DIR.glob("aggregated_*.json"))
-        print(f"Found {len(history_agg)} history aggregated files in {HISTORY_DIR}")
-        aggregated_files.extend(history_agg)
+
+    # 记录本次运行已处理的ID，防止同一次运行中重复处理
+    processed_in_current_run = set()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    if target_date:
+        print(f"Running in Date Specific Mode: {target_date}")
+        if HISTORY_DIR.exists():
+            # 查找匹配日期的历史文件
+            date_labeled = list(HISTORY_DIR.glob(f"labeled_results_{target_date}.jsonl"))
+            if date_labeled:
+                print(f"Found {len(date_labeled)} labeled files for date {target_date}")
+                labeled_files.extend(date_labeled)
+            
+            date_agg = list(HISTORY_DIR.glob(f"aggregated_{target_date}.json"))
+            if date_agg:
+                print(f"Found {len(date_agg)} aggregated files for date {target_date}")
+                aggregated_files.extend(date_agg)
+            
+            if not labeled_files and not aggregated_files:
+                print(f"No history files found for date: {target_date}")
+                conn.close()
+                return
+    else:
+        print("Running in History Only Mode (Scanning all history files)")
+        # Skip main LABELED_DATA_FILE as requested
+        # if LABELED_DATA_FILE.exists():
+        #     labeled_files.append(LABELED_DATA_FILE)
+        
+        if HISTORY_DIR.exists():
+            history_labeled = list(HISTORY_DIR.glob("labeled_results_*.jsonl"))
+            print(f"Found {len(history_labeled)} history labeled files in {HISTORY_DIR}")
+            labeled_files.extend(history_labeled)
+
+        # Skip main AGGREGATED_DATA_FILE as requested
+        # if AGGREGATED_DATA_FILE.exists():
+        #     aggregated_files.append(AGGREGATED_DATA_FILE)
+        
+        if HISTORY_DIR.exists():
+            history_agg = list(HISTORY_DIR.glob("aggregated_*.json"))
+            print(f"Found {len(history_agg)} history aggregated files in {HISTORY_DIR}")
+            aggregated_files.extend(history_agg)
 
     count = 0
     skipped_count = 0
@@ -213,13 +259,25 @@ def sync():
                             
                         unique_id = f"{note_id}_{comment_id}"
                         
-                        # 核心逻辑：如果 ID 已存在，直接跳过
-                        if unique_id in existing_ids:
+                        # 核心逻辑：智能增量更新
+                        should_process = True
+                        if unique_id in existing_records:
+                            last_sync_date = existing_records[unique_id]
+                            # 如果文件日期比记录日期旧，跳过（保留较新的记录）
+                            if file_sync_date < last_sync_date:
+                                should_process = False
+                            # 如果日期相同，且不是今天，跳过（假设历史数据稳定，不重复处理）
+                            elif file_sync_date == last_sync_date and file_sync_date != today_str:
+                                should_process = False
+                            # 其他情况（文件日期更新，或日期相同且是今天），则处理（允许修正当天数据）
+
+                        if not should_process:
                             skipped_count += 1
                             continue
 
-                        # 立即加入集合，防止同一次运行中重复处理
-                        existing_ids.add(unique_id)
+                        # 记录本次运行状态
+                        processed_in_current_run.add(unique_id)
+                        existing_records[unique_id] = file_sync_date # 更新内存记录，防止同一批次内逻辑冲突
                         count += 1
                         if file_count % 100 == 0:
                             print(f"  Synced {count} new entries... (File: {file_path.name}, Line: {file_count}, Skipped: {skipped_count})", flush=True)
@@ -273,11 +331,13 @@ def sync():
                         gender = str(item.get("gender", ""))
                         content = str(item.get("content", ""))
                         
+                        parent_comment_id = str(item.get("parent_comment_id", ""))
+                        
                         db_entries.append((
                             unique_id, note_id, comment_id, top_id, data_date, sync_date, sync_time, created_at, 
                             content, sentiment, fine_grained_sentiment, intent, keywords, ip_location, visual_objects, 
                             ocr_text, author, source, liked_count, comments_count, 
-                            shared_count, gender
+                            shared_count, gender, parent_comment_id
                         ))
 
                         # 同步到 content (articles) 或 comments 表
@@ -287,22 +347,22 @@ def sync():
                                 note_id, title, content, author, source, url, created_at, ip_location,
                                 image_paths, video_path, liked_count, comments_count, shared_count, collected_count,
                                 sentiment, fine_grained_sentiment, intent, irony_detected, reasoning,
-                                keywords, visual_objects, ocr_text, sync_date, sync_time
+                                keywords, visual_objects, ocr_text, sync_date, sync_time, top_id
                             ))
                         else:
                             # 评论
                             comment_entries.append((
                                 comment_id, note_id, content, author, source, url, created_at, ip_location,
-                                gender, item.get("parent_comment_id", ""), liked_count, comments_count,
+                                gender, parent_comment_id, liked_count, comments_count,
                                 image_paths, sentiment, fine_grained_sentiment, intent, irony_detected, reasoning,
                                 json.dumps(item.get("labels", []), ensure_ascii=False),
                                 keywords, visual_objects, ocr_text, sync_date, sync_time
                             ))
 
                         if len(db_entries) >= 1000:
-                            cursor.executemany('INSERT OR REPLACE INTO processed_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', db_entries)
+                            cursor.executemany('INSERT OR REPLACE INTO processed_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', db_entries)
                             if content_entries:
-                                cursor.executemany('INSERT OR REPLACE INTO content VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', content_entries)
+                                cursor.executemany('INSERT OR REPLACE INTO content VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', content_entries)
                             if comment_entries:
                                 cursor.executemany('INSERT OR REPLACE INTO comments VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', comment_entries)
                             conn.commit()
@@ -317,10 +377,26 @@ def sync():
         for file_path in aggregated_files:
             print(f"Processing aggregated file: {file_path}", flush=True)
             try:
-                # 统一使用当前时间作为入库日期
-                file_sync_date = datetime.now().strftime("%Y-%m-%d")
+                # 尝试从文件名提取日期
+                file_sync_date = ""
+                if "_" in file_path.name:
+                    try:
+                        parts = file_path.name.split("_")
+                        for part in parts:
+                            date_part = part.split(".")[0]
+                            if len(date_part) == 10 and date_part.count("-") == 2:
+                                datetime.strptime(date_part, "%Y-%m-%d")
+                                file_sync_date = date_part
+                                break
+                    except: pass
+                
+                if not file_sync_date:
+                    file_sync_date = datetime.now().strftime("%Y-%m-%d")
+                    print(f"  Target sync date set to: {file_sync_date} (Today/Default)")
+                else:
+                    print(f"  Target sync date set to: {file_sync_date} (from filename)")
+
                 file_sync_time = datetime.now().strftime("%H:%M:%S")
-                print(f"  Target sync date set to: {file_sync_date} (Today)")
 
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
@@ -334,13 +410,21 @@ def sync():
                             comment_id = str(comment.get('comment_id'))
                             unique_id = f"{note_id}_{comment_id}"
                             
-                            # 核心逻辑：如果 ID 已存在，直接跳过
-                            if unique_id in existing_ids:
+                            # 核心逻辑：智能增量更新
+                            should_process = True
+                            if unique_id in existing_records:
+                                last_sync_date = existing_records[unique_id]
+                                if file_sync_date < last_sync_date:
+                                    should_process = False
+                                elif file_sync_date == last_sync_date and file_sync_date != today_str:
+                                    should_process = False
+                            
+                            if not should_process:
                                 skipped_count += 1
                                 continue
                                 
-                            # 立即加入集合，防止同一次运行中重复处理
-                            existing_ids.add(unique_id)
+                            processed_in_current_run.add(unique_id)
+                            existing_records[unique_id] = file_sync_date
                             created_at = comment.get('created_at', '')
                             data_date = created_at.split(' ')[0] if created_at else ""
                             
@@ -362,11 +446,11 @@ def sync():
                                 data_date, file_sync_date, current_sync_time, created_at, content,
                                 sentiment, fine_grained_sentiment, intent, "[]", "", "[]", "",
                                 str(comment.get('author', '')), str(post.get('source', '')),
-                                0, 0, 0, ""
+                                0, 0, 0, "", str(comment.get('parent_comment_id', ''))
                             ))
                             count += 1
                             if len(db_entries) >= 1000:
-                                cursor.executemany('INSERT OR REPLACE INTO processed_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', db_entries)
+                                cursor.executemany('INSERT OR REPLACE INTO processed_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', db_entries)
                                 conn.commit()
                                 db_entries = []
             except Exception as e:
@@ -376,9 +460,9 @@ def sync():
     finally:
         # 使用事务批量插入 content 和 comments，避免频繁索引更新
         if db_entries:
-            cursor.executemany('INSERT OR REPLACE INTO processed_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', db_entries)
+            cursor.executemany('INSERT OR REPLACE INTO processed_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', db_entries)
         if content_entries:
-            cursor.executemany('INSERT OR REPLACE INTO content VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', content_entries)
+            cursor.executemany('INSERT OR REPLACE INTO content VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', content_entries)
         if comment_entries:
             cursor.executemany('INSERT OR REPLACE INTO comments VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', comment_entries)
         
@@ -388,4 +472,9 @@ def sync():
         print(f"Sync complete. New entries: {count}, Skipped (already exists): {skipped_count}")
 
 if __name__ == "__main__":
-    sync()
+    parser = argparse.ArgumentParser(description='Sync Transformers data to SQLite database.')
+    parser.add_argument('--date', type=str, help='Specific date to sync (YYYY-MM-DD). If not provided, syncs all history data (skipping main empty file).')
+    
+    args = parser.parse_args()
+    
+    sync(target_date=args.date)

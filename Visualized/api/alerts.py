@@ -1,54 +1,28 @@
-from fastapi import APIRouter
-from .database import query_db, HOTSEARCH_DB_PATH
+from fastapi import APIRouter, HTTPException
+from .database import query_db, execute_db, HOTSEARCH_DB_PATH
+from .alert_engine import AlertEngine
+from pydantic import BaseModel
+from typing import Optional, List
 import sqlite3
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
+class AlertRuleSchema(BaseModel):
+    name: str
+    keyword: Optional[str] = ""
+    threshold: int = 100
+    time_window: int = 1
+    sentiment: str = "负面"
+    is_crisis: int = 0
+    notify_methods: str = "system"
+    is_active: int = 1
+
 def generate_auto_alerts():
-    """根据最新舆情数据自动生成预警"""
+    """使用预警引擎自动生成预警"""
     try:
-        # 1. 检查最近 24 小时的负面舆情
-        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        negative_sql = "SELECT COUNT(*) as count FROM content WHERE sentiment = '负面' AND created_at >= ?"
-        neg_count_row = query_db(negative_sql, (yesterday,), one=True)
-        neg_count = neg_count_row['count'] if neg_count_row else 0
-        
-        new_alerts = []
-        if neg_count > 5:
-            new_alerts.append({
-                "level": "high",
-                "title": f"负面舆情预警：过去24小时新增 {neg_count} 条负面信息",
-                "type": "sentiment"
-            })
-            
-        # 2. 检查特定高危关键词 (如: 投诉, 维权, 质量问题, 骗子)
-        risk_keywords = ['投诉', '维权', '质量', '骗子', '罢工', '起火']
-        for kw in risk_keywords:
-            kw_sql = "SELECT COUNT(*) as count FROM content WHERE content LIKE ? AND created_at >= ?"
-            kw_count_row = query_db(kw_sql, (f'%{kw}%', yesterday), one=True)
-            kw_count = kw_count_row['count'] if kw_count_row else 0
-            if kw_count > 2:
-                new_alerts.append({
-                    "level": "medium",
-                    "title": f"敏感词预警：监控到关键词「{kw}」出现频率异常 ({kw_count}次)",
-                    "type": "keyword"
-                })
-        
-        # 写入数据库 (避免重复生成相同的预警)
-        if new_alerts:
-            conn = sqlite3.connect(HOTSEARCH_DB_PATH)
-            cur = conn.cursor()
-            for alert in new_alerts:
-                # 检查是否已存在类似的未处理预警
-                cur.execute("SELECT id FROM alerts WHERE title = ? AND status = 'unread'", (alert['title'],))
-                if not cur.fetchone():
-                    cur.execute(
-                        "INSERT INTO alerts (level, title, type) VALUES (?, ?, ?)",
-                        (alert['level'], alert['title'], alert['type'])
-                    )
-            conn.commit()
-            conn.close()
+        engine = AlertEngine()
+        engine.run_check()
     except Exception as e:
         print(f"Error generating auto alerts: {e}")
 
@@ -63,7 +37,6 @@ async def get_alerts():
     results = query_db(sql)
     
     if not results:
-        # 如果还是没数据，返回一些初始模拟数据
         return [
             {"id": 1, "level": "high", "title": "系统启动：正在初始化监控任务...", "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "status": "read"},
         ]
@@ -73,12 +46,59 @@ async def get_alerts():
 @router.post("/read/{alert_id}")
 async def mark_as_read(alert_id: int):
     """标记预警为已读/已处理"""
-    try:
-        conn = sqlite3.connect(HOTSEARCH_DB_PATH)
-        cur = conn.cursor()
-        cur.execute("UPDATE alerts SET status = 'read' WHERE id = ?", (alert_id,))
-        conn.commit()
-        conn.close()
+    sql = "UPDATE alerts SET status = 'read' WHERE id = ?"
+    if execute_db(sql, (alert_id,)):
         return {"status": "success"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    return {"status": "error", "message": "Failed to update alert status"}
+
+@router.get("/rules")
+async def get_rules():
+    """获取预警规则列表"""
+    sql = "SELECT * FROM alert_rules ORDER BY created_at DESC"
+    results = query_db(sql)
+    return [dict(row) for row in results] if results else []
+
+@router.post("/rules")
+async def create_rule(rule: AlertRuleSchema):
+    """创建预警规则"""
+    sql = """
+        INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """
+    if execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active)):
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Failed to create rule")
+
+@router.delete("/rules/{rule_id}")
+async def delete_rule(rule_id: int):
+    """删除预警规则"""
+    sql = "DELETE FROM alert_rules WHERE id = ?"
+    if execute_db(sql, (rule_id,)):
+        return {"status": "success"}
+    raise HTTPException(status_code=500, detail="Failed to delete rule")
+
+@router.get("/report")
+async def get_alert_report():
+    """获取预警统计报告 (可视化支持)"""
+    # 1. 按级别统计
+    level_sql = "SELECT level, COUNT(*) as count FROM alerts GROUP BY level"
+    levels = query_db(level_sql)
+    
+    # 2. 最近 7 天的预警趋势
+    trend_sql = """
+        SELECT DATE(time) as date, COUNT(*) as count 
+        FROM alerts 
+        WHERE time >= date('now', '-7 days')
+        GROUP BY DATE(time)
+    """
+    trends = query_db(trend_sql)
+    
+    # 3. 触发最频繁的规则类型
+    type_sql = "SELECT type, COUNT(*) as count FROM alerts GROUP BY type"
+    types = query_db(type_sql)
+    
+    return {
+        "level_dist": [dict(r) for r in levels] if levels else [],
+        "trend": [dict(r) for r in trends] if trends else [],
+        "type_dist": [dict(r) for r in types] if types else []
+    }

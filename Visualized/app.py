@@ -50,6 +50,11 @@ LOGOS_DIR = Path(r"e:\JNU-OPORC\Visualized\logos")
 if LOGOS_DIR.exists():
     app.mount("/logos", StaticFiles(directory=str(LOGOS_DIR)), name="logos")
 
+STATIC_DIR = Path(r"e:\JNU-OPORC\Visualized\static")
+if not STATIC_DIR.exists():
+    STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 # Templates
 templates = Jinja2Templates(directory=str(BASE_DIR / "Visualized" / "templates"))
 
@@ -106,6 +111,14 @@ async def crawler_page():
 @app.get("/hotsearch")
 async def hotsearch_page():
     return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "hotsearch.html"))
+
+@app.get("/monitor")
+async def monitor_page():
+    return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "monitor.html"))
+
+@app.get("/warning")
+async def warning_page():
+    return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "warning.html"))
 
 @app.get("/volume_rank")
 async def volume_rank_page():
