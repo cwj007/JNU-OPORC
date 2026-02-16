@@ -7,7 +7,7 @@ from qwen_vl_utils import process_vision_info
 from Transformers.config import (
     ANALYSIS_PROMPT, SENTIMENT_CATEGORIES, INTENT_CATEGORIES, 
     MIN_PIXELS, MAX_PIXELS, FINE_GRAINED_SENTIMENT_MAPPING, 
-    INTENT_CATEGORIES_MAPPING
+    INTENT_CATEGORIES_MAPPING, MAX_SEQ_LENGTH
 )
 
 class MultimodalVLMDataset(Dataset):
@@ -87,7 +87,7 @@ class MultimodalVLMDataset(Dataset):
             images=image_inputs,
             videos=video_inputs,
             padding="max_length", # 强制对齐
-            max_length=512,       # 极致压缩序列长度至 512
+            max_length=MAX_SEQ_LENGTH,       # 增加序列长度以容纳更长的 Prompt 和图片
             truncation=True,      # 开启截断
             return_tensors="pt",
         )

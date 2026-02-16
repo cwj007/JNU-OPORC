@@ -798,7 +798,7 @@ class MultimodalAnalyzer:
                 for eng, chn in translation_map.items():
                     if eng in val:
                         return chn
-                return "Unknown" # 实在无法识别的英文回退到 Unknown
+                return val # 实在无法识别的英文保留原样
             
             return result.get(val, val) # 返回原始值（如果是中文则保留）
 
