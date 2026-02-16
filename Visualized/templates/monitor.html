@@ -18,6 +18,8 @@
     <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
     <!-- Axios -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <!-- SortableJS -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
     <!-- ECharts -->
     <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
     <style>
@@ -63,44 +65,244 @@
             color: var(--text-primary);
             white-space: pre-wrap;
         }
-        .task-card {
+
+        /* 赛博朋克风格任务卡片 - 增强科技感 */
+        .task-card-cyber {
+            background: rgba(16, 22, 30, 0.7) !important; /* 更深的背景 */
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(0, 240, 255, 0.2) !important;
+            border-left: 2px solid rgba(0, 240, 255, 0.4) !important; /* 左侧加粗强调 */
+            color: var(--text-secondary) !important;
+            font-family: 'Orbitron', 'Inter', sans-serif; /* 使用科技字体 */
+            font-weight: 500;
+            letter-spacing: 1px;
+            height: 36px !important;
+            padding: 0 20px !important;
+            transition: all 0.3s cubic-bezier(0.23, 1, 0.32, 1);
+            position: relative;
             cursor: pointer;
-            transition: all 0.3s;
-            display: inline-flex !important;
+            display: inline-flex;
             align-items: center;
-            height: 32px;
-            padding: 0 12px !important;
+            border-radius: 2px !important; /* 减少圆角，更硬朗 */
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+            margin-right: 12px;
+            overflow: hidden;
+            /* 切角效果 */
+            clip-path: polygon(
+                10px 0, 100% 0, 
+                100% calc(100% - 10px), calc(100% - 10px) 100%, 
+                0 100%, 0 10px
+            );
         }
-        .task-card .el-tag__content {
+
+        /* 修复 el-tag 内容对齐问题 */
+        .task-card-cyber .el-tag__content {
             display: flex;
             align-items: center;
+            height: 100%;
         }
-        .task-warning-icon {
-            margin-left: 8px !important;
-            margin-right: 4px;
-            transition: all 0.3s ease;
+
+        /* 装饰性背景网格 */
+        .task-card-cyber::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+            background-size: 8px 8px;
+            z-index: -1;
+            opacity: 0.5;
         }
-        .task-warning-icon:hover {
-            color: #e6a23c;
-            animation: bell-swing 1s ease-in-out infinite;
-        }
-        @keyframes bell-swing {
-            0%, 100% { transform: rotate(0deg); }
-            20% { transform: rotate(15deg); }
-            40% { transform: rotate(-10deg); }
-            60% { transform: rotate(5deg); }
-            80% { transform: rotate(-5deg); }
-        }
-        .task-card.active {
-            border-color: var(--primary-color) !important;
-            background: rgba(0, 240, 255, 0.15) !important;
-            box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
-        }
-        .task-card:hover {
-            border-color: var(--primary-color) !important;
+
+        .task-card-cyber:hover {
+            background: rgba(0, 240, 255, 0.1) !important;
+            border-color: rgba(0, 240, 255, 0.6) !important;
+            color: var(--primary-color) !important;
             box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
-            background: rgba(0, 240, 255, 0.15);
+            transform: translateY(-2px);
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
         }
+
+        .task-card-cyber.active {
+            background: rgba(0, 240, 255, 0.15) !important;
+            border-color: var(--primary-color) !important;
+            border-left-width: 3px !important;
+            color: var(--primary-color) !important;
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.4), inset 0 0 20px rgba(0, 240, 255, 0.1);
+            text-shadow: 0 0 8px rgba(0, 240, 255, 0.8);
+            font-weight: 700;
+        }
+        
+        /* 带有预警的任务卡片特殊样式 - 已移除，使用更细粒度的分级样式 */
+        
+        /* 1. 全部数据 (All Data) - 独特风格 */
+        .task-card-cyber.task-all {
+            background: rgba(255, 255, 255, 0.05) !important;
+            border-color: rgba(255, 255, 255, 0.2) !important;
+            border-left-color: rgba(255, 255, 255, 0.5) !important;
+            color: #d9d9d9 !important;
+        }
+        .task-card-cyber.task-all:hover, .task-card-cyber.task-all.active {
+            background: rgba(255, 255, 255, 0.15) !important;
+            border-color: #ffffff !important;
+            color: #ffffff !important;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.25);
+            text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
+        }
+
+        /* 2. Warning Levels */
+        
+        /* Level IV: Blue (Low) - Threshold < 100 */
+        .task-card-cyber.warning-blue {
+            border-color: rgba(64, 158, 255, 0.4) !important;
+            border-left-color: rgba(64, 158, 255, 0.8) !important;
+            color: #409eff !important;
+            background: rgba(64, 158, 255, 0.08) !important;
+        }
+        .task-card-cyber.warning-blue:hover, .task-card-cyber.warning-blue.active {
+            background: rgba(64, 158, 255, 0.15) !important;
+            border-color: #409eff !important;
+            box-shadow: 0 0 15px rgba(64, 158, 255, 0.3);
+            text-shadow: 0 0 5px rgba(64, 158, 255, 0.5);
+        }
+
+        /* Level III: Yellow (Medium) - 100 <= Threshold < 500 */
+        .task-card-cyber.warning-yellow {
+            border-color: rgba(230, 162, 60, 0.4) !important;
+            border-left-color: rgba(230, 162, 60, 0.8) !important;
+            color: #e6a23c !important;
+            background: rgba(230, 162, 60, 0.08) !important;
+        }
+        .task-card-cyber.warning-yellow:hover, .task-card-cyber.warning-yellow.active {
+            background: rgba(230, 162, 60, 0.15) !important;
+            border-color: #e6a23c !important;
+            box-shadow: 0 0 15px rgba(230, 162, 60, 0.3);
+            text-shadow: 0 0 5px rgba(230, 162, 60, 0.5);
+        }
+
+        /* Level II: Orange (High) - Threshold >= 500 */
+        .task-card-cyber.warning-orange {
+            border-color: rgba(255, 120, 0, 0.5) !important;
+            border-left-color: rgba(255, 120, 0, 0.9) !important;
+            color: #ff7800 !important;
+            background: rgba(255, 120, 0, 0.08) !important;
+        }
+        .task-card-cyber.warning-orange:hover, .task-card-cyber.warning-orange.active {
+            background: rgba(255, 120, 0, 0.2) !important;
+            border-color: #ff7800 !important;
+            box-shadow: 0 0 15px rgba(255, 120, 0, 0.4);
+            text-shadow: 0 0 5px rgba(255, 120, 0, 0.5);
+        }
+
+        /* Level I: Red (Critical / Crisis Mode) */
+        .task-card-cyber.warning-red {
+            border-color: rgba(245, 108, 108, 0.6) !important;
+            border-left-color: #f56c6c !important;
+            color: #f56c6c !important;
+            background: rgba(245, 108, 108, 0.12) !important;
+            animation: pulse-red 2s infinite;
+        }
+        .task-card-cyber.warning-red:hover, .task-card-cyber.warning-red.active {
+            background: rgba(245, 108, 108, 0.25) !important;
+            border-color: #f56c6c !important;
+            box-shadow: 0 0 20px rgba(245, 108, 108, 0.5);
+            text-shadow: 0 0 8px rgba(245, 108, 108, 0.8);
+        }
+
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.4); border-color: rgba(245, 108, 108, 0.6); }
+            50% { box-shadow: 0 0 10px 0 rgba(245, 108, 108, 0.2); border-color: rgba(245, 108, 108, 1); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.4); border-color: rgba(245, 108, 108, 0.6); }
+        }
+
+        /* Adapt bell icon to warning levels */
+        .task-card-cyber.warning-blue .task-warning-icon-animated {
+            color: #409eff !important;
+            background: rgba(64, 158, 255, 0.2) !important;
+            border-color: rgba(64, 158, 255, 0.4) !important;
+            filter: drop-shadow(0 0 2px rgba(64, 158, 255, 0.8));
+        }
+        .task-card-cyber.warning-yellow .task-warning-icon-animated {
+            color: #e6a23c !important;
+            background: rgba(230, 162, 60, 0.2) !important;
+            border-color: rgba(230, 162, 60, 0.4) !important;
+            filter: drop-shadow(0 0 2px rgba(230, 162, 60, 0.8));
+        }
+        .task-card-cyber.warning-orange .task-warning-icon-animated {
+            color: #ff7800 !important;
+            background: rgba(255, 120, 0, 0.2) !important;
+            border-color: rgba(255, 120, 0, 0.4) !important;
+            filter: drop-shadow(0 0 2px rgba(255, 120, 0, 0.8));
+        }
+        .task-card-cyber.warning-red .task-warning-icon-animated {
+            color: #f56c6c !important;
+            background: rgba(245, 108, 108, 0.2) !important;
+            border-color: rgba(245, 108, 108, 0.4) !important;
+            filter: drop-shadow(0 0 2px rgba(245, 108, 108, 0.8));
+        }
+
+        
+        /* 激活状态下的光效装饰 - 扫描线动画 */
+        .task-card-cyber.active::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 50%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.3), transparent);
+            transform: skewX(-20deg);
+            animation: cyber-shine 3s infinite;
+            pointer-events: none;
+        }
+        
+        .task-card-cyber.has-warning.active::after {
+            background: linear-gradient(90deg, transparent, rgba(255, 77, 79, 0.3), transparent);
+        }
+
+        @keyframes cyber-shine {
+            0% { left: -100%; }
+            20% { left: 200%; }
+            100% { left: 200%; }
+        }
+
+        /* 铃铛动画 - 科技感脉冲 */
+        .task-warning-icon-animated {
+            margin-right: 12px;
+            font-size: 14px;
+            color: #ff4d4f;
+            filter: drop-shadow(0 0 2px rgba(255, 77, 79, 0.8));
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 77, 79, 0.15);
+            width: 24px;
+            height: 24px;
+            border: 1px solid rgba(255, 77, 79, 0.3);
+            /* 六边形形状 */
+            clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+        }
+
+        .task-card-cyber:hover .task-warning-icon-animated {
+            animation: bell-pulse 1.5s infinite;
+            color: #fff;
+            background: rgba(255, 77, 79, 0.8);
+            border-color: #ff4d4f;
+            box-shadow: 0 0 10px rgba(255, 77, 79, 0.8);
+        }
+
+        @keyframes bell-pulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.7); }
+            50% { transform: scale(1.1); box-shadow: 0 0 0 6px rgba(255, 77, 79, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 77, 79, 0); }
+        }
+
         /* 隐藏滚动条但保持滚动功能 */
         .hide-scrollbar {
             -ms-overflow-style: none;  /* IE and Edge */
@@ -276,9 +478,187 @@
         .el-table__body tr:hover > td,
         .el-table__body tr.hover-row > td,
         .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
-            background-color: rgba(0, 240, 255, 0.1) !important;
-            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.05) !important;
-            --el-table-row-hover-bg-color: rgba(0, 240, 255, 0.1) !important;
+            background-color: transparent !important; /* 让 tr 的渐变背景透出来 */
+            box-shadow: none !important; /* 移除单元格独立的阴影 */
+            border-right: none !important; /* 移除竖线 */
+            --el-table-row-hover-bg-color: transparent !important;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        /* 在 TR 上应用渐变背景 */
+        .el-table__body tr:hover {
+            background: linear-gradient(90deg, rgba(0, 240, 255, 0.05) 0%, rgba(0, 240, 255, 0.15) 50%, rgba(0, 240, 255, 0.05) 100%) !important;
+            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.1);
+        }
+
+        /* 移除表格竖线 */
+        .el-table td.el-table__cell,
+        .el-table th.el-table__cell.is-leaf {
+            border-right: none !important;
+        }
+        .el-table--border::after,
+        .el-table--group::after,
+        .el-table::before {
+            display: none !important;
+        }
+        
+        /* 悬停时文字颜色统一高亮 */
+        .el-table__body tr:hover .cell {
+            color: var(--primary-color) !important; /* 统一使用主题色高亮 */
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.3);
+        }
+
+        /* 评论列表悬停效果 */
+        .comment-item {
+            transition: all 0.3s ease;
+            border: 1px solid transparent; /* 预留边框位置防止抖动 */
+            border-radius: 4px;
+            padding: 5px; 
+        }
+        .comment-item:hover {
+            background-color: rgba(0, 240, 255, 0.05);
+            border-color: rgba(0, 240, 255, 0.2);
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.1);
+        }
+        .comment-item:hover .comment-header span:first-child {
+            color: var(--primary-color) !important;
+        }
+
+        /* 图片列表悬停效果 */
+        .img-item-wrapper {
+            transition: all 0.3s ease;
+        }
+        .img-item-wrapper:hover {
+            border-color: var(--primary-color) !important;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+            transform: scale(1.02);
+        }
+
+        /* 关键词标签悬停 */
+        .tech-keyword-tag {
+            transition: all 0.3s ease;
+            cursor: default;
+        }
+        .tech-keyword-tag:hover {
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+            transform: translateY(-1px);
+            border-color: var(--primary-color) !important;
+            color: var(--primary-color) !important;
+        }
+        
+        /* 修复固定列在悬停时的样式统一 */
+        .el-table__body tr:hover > td.el-table-fixed-column--right,
+        .el-table__body tr:hover > td.el-table-fixed-column--left {
+            background-color: #0e1621 !important; /* 给固定列一个深色底色防止透视 */
+            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.1) !important;
+        }
+        /* 针对右侧固定列，移除左侧边框和阴影 */
+        .el-table__body td.el-table-fixed-column--right,
+        .el-table__header th.el-table-fixed-column--right {
+            border-left: none !important;
+            box-shadow: none !important; /* 移除 Element Plus 默认的阴影线 */
+        }
+        /* 移除滚动时的阴影遮罩 */
+        .el-table.is-scrolling-right .el-table-fixed-column--right::before,
+        .el-table.is-scrolling-middle .el-table-fixed-column--right::before,
+        .el-table.is-scrolling-left .el-table-fixed-column--right::before {
+            box-shadow: none !important;
+            display: none !important;
+        }
+
+        /* 在悬停时使用伪元素模拟渐变覆盖 */
+        .el-table__body tr:hover > td.el-table-fixed-column--right::before,
+        .el-table__body tr:hover > td.el-table-fixed-column--left::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, rgba(0, 240, 255, 0.1), rgba(0, 240, 255, 0.05));
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        /* 训练结果表格 Cyber 风格优化 */
+        .article-training-section {
+            background: rgba(10, 20, 30, 0.6) !important;
+            border: 1px solid rgba(0, 240, 255, 0.2) !important;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.05);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .article-training-section:hover {
+            box-shadow: 0 0 20px rgba(0, 240, 255, 0.15);
+            border-color: rgba(0, 240, 255, 0.4) !important;
+        }
+
+        .tech-descriptions {
+            --el-descriptions-item-bordered-label-background: rgba(0, 240, 255, 0.05) !important;
+            margin-top: 10px;
+        }
+        
+        .tech-descriptions .el-descriptions__body {
+            background-color: transparent !important;
+        }
+
+        /* 表格边框重置 */
+        .tech-descriptions .el-descriptions__table {
+            border: 1px solid rgba(0, 240, 255, 0.2) !important;
+            border-collapse: collapse; /* 确保边框合并 */
+        }
+        
+        /* 标签单元格样式 */
+        .tech-descriptions .el-descriptions__label {
+            color: var(--primary-color) !important;
+            background: rgba(0, 240, 255, 0.08) !important;
+            border-right: 1px solid rgba(0, 240, 255, 0.2) !important;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.2) !important;
+            font-weight: 600 !important;
+            text-align: center;
+            width: 100px; /* 固定标签宽度 */
+        }
+        
+        /* 内容单元格样式 */
+        .tech-descriptions .el-descriptions__content {
+            color: var(--text-primary) !important;
+            background: rgba(0, 0, 0, 0.2) !important;
+            border-right: 1px solid rgba(0, 240, 255, 0.2) !important;
+            border-bottom: 1px solid rgba(0, 240, 255, 0.2) !important;
+            padding: 10px 15px !important;
+        }
+
+        /* 移除最后一行和最后一列的重复边框 */
+        .tech-descriptions .el-descriptions__table tr:last-child .el-descriptions__label,
+        .tech-descriptions .el-descriptions__table tr:last-child .el-descriptions__content {
+            border-bottom: none !important;
+        }
+        .tech-descriptions .el-descriptions__table tr .el-descriptions__content:last-child {
+            border-right: none !important;
+        }
+
+        /* 标题样式增强 */
+        .tech-section-title {
+            color: var(--primary-color);
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.3);
+            font-size: 15px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+        }
+        .tech-section-title::before {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 14px;
+            background: var(--primary-color);
+            margin-right: 8px;
+            border-radius: 2px;
+            box-shadow: 0 0 8px var(--primary-color);
         }
 
         /* 筛选区 Cyber 风格 */
@@ -432,6 +812,451 @@
             background: rgba(103, 194, 58, 0.2) !important;
             box-shadow: 0 0 10px rgba(103, 194, 58, 0.2) !important;
         }
+
+        /* Sentiment Tags */
+        .sentiment-positive {
+            color: #67c23a;
+            background: rgba(103, 194, 58, 0.1);
+            border: 1px solid rgba(103, 194, 58, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .sentiment-neutral {
+            color: #909399;
+            background: rgba(144, 147, 153, 0.1);
+            border: 1px solid rgba(144, 147, 153, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        .sentiment-negative {
+            color: #f56c6c;
+            background: rgba(245, 108, 108, 0.1);
+            border: 1px solid rgba(245, 108, 108, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        
+        /* Dynamic Negative Sentiment Levels */
+        .sentiment-level-4 { /* Blue */
+            color: #409eff;
+            background: rgba(64, 158, 255, 0.1);
+            border: 1px solid rgba(64, 158, 255, 0.3);
+            padding: 2px 8px;
+            border-radius: 4px;
+            box-shadow: 0 0 5px rgba(64, 158, 255, 0.2);
+        }
+        .sentiment-level-3 { /* Yellow */
+            color: #e6a23c;
+            background: rgba(230, 162, 60, 0.1);
+            border: 1px solid rgba(230, 162, 60, 0.3);
+            padding: 2px 8px;
+            border-radius: 4px;
+            box-shadow: 0 0 5px rgba(230, 162, 60, 0.2);
+        }
+        .sentiment-level-2 { /* Orange */
+            color: #ff7800;
+            background: rgba(255, 120, 0, 0.1);
+            border: 1px solid rgba(255, 120, 0, 0.3);
+            padding: 2px 8px;
+            border-radius: 4px;
+            box-shadow: 0 0 8px rgba(255, 120, 0, 0.3);
+        }
+        .sentiment-level-1 { /* Red (Crisis) */
+            color: #f56c6c;
+            background: rgba(245, 108, 108, 0.15);
+            border: 1px solid rgba(245, 108, 108, 0.4);
+            padding: 2px 8px;
+            border-radius: 4px;
+            box-shadow: 0 0 10px rgba(245, 108, 108, 0.4);
+            animation: pulse-red-text 2s infinite;
+            font-weight: bold;
+        }
+        
+        @keyframes pulse-red-text {
+            0% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.4); }
+            50% { box-shadow: 0 0 8px 0 rgba(245, 108, 108, 0.2); }
+            100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.4); }
+        }
+
+        /* 强制修复筛选区域高度自适应问题 - 解决无法展开全部功能的问题 */
+        .filter-card, .filter-card .el-card__body {
+            height: auto !important;
+            min-height: 120px !important; /* 增加最小高度 */
+            overflow: visible !important;
+        }
+        .filter-container {
+            height: auto !important;
+            min-height: 120px !important; /* 增加最小高度 */
+            overflow: visible !important;
+        }
+
+        /* 情感倾向科技风格样式优化 */
+        .tech-detail-label {
+            font-family: 'Orbitron', 'Inter', sans-serif;
+            color: var(--primary-color);
+            background: rgba(0, 240, 255, 0.08);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            padding: 4px 12px;
+            border-radius: 2px;
+            font-size: 13px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* 动态光效 */
+        .tech-detail-label::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.2), transparent);
+            animation: tech-shine 3s infinite;
+        }
+
+        @keyframes tech-shine {
+            0% { left: -100%; }
+            20% { left: 100%; }
+            100% { left: 100%; }
+        }
+
+        /* 进度条容器 */
+        .tech-progress-wrapper {
+            margin-left: 10px !important; /* 减小间距 */
+            flex: 0 1 350px !important; /* 加宽一点 */
+            position: relative;
+        }
+
+        /* 进度条样式增强 */
+        .tech-progress-enhanced .el-progress-bar__outer {
+            background-color: rgba(0, 0, 0, 0.8) !important;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 10px !important; /* 圆润的样式 */
+            height: 14px !important; /* 加高一点 */
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+        }
+        
+        .tech-progress-enhanced .el-progress-bar__inner {
+            border-radius: 10px !important; /* 圆润的样式 */
+            background-image: linear-gradient(
+                45deg, 
+                rgba(255,255,255,0.15) 25%, 
+                transparent 25%, 
+                transparent 50%, 
+                rgba(255,255,255,0.15) 50%, 
+                rgba(255,255,255,0.15) 75%, 
+                transparent 75%, 
+                transparent
+            );
+            background-size: 20px 20px;
+            animation: progress-stripe 1s linear infinite;
+            transition: width 0.6s cubic-bezier(0.25, 1, 0.5, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tech-progress-enhanced .el-progress-bar__inner::after {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background-image: linear-gradient(
+                to bottom,
+                rgba(255, 255, 255, 0.3) 0%,
+                rgba(255, 255, 255, 0.05) 50%,
+                rgba(0, 0, 0, 0.1) 51%,
+                rgba(0, 0, 0, 0) 100%
+            );
+            border-radius: 10px;
+        }
+
+        @keyframes progress-stripe {
+            0% { background-position: 0 0; }
+            100% { background-position: 20px 0; }
+        }
+
+        /* 科技风格按钮优化 */
+        .tech-edit-btn {
+            background: rgba(0, 240, 255, 0.1) !important;
+            border: 1px solid rgba(0, 240, 255, 0.3) !important;
+            color: var(--primary-color) !important;
+            font-family: 'Orbitron', 'Inter', sans-serif;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            padding: 8px 15px;
+            height: auto;
+            border-radius: 2px;
+            transition: all 0.3s ease;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tech-edit-btn:hover {
+            background: rgba(0, 240, 255, 0.2) !important;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+            transform: translateY(-1px);
+        }
+
+        .tech-edit-btn:active {
+            transform: translateY(1px);
+        }
+
+        /* 按钮扫描光效 */
+        .tech-edit-btn::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: 0.5s;
+        }
+
+        .tech-edit-btn:hover::after {
+            left: 100%;
+        }
+
+        /* 文章内容优化 */
+        .tech-text-content {
+            font-family: 'Inter', "Microsoft YaHei", sans-serif;
+            font-size: 16px;
+            line-height: 1.9;
+            color: rgba(255, 255, 255, 0.85);
+            letter-spacing: 0.8px;
+            text-align: justify;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+        }
+
+        /* 评论列表居中优化 */
+        .comment-item {
+            margin: 0 auto 15px auto !important;
+        }
+
+        /* 评论分析结果样式 */
+        .comment-analysis-tech {
+            margin-top: 10px;
+            padding: 8px 12px;
+            background: rgba(0, 240, 255, 0.03);
+            border: 1px solid rgba(0, 240, 255, 0.1);
+            border-radius: 4px;
+            font-size: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            position: relative;
+        }
+        
+        .comment-analysis-tech::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--primary-color);
+            opacity: 0.5;
+            border-top-left-radius: 4px;
+            border-bottom-left-radius: 4px;
+        }
+
+        .analysis-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 2px 0;
+        }
+
+        .analysis-label {
+            color: var(--primary-color);
+            opacity: 0.9;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .analysis-value {
+            color: rgba(255, 255, 255, 0.95);
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: bold;
+        }
+        
+        .analysis-reason {
+            width: 100%;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px dashed rgba(255, 255, 255, 0.15);
+            color: rgba(255, 255, 255, 0.8);
+            line-height: 1.5;
+            font-size: 13px;
+        }
+
+        /* 评论气泡样式 */
+        .comment-bubble {
+            background: linear-gradient(135deg, rgba(30, 35, 50, 0.8) 0%, rgba(20, 25, 40, 0.6) 100%);
+            border: 1px solid rgba(0, 240, 255, 0.15);
+            border-left: 3px solid var(--primary-color);
+            border-radius: 2px 12px 12px 12px;
+            padding: 12px 16px;
+            margin-top: 10px;
+            position: relative;
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .comment-bubble::before {
+             content: '"';
+             position: absolute;
+             top: 4px;
+             left: 6px;
+             font-size: 24px;
+             color: var(--primary-color);
+             opacity: 0.4;
+             font-family: serif;
+             line-height: 1;
+        }
+
+        .comment-bubble:hover {
+            background: linear-gradient(135deg, rgba(40, 45, 60, 0.9) 0%, rgba(30, 35, 50, 0.7) 100%);
+            border-color: rgba(0, 240, 255, 0.3);
+            box-shadow: 0 6px 20px rgba(0, 240, 255, 0.1);
+            transform: translateY(-1px);
+        }
+        
+        .comment-text {
+            font-size: 14px;
+            line-height: 1.6;
+            color: rgba(255, 255, 255, 0.95);
+            letter-spacing: 0.5px;
+            padding-left: 12px;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+        }
+
+        .comment-user-name-styled {
+            font-weight: bold;
+            font-size: 15px;
+            color: #fff;
+            margin-right: 8px;
+            letter-spacing: 0.5px;
+        }
+
+        .comment-time {
+            margin-top: 6px;
+            font-size: 11px;
+            color: var(--text-secondary);
+            text-align: right;
+            font-family: 'Consolas', monospace;
+            opacity: 0.6;
+        }
+
+        .comment-img-wrapper:hover {
+            transform: scale(1.05);
+            border-color: var(--primary-color) !important;
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.3);
+            z-index: 10;
+        }
+
+        .tech-tag {
+            display: inline-block;
+            padding: 2px 6px;
+            margin: 0; /* Remove margin as we use gap in wrapper */
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid rgba(0, 240, 255, 0.2);
+            border-radius: 2px;
+            font-size: 10px;
+            color: var(--primary-color);
+            transition: all 0.3s ease;
+        }
+        
+        .tech-tag:hover {
+            background: rgba(0, 240, 255, 0.25);
+            border-color: var(--primary-color);
+            color: #fff !important;
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .tech-tag.sentiment-positive:hover {
+            background: rgba(28, 167, 95, 0.25);
+            border-color: #1CA75F;
+            box-shadow: 0 0 8px rgba(28, 167, 95, 0.4);
+        }
+
+        .tech-tag.sentiment-neutral:hover {
+            background: rgba(234, 191, 149, 0.25);
+            border-color: #EABF95;
+            box-shadow: 0 0 8px rgba(234, 191, 149, 0.4);
+        }
+
+        .tech-tag.sentiment-negative:hover {
+            background: rgba(255, 84, 84, 0.25);
+            border-color: #FF5454;
+            box-shadow: 0 0 8px rgba(255, 84, 84, 0.4);
+        }
+
+        .reason-wrapper {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            line-height: 1.5;
+        }
+
+        .analysis-toggle-btn {
+            display: inline-flex;
+            align-items: center;
+            font-size: 12px;
+            color: var(--primary-color);
+            cursor: pointer;
+            margin-top: 8px;
+            opacity: 0.8;
+            transition: all 0.3s;
+            user-select: none;
+        }
+        .analysis-toggle-btn:hover {
+            opacity: 1;
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
+        }
+        .analysis-toggle-btn .el-icon {
+            margin-right: 4px;
+            transition: transform 0.3s;
+        }
+
+        /* 展开图片按钮样式优化 */
+        .expand-images-container {
+            margin-left: 15px;
+            display: inline-block;
+            vertical-align: bottom;
+            margin-bottom: 10px;
+        }
+        
+        .expand-text {
+            font-size: 13px;
+            color: var(--primary-color);
+            cursor: pointer;
+            opacity: 0.8;
+            transition: all 0.3s;
+            text-decoration: underline;
+            text-underline-offset: 4px;
+        }
+
+        .expand-text:hover {
+            opacity: 1;
+            text-shadow: 0 0 8px rgba(0, 240, 255, 0.6);
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -508,29 +1333,41 @@
             <div class="content hide-scrollbar">
                 <!-- 任务快捷栏 -->
                 <div class="dashboard-header-tech" style="padding: 10px 15px; margin-bottom: 20px; min-height: auto; gap: 20px;">
-                    <div class="hide-scrollbar" style="display: flex; align-items: center; overflow-x: auto; overflow-y: hidden; gap: 10px; flex: 1; padding-bottom: 5px;">
-                        <span style="font-weight: bold; color: var(--text-secondary); white-space: nowrap; text-transform: uppercase; letter-spacing: 1.5px; font-size: 13px;">当前任务：</span>
+                    <div style="display: flex; align-items: flex-start; gap: 10px; flex: 1;">
+                        <span style="font-weight: bold; color: var(--text-secondary); white-space: nowrap; text-transform: uppercase; letter-spacing: 1.5px; font-size: 13px; margin-top: 6px;">当前任务：</span>
+                        <div ref="sortableContainer" class="hide-scrollbar" style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap; max-height: 80px; overflow-y: auto; padding-right: 5px; align-content: flex-start;">
                         <el-tag 
                             :effect="currentTaskId === 'all' ? 'dark' : 'plain'"
-                            class="task-card"
+                            class="task-card-cyber fixed-tag task-all"
                             :class="{ active: currentTaskId === 'all' }"
                             @click="switchTask({id: 'all'})"
+                            data-id="all"
                         >
                             全部数据
                         </el-tag>
+                        
                         <el-tag 
                             v-for="task in tasks" 
                             :key="task.id"
                             :effect="currentTaskId === task.id ? 'dark' : 'plain'"
-                            class="task-card"
-                            :class="{ active: currentTaskId === task.id }"
+                            class="task-card-cyber draggable-task"
+                            :class="[getTaskClass(task), { active: currentTaskId === task.id }]"
                             @click="switchTask(task)"
                             closable
                             @close="deleteTask(task.id)"
+                            :data-id="task.id"
+                            style="display: inline-flex; align-items: center; gap: 6px; padding: 0 10px; cursor: move;"
                         >
-                            {{ task.name }}
-                            <el-icon v-if="task.warningEnabled" class="task-warning-icon" @click.stop="openWarningConfig(task)" style="margin-left: 5px; cursor: pointer;"><bell /></el-icon>
+                            <el-icon class="task-setting-icon" style="cursor: pointer; color: var(--text-secondary); font-size: 14px;" @click.stop="openTaskDialog(task)"><setting /></el-icon>
+                            
+                            <span style="font-weight: 500;">{{ task.name }}</span>
+                            
+                            <div v-if="task.warningEnabled" style="display: flex; align-items: center; gap: 2px;">
+                                <el-icon class="task-warning-icon-animated" style="font-size: 14px; margin-right: 0 !important;" @click.stop="openWarningConfig(task)"><bell /></el-icon>
+                                <span v-if="task.warning_count !== undefined" style="font-size: 12px; opacity: 0.8;">({{ task.warning_count }})</span>
+                            </div>
                         </el-tag>
+                    </div>
                     </div>
                     <el-button type="primary" class="cyber-btn-tech" size="small" @click="openTaskDialog" style="flex: none;">
                         <el-icon style="margin-right: 5px"><plus /></el-icon> 新建检测任务
@@ -538,8 +1375,8 @@
                 </div>
 
                 <!-- 筛选区域 -->
-                <el-card shadow="never" :body-style="{ padding: '0px' }" class="tech-card filter-card" style="margin-bottom: 20px; border: none; background: rgba(20, 30, 40, 0.6); overflow: hidden; min-height: 92px;">
-                    <div class="filter-container" style="padding: 8px 15px; height: 100%; box-sizing: border-box;">
+                <el-card shadow="never" :body-style="{ padding: '0px' }" class="tech-card filter-card" style="margin-bottom: 20px; border: none; background: rgba(20, 30, 40, 0.6); height: auto; min-height: 120px;">
+                    <div class="filter-container" style="padding: 8px 15px; height: auto; box-sizing: border-box;">
                         <div style="padding: 0 10px;">
                           <!-- 第一行：搜索与核心筛选 -->
                           <div class="filter-row" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 20px;">
@@ -551,6 +1388,7 @@
                                             <el-option label="全文" value="full"></el-option>
                                             <el-option label="标题" value="title"></el-option>
                                             <el-option label="正文" value="content"></el-option>
+                                            <el-option label="评论" value="comment"></el-option>
                                         </el-select>
                                         <el-input
                                             v-model="filter.keywords"
@@ -628,6 +1466,22 @@
                                         <el-option label="匹配度" value="relevance"></el-option>
                                     </el-select>
                                 </div>
+
+                                <!-- 预警筛选 -->
+                        <div class="filter-item" style="margin-left: 10px;">
+                            <el-tooltip content="只显示触发预警规则的内容" placement="top">
+                                <span class="filter-label" style="width: auto; cursor: help; margin-right: 12px; color: #f56c6c; font-weight: bold;">
+                                    <el-icon style="vertical-align: middle; margin-right: 3px;"><bell /></el-icon>
+                                    只看预警
+                                </span>
+                            </el-tooltip>
+                            <el-switch 
+                                v-model="filter.warningFilter" 
+                                size="small"
+                                active-color="#f56c6c"
+                                @change="handleFilterChange"
+                            ></el-switch>
+                        </div>
                                 
                                 <!-- 合并开关 -->
                                 <div class="filter-item">
@@ -645,9 +1499,19 @@
 
                             <!-- 右侧：导出按钮 -->
                             <div class="action-group" style="margin-left: auto;">
-                                <el-button type="success" plain size="small" @click="exportData" class="cyber-btn-tech">
-                                    <el-icon style="margin-right: 5px;"><download /></el-icon> 导出数据
-                                </el-button>
+                                <el-dropdown @command="exportData" trigger="click">
+                                    <el-button type="success" plain size="small" class="cyber-btn-tech">
+                                        <el-icon style="margin-right: 5px;"><download /></el-icon> 导出数据
+                                        <el-icon class="el-icon--right"><arrow-down /></el-icon>
+                                    </el-button>
+                                    <template #dropdown>
+                                        <el-dropdown-menu>
+                                            <el-dropdown-item command="csv">导出 CSV (Excel)</el-dropdown-item>
+                                            <el-dropdown-item command="json">导出 JSON</el-dropdown-item>
+                                            <el-dropdown-item command="txt">导出 文本</el-dropdown-item>
+                                        </el-dropdown-menu>
+                                    </template>
+                                </el-dropdown>
                             </div>
                         </div>
                         </div>
@@ -657,16 +1521,16 @@
                 <!-- 列表展示 -->
                 <el-card shadow="never" class="tech-card hide-scrollbar" v-loading="loading" element-loading-background="rgba(0, 0, 0, 0.7)">
                     <div class="hide-scrollbar">
-                        <el-table :data="tableData" style="width: 100%" @sort-change="handleSortChange" class="hide-scrollbar">
+                        <el-table :data="tableData" style="width: 100%" @sort-change="handleSortChange" @selection-change="handleSelectionChange" class="hide-scrollbar">
+                        <el-table-column type="selection" width="55"></el-table-column>
                         <el-table-column prop="top_id" label="内容摘要" min-width="300">
                             <template #default="scope">
                                 <div style="cursor: pointer;" @click="showDetail(scope.row)">
                                     <div v-if="scope.row.top_id && scope.row.top_id !== '无标题'" style="font-weight: bold; color: var(--text-primary); margin-bottom: 5px;">
-                                        <span v-html="highlightKeyword(scope.row.top_id)"></span>
+                                        <span v-html="highlightKeyword(scope.row.top_id, 'title')"></span>
                                     </div>
                                     <div style="color: var(--text-secondary); font-size: 13px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
-                                        <span v-if="scope.row.top_name" v-html="highlightKeyword(scope.row.top_name)"></span>
-                                        <span v-else v-html="highlightKeyword(scope.row.content)"></span>
+                                        <span v-html="highlightKeyword(scope.row.content, 'content')"></span>
                                     </div>
                                     <el-tag v-if="scope.row.is_merged" size="small" type="warning" effect="dark" style="margin-top: 5px;">聚合 {{ scope.row.merge_count }} 条</el-tag>
                                 </div>
@@ -674,7 +1538,12 @@
                         </el-table-column>
                         <el-table-column prop="source" label="来源" width="100">
                             <template #default="scope">
-                                <el-tag :type="scope.row.source === 'weibo' ? 'danger' : 'primary'" size="small" effect="plain">
+                                <el-tag 
+                                    :type="scope.row.source === 'weibo' ? 'danger' : 'primary'" 
+                                    size="small" 
+                                    effect="plain"
+                                    :style="scope.row.source === '微博' ? { backgroundColor: '#fde899', color: '#d52c2b', borderColor: '#fde899' } : {}"
+                                >
                                     {{ scope.row.source }}
                                 </el-tag>
                             </template>
@@ -740,6 +1609,18 @@
                         </el-table-column>
                     </el-table>
                 </div>
+                <div class="pagination-container" style="margin-top: 20px; display: flex; justify-content: flex-end; padding: 10px 20px;">
+                    <el-pagination
+                        v-model:current-page="pagination.page"
+                        v-model:page-size="pagination.size"
+                        :page-sizes="[10, 20, 30, 50, 100]"
+                        layout="total, sizes, prev, pager, next, jumper"
+                        :total="pagination.total"
+                        @size-change="handleSizeChange"
+                        @current-change="handleCurrentChange"
+                        background
+                    />
+                </div>
                 </el-card>
             </div>
         </div>
@@ -780,6 +1661,13 @@
                     <el-form-item label="预警触发词">
                         <el-input v-model="taskForm.warningKeywords" placeholder="出现这些词时触发预警，例如：维权, 事故"></el-input>
                     </el-form-item>
+                    <el-form-item label="预警阈值">
+                        <el-input-number v-model="taskForm.threshold" :min="1" placeholder="默认50"></el-input-number>
+                    </el-form-item>
+                    <el-form-item label="重大危机模式">
+                        <el-switch v-model="taskForm.is_crisis" :active-value="1" :inactive-value="0" active-text="开启" inactive-text="关闭"></el-switch>
+                        <div style="font-size: 12px; color: #999; line-height: 1.4; margin-top: 5px;">开启后，当预警数量达到阈值时，任务卡片将标记为红色（Ⅰ级）危机状态。</div>
+                    </el-form-item>
                     <el-form-item label="通知方式">
                         <el-checkbox-group v-model="taskForm.notifyMethods">
                             <el-checkbox label="system">系统推送</el-checkbox>
@@ -818,7 +1706,7 @@
                                 <div style="font-weight: bold; font-size: 16px; color: var(--text-primary); display: flex; align-items: center;">
                                     <el-icon v-if="item.is_expanded" style="margin-right: 8px;"><caret-bottom /></el-icon>
                                     <el-icon v-else style="margin-right: 8px;"><caret-right /></el-icon>
-                                    <span v-html="highlightKeyword(item.title)"></span>
+                                    <span v-html="highlightKeyword(item.title, 'title')"></span>
                                 </div>
                                 <div style="font-size: 12px; color: var(--text-secondary);">
                                     {{ item.created_at }} | {{ item.source }}
@@ -837,8 +1725,96 @@
                                     </el-tag>
                                 </div>
 
-                                <!-- Content -->
-                                <div class="article-body" style="font-size: 14px; margin-bottom: 15px; line-height: 1.6;" v-html="highlightKeyword(item.content)"></div>
+                                <!-- Training Results Section -->
+                    <div class="article-training-section">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                            <div class="section-title tech-section-title" style="margin-bottom: 0;">文章训练结果</div>
+                            <el-button v-if="!isEditingTraining" type="primary" link size="small" @click="toggleEditTraining" class="tech-edit-btn">
+                                <el-icon style="margin-right: 4px"><edit /></el-icon> 修改结果
+                            </el-button>
+                            <div v-else>
+                                <el-button type="success" size="small" @click="saveTrainingResult">保存</el-button>
+                                <el-button type="info" link size="small" @click="isEditingTraining = false">取消</el-button>
+                            </div>
+                        </div>
+
+                        <!-- Display Mode -->
+                        <div v-if="!isEditingTraining" class="training-display">
+                            <el-descriptions :column="2" border size="small" class="tech-descriptions">
+                                <el-descriptions-item label="情感倾向">
+                                    <span :style="{ color: getSentimentColor(currentDetail.sentiment) }">{{ currentDetail.sentiment || '中性' }}</span>
+                                </el-descriptions-item>
+                                <el-descriptions-item label="细粒度情感">
+                                    {{ currentDetail.sentiment_analysis?.fine_grained_sentiment || '-' }}
+                                </el-descriptions-item>
+                                <el-descriptions-item label="意图类别">
+                                    {{ currentDetail.sentiment_analysis?.intent || '-' }}
+                                </el-descriptions-item>
+                                <el-descriptions-item label="反讽标签">
+                                    <el-tag size="small" :type="currentDetail.sentiment_analysis?.irony_detected ? 'danger' : 'info'">
+                                        {{ currentDetail.sentiment_analysis?.irony_detected ? '是' : '否' }}
+                                    </el-tag>
+                                </el-descriptions-item>
+                                <el-descriptions-item label="训练理由" :span="2">
+                                    {{ currentDetail.sentiment_analysis?.reasoning || '-' }}
+                                </el-descriptions-item>
+                                <el-descriptions-item label="训练关键词" :span="2">
+                                    <div class="reason-wrapper">
+                                        <span v-for="kw in currentDetail.trained_keywords" :key="kw" class="tech-tag">
+                                            {{ kw }}
+                                        </span>
+                                    </div>
+                                </el-descriptions-item>
+                                <el-descriptions-item label="OCR文字" :span="2">
+                                    <div style="max-height: 100px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; color: #bbb;">{{ currentDetail.ocr_text || '-' }}</div>
+                                </el-descriptions-item>
+                            </el-descriptions>
+                        </div>
+
+                        <!-- Edit Mode -->
+                        <el-form v-else :model="tempTrainingData" label-width="100px" size="small">
+                            <el-row :gutter="20">
+                                <el-col :span="12">
+                                    <el-form-item label="情感倾向">
+                                        <el-select v-model="tempTrainingData.sentiment" style="width: 100%">
+                                            <el-option label="正面" value="正面"></el-option>
+                                            <el-option label="中性" value="中性"></el-option>
+                                            <el-option label="负面" value="负面"></el-option>
+                                        </el-select>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="12">
+                                    <el-form-item label="细粒度情感">
+                                        <el-input v-model="tempTrainingData.fine_grained_sentiment"></el-input>
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-row :gutter="20">
+                                <el-col :span="12">
+                                    <el-form-item label="意图类别">
+                                        <el-input v-model="tempTrainingData.intent"></el-input>
+                                    </el-form-item>
+                                </el-col>
+                                <el-col :span="12">
+                                    <el-form-item label="反讽标签">
+                                        <el-switch v-model="tempTrainingData.irony_detected" active-text="是" inactive-text="否"></el-switch>
+                                    </el-form-item>
+                                </el-col>
+                            </el-row>
+                            <el-form-item label="训练理由">
+                                <el-input v-model="tempTrainingData.reasoning" type="textarea" :rows="2"></el-input>
+                            </el-form-item>
+                            <el-form-item label="训练关键词">
+                                <el-input v-model="tempTrainingData.keywords" placeholder="使用逗号分隔多个关键词"></el-input>
+                            </el-form-item>
+                            <el-form-item label="OCR文字">
+                                <el-input v-model="tempTrainingData.ocr_text" type="textarea" :rows="3"></el-input>
+                            </el-form-item>
+                        </el-form>
+                    </div>
+
+                    <!-- Content -->
+                                <div class="article-body" style="font-size: 14px; margin-bottom: 15px; line-height: 1.6;" v-html="highlightKeyword(item.content, 'content')"></div>
                                 
                                 <!-- Images -->
                                 <div v-if="item.images && item.images.length > 0" class="image-gallery hide-scrollbar" style="display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden; margin-bottom: 15px;">
@@ -864,7 +1840,7 @@
                                             <span style="color: var(--text-primary); font-weight: bold;">{{ comment.user }}</span>
                                             <span :class="'sentiment-' + getSentimentClass(comment.sentiment)">{{ comment.sentiment }}</span>
                                         </div>
-                                        <div style="font-size: 13px; color: var(--text-secondary);" v-html="highlightKeyword(comment.text)"></div>
+                                        <div style="font-size: 13px; color: var(--text-secondary);" v-html="highlightKeyword(comment.text, 'comment')"></div>
                                     </div>
                                     <div v-if="item.comments.length > 5" style="text-align: center; font-size: 12px; color: var(--primary-color); cursor: pointer; margin-top: 5px;" @click.stop="showDetail(item)">
                                         查看全部 {{ item.comments.length }} 条评论
@@ -893,6 +1869,17 @@
 
                 <!-- 单篇视图 (保持原有逻辑) -->
                 <div v-else class="article-detail-container">
+                    <!-- 返回聚合视图按钮 -->
+                    <div v-if="previousMergedDetail" style="margin-bottom: 15px; display: flex; align-items: center;">
+                        <el-button @click="backToMergedView" type="primary" plain size="small" class="cyber-btn-tech">
+                            <el-icon style="margin-right: 5px;"><back /></el-icon> 返回聚合列表
+                        </el-button>
+                        <span style="margin-left: 15px; font-size: 13px; color: var(--primary-color); opacity: 0.8;">
+                            <el-icon style="vertical-align: middle; margin-right: 4px;"><connection /></el-icon>
+                            正在查看话题 "{{ previousMergedDetail.top_id }}" 的文章详情
+                        </span>
+                    </div>
+
                     <!-- Meta Info -->
                     <div class="article-meta tech-meta" style="margin-bottom: 20px;">
                         <div class="detail-meta-item"><el-icon><user /></el-icon> 作者：{{ currentDetail.author }}</div>
@@ -910,30 +1897,25 @@
 
                     <!-- Sentiment & Keywords -->
                     <div style="margin-bottom: 20px;">
-                        <div v-if="!isEditingSentiment" style="display: flex; align-items: center; gap: 15px;">
-                            <span class="detail-label" style="width: auto; margin-right: 0;">情感倾向</span>
-                            <div style="flex: 0 1 150px;">
+                        <div v-if="!isEditingSentiment" style="display: flex; align-items: center;">
+                            <span class="tech-detail-label" style="margin-left: 20px;">情感倾向</span>
+                            <div class="tech-progress-wrapper">
                                 <el-progress 
-                                    :percentage="currentDetail.sentiment_score" 
-                                    :color="getSentimentColor(currentDetail.sentiment)"
+                                    :percentage="detailSentimentStats.percentage" 
+                                    :color="detailSentimentStats.color"
                                     :show-text="false"
-                                    :stroke-width="8"
-                                    class="tech-progress"
+                                    :stroke-width="12"
+                                    class="tech-progress-enhanced"
                                 ></el-progress>
                             </div>
-                            <span :style="{ color: getSentimentColor(currentDetail.sentiment), fontWeight: 'bold', fontSize: '14px' }">
-                                {{ currentDetail.sentiment }}
+                            <span :style="{ color: detailSentimentStats.color, fontWeight: 'bold', fontSize: '14px', marginLeft: '15px', fontFamily: 'Orbitron' }">
+                                {{ detailSentimentStats.label }} ({{ detailSentimentStats.percentage }}%)
                             </span>
-                            
-                            <el-button type="primary" link size="small" @click="toggleEditSentiment" class="tech-edit-btn" style="margin-left: auto;">
-                                <el-icon style="margin-right: 4px"><edit /></el-icon>
-                                修改标注
-                            </el-button>
                         </div>
                         
-                        <div v-else style="display: flex; gap: 10px; align-items: center;">
-                            <span class="detail-label" style="width: auto; margin-right: 0;">情感倾向</span>
-                            <el-radio-group v-model="tempSentiment" size="small">
+                        <div v-else style="display: flex; align-items: center;">
+                            <span class="tech-detail-label">情感倾向</span>
+                            <el-radio-group v-model="tempSentiment" size="small" style="margin-left: 10px;">
                                 <el-radio-button label="正面">正面</el-radio-button>
                                 <el-radio-button label="中性">中性</el-radio-button>
                                 <el-radio-button label="负面">负面</el-radio-button>
@@ -943,139 +1925,315 @@
                         </div>
                     </div>
 
-                    <div class="detail-keyword-group">
+                    <div class="detail-keyword-group" v-if="currentDetail.trained_keywords && currentDetail.trained_keywords.length > 0">
                         <div style="margin-bottom: 8px; font-size: 12px; color: var(--text-secondary); display: flex; align-items: center;">
                             <el-icon style="margin-right: 4px;"><collection-tag /></el-icon>
                             训练提取关键词：
                         </div>
                         <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-                            <el-tag 
+                            <span 
                                 v-for="kw in currentDetail.trained_keywords" 
                                 :key="kw" 
-                                size="small" 
-                                class="tech-keyword-tag"
-                            >{{ kw }}</el-tag>
+                                class="tech-tag"
+                            >{{ kw }}</span>
                         </div>
                     </div>
                     
-                    <div class="detail-keyword-group">
+                    <div class="detail-keyword-group" v-if="currentDetail.comment_keywords && currentDetail.comment_keywords.length > 0">
                         <div style="margin-bottom: 5px; font-size: 12px; color: var(--text-secondary);">评论高频词：</div>
-                        <el-tag 
-                            v-for="kw in currentDetail.comment_keywords" 
-                            :key="kw" 
-                            size="small" 
-                            type="info" 
-                            effect="dark" 
-                            style="margin-right: 8px;"
-                        >{{ kw }}</el-tag>
+                        <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                            <span 
+                                v-for="kw in currentDetail.comment_keywords" 
+                                :key="kw" 
+                                class="comment-tag"
+                            >{{ kw }}</span>
+                        </div>
                     </div>
 
                     <!-- Content -->
                     <div class="article-content-section" style="margin-top: 20px; margin-bottom: 20px;">
                         <div class="section-title tech-section-title">文章详情</div>
-                        <div class="article-body tech-article-body" v-html="highlightKeyword(currentDetail.content)"></div>
-                    </div>
-
-                    <!-- Images -->
-                    <div v-if="currentDetail.images && currentDetail.images.length" class="img-gallery">
-                        <!-- 模式1：收起状态，只显示第一张 -->
-                        <div v-if="!currentDetail.showAllImages">
-                            <div class="img-wrapper" style="position: relative; display: inline-block; cursor: pointer;">
-                                <el-image 
-                                    :src="currentDetail.images[0]"
-                                    class="img-item"
-                                    :preview-src-list="currentDetail.images"
-                                    :initial-index="0"
-                                    fit="cover"
-                                    lazy
-                                    loading="lazy"
-                                    style="width: 150px; height: 150px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);"
-                                ></el-image>
-                                <div v-if="currentDetail.images.length > 1" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; backdrop-filter: blur(4px); pointer-events: none;">
-                                    共 {{ currentDetail.images.length }} 张
+                        <div class="tech-article-body">
+                            <div class="article-body tech-text-content" style="margin-bottom: 0;" v-html="highlightKeyword(currentDetail.content, 'content')"></div>
+                        
+                            <!-- Images -->
+                            <div v-if="currentDetail.images && currentDetail.images.length" class="img-gallery" style="margin-top: 15px;">
+                            <!-- 模式1：收起状态，只显示第一张 -->
+                            <div v-if="!currentDetail.showAllImages">
+                                <div class="img-wrapper" style="position: relative; display: inline-block; cursor: pointer;">
+                                    <el-image 
+                                        :src="currentDetail.images[0]"
+                                        class="img-item"
+                                        :preview-src-list="currentDetail.images"
+                                        :initial-index="0"
+                                        fit="cover"
+                                        lazy
+                                        loading="lazy"
+                                        :preview-teleported="true"
+                                        style="width: 150px; height: 150px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1);"
+                                    ></el-image>
+                                    <div v-if="currentDetail.images.length > 1" style="position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 12px; backdrop-filter: blur(4px); pointer-events: none;">
+                                        共 {{ currentDetail.images.length }} 张
+                                    </div>
+                                </div>
+                                    <div v-if="currentDetail.images.length > 1" class="expand-images-container">
+                                    <span class="expand-text" @click="expandAllImages">展开所有图片</span>
                                 </div>
                             </div>
-                            <div v-if="currentDetail.images.length > 1" style="margin-left: 15px; display: inline-block; vertical-align: bottom; margin-bottom: 10px;">
-                                <el-button type="primary" plain size="small" @click="expandAllImages">
-                                    <el-icon style="margin-right: 5px"><picture /></el-icon> 展开所有图片
-                                </el-button>
+
+                            <!-- 模式2：展开状态，显示所有图片网格 (使用原生img提升性能) -->
+                            <div v-else class="img-grid" style="display: flex; flex-wrap: wrap; gap: 10px;">
+                                <div 
+                                    v-for="(img, index) in currentDetail.images.slice(0, currentDetail.visibleImageCount)" 
+                                    :key="index"
+                                    class="img-item-wrapper"
+                                    style="width: 120px; height: 120px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; cursor: pointer;"
+                                    @click="openPreview(index)"
+                                >
+                                    <img 
+                                        :src="getThumbnailUrl(img)"
+                                        style="width: 100%; height: 100%; object-fit: cover;"
+                                        loading="lazy"
+                                        decoding="async"
+                                    />
+                                </div>
+                                
+                                <!-- 隐藏的 el-image 用于触发全屏预览 -->
+                                <div style="width: 0; height: 0; overflow: hidden;">
+                                    <el-image 
+                                        :key="previewKey"
+                                        ref="previewImageRef"
+                                        :src="previewImagesList[0] || (currentDetail.images && currentDetail.images[0])"
+                                        :preview-src-list="previewImagesList"
+                                        :initial-index="currentDetail.previewIndex"
+                                        hide-on-click-modal
+                                    ></el-image>
+                                </div>
+
+                                <div v-if="currentDetail.visibleImageCount < currentDetail.images.length" style="width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                                    <el-icon class="is-loading"><loading /></el-icon>
+                                </div>
+                                <div style="width: 100%; margin-top: 10px;">
+                                    <el-button type="info" link size="small" @click="currentDetail.showAllImages = false">
+                                        <el-icon style="margin-right: 5px"><arrow-up /></el-icon> 收起图片
+                                    </el-button>
+                                </div>
+                            </div>
                             </div>
                         </div>
 
-                        <!-- 模式2：展开状态，显示所有图片网格 (使用原生img提升性能) -->
-                        <div v-else class="img-grid" style="display: flex; flex-wrap: wrap; gap: 10px;">
-                            <div 
-                                v-for="(img, index) in currentDetail.images.slice(0, currentDetail.visibleImageCount)" 
-                                :key="index"
-                                class="img-item-wrapper"
-                                style="width: 120px; height: 120px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); overflow: hidden; cursor: pointer;"
-                                @click="openPreview(index)"
-                            >
-                                <img 
-                                    :src="getThumbnailUrl(img)"
-                                    style="width: 100%; height: 100%; object-fit: cover;"
-                                    loading="lazy"
-                                    decoding="async"
-                                />
-                            </div>
-                            
-                            <!-- 隐藏的 el-image 用于触发全屏预览 -->
-                            <div style="width: 0; height: 0; overflow: hidden;">
-                                <el-image 
-                                    ref="previewImageRef"
-                                    :src="previewImagesList[0] || (currentDetail.images && currentDetail.images[0])"
-                                    :preview-src-list="previewImagesList"
-                                    :initial-index="currentDetail.previewIndex"
-                                    hide-on-click-modal
-                                ></el-image>
+                        <!-- Training Results Section -->
+                        <div class="article-training-section" style="margin-top: 20px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 15px;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px;">
+                                <div class="section-title tech-section-title" style="margin-bottom: 0;">文章训练结果</div>
+                                <el-button v-if="!isEditingTraining" type="primary" link size="small" @click="toggleEditTraining" class="tech-edit-btn">
+                                    <el-icon style="margin-right: 4px"><edit /></el-icon> 修改结果
+                                </el-button>
+                                <div v-else>
+                                    <el-button type="success" size="small" @click="saveTrainingResult">保存</el-button>
+                                    <el-button type="info" link size="small" @click="isEditingTraining = false">取消</el-button>
+                                </div>
                             </div>
 
-                            <div v-if="currentDetail.visibleImageCount < currentDetail.images.length" style="width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                                <el-icon class="is-loading"><loading /></el-icon>
+                            <!-- Display Mode -->
+                            <div v-if="!isEditingTraining" class="training-display">
+                                <el-descriptions :column="2" border size="small" class="tech-descriptions">
+                                    <el-descriptions-item label="情感倾向">
+                                        <span :style="{ color: getSentimentColor(currentDetail.sentiment) }">{{ currentDetail.sentiment || '中性' }}</span>
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="细粒度情感">
+                                        {{ currentDetail.sentiment_analysis?.fine_grained_sentiment || '-' }}
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="意图类别">
+                                        {{ currentDetail.sentiment_analysis?.intent || '-' }}
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="反讽标签">
+                                        <el-tag size="small" :type="currentDetail.sentiment_analysis?.irony_detected ? 'danger' : 'info'">
+                                            {{ currentDetail.sentiment_analysis?.irony_detected ? '是' : '否' }}
+                                        </el-tag>
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="训练理由" :span="2">
+                                        {{ currentDetail.sentiment_analysis?.reasoning || '-' }}
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="训练关键词" :span="2">
+                                        <div class="reason-wrapper">
+                                            <span v-for="kw in currentDetail.trained_keywords" :key="kw" class="tech-tag">
+                                                {{ kw }}
+                                            </span>
+                                        </div>
+                                    </el-descriptions-item>
+                                    <el-descriptions-item label="OCR文字" :span="2">
+                                        <div style="max-height: 100px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; color: #bbb;">{{ currentDetail.ocr_text || '-' }}</div>
+                                    </el-descriptions-item>
+                                </el-descriptions>
                             </div>
-                            <div style="width: 100%; margin-top: 10px;">
-                                <el-button type="info" link size="small" @click="currentDetail.showAllImages = false">
-                                    <el-icon style="margin-right: 5px"><arrow-up /></el-icon> 收起图片
-                                </el-button>
-                            </div>
+
+                            <!-- Edit Mode -->
+                            <el-form v-else :model="tempTrainingData" label-width="100px" size="small">
+                                <el-row :gutter="20">
+                                    <el-col :span="12">
+                                        <el-form-item label="情感倾向">
+                                            <el-select v-model="tempTrainingData.sentiment" style="width: 100%">
+                                                <el-option label="正面" value="正面"></el-option>
+                                                <el-option label="中性" value="中性"></el-option>
+                                                <el-option label="负面" value="负面"></el-option>
+                                            </el-select>
+                                        </el-form-item>
+                                    </el-col>
+                                    <el-col :span="12">
+                                        <el-form-item label="细粒度情感">
+                                            <el-input v-model="tempTrainingData.fine_grained_sentiment"></el-input>
+                                        </el-form-item>
+                                    </el-col>
+                                </el-row>
+                                <el-row :gutter="20">
+                                    <el-col :span="12">
+                                        <el-form-item label="意图类别">
+                                            <el-input v-model="tempTrainingData.intent"></el-input>
+                                        </el-form-item>
+                                    </el-col>
+                                    <el-col :span="12">
+                                        <el-form-item label="反讽标签">
+                                            <el-switch v-model="tempTrainingData.irony_detected" active-text="是" inactive-text="否"></el-switch>
+                                        </el-form-item>
+                                    </el-col>
+                                </el-row>
+                                <el-form-item label="训练理由">
+                                    <el-input v-model="tempTrainingData.reasoning" type="textarea" :rows="2"></el-input>
+                                </el-form-item>
+                                <el-form-item label="训练关键词">
+                                    <el-input v-model="tempTrainingData.keywords" placeholder="使用逗号分隔多个关键词"></el-input>
+                                </el-form-item>
+                                <el-form-item label="OCR文字">
+                                    <el-input v-model="tempTrainingData.ocr_text" type="textarea" :rows="3"></el-input>
+                                </el-form-item>
+                            </el-form>
                         </div>
                     </div>
 
+
+                    <!-- Images (REMOVED FROM HERE) -->
                     <!-- Comments Section -->
                     <div class="article-comments-section">
-                        <el-divider content-position="left">评论分析 ({{ currentDetail.total_comments || currentDetail.comments.length }})</el-divider>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; margin-top: 20px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 10px;">
+                            <div class="section-title tech-section-title" style="margin-bottom: 0;">评论分析 ({{ currentDetail.total_comments || (currentDetail.comments ? currentDetail.comments.length : 0) }})</div>
+                            <el-dropdown @command="exportComments" trigger="click">
+                                <el-button type="primary" link size="small" class="tech-edit-btn">
+                                    <el-icon style="margin-right: 4px"><download /></el-icon> 导出评论
+                                    <el-icon class="el-icon--right"><arrow-down /></el-icon>
+                                </el-button>
+                                <template #dropdown>
+                                    <el-dropdown-menu>
+                                        <el-dropdown-item command="csv">导出 CSV (Excel)</el-dropdown-item>
+                                        <el-dropdown-item command="json">导出 JSON</el-dropdown-item>
+                                        <el-dropdown-item command="txt">导出 文本</el-dropdown-item>
+                                    </el-dropdown-menu>
+                                </template>
+                            </el-dropdown>
+                        </div>
                         <div class="comment-list hide-scrollbar" style="max-height: 400px; overflow-y: auto;">
-                            <div v-for="comment in currentDetail.comments" :key="comment.id" class="comment-item" :class="{ 'current-comment': comment.is_current }">
+                            <div v-for="comment in nestedComments" :key="comment.id" :id="'comment-' + comment.id" class="comment-item" :class="{ 'current-comment': comment.is_current, 'nested-comment': comment.level > 0 }" :style="{ 'margin-left': (comment.level * 30) + 'px', 'width': 'calc(100% - ' + (comment.level * 30) + 'px)' }">
                                 <div class="comment-header">
-                                    <span style="font-weight: bold; font-size: 13px;">{{ comment.user }}</span>
+                                    <span v-if="comment.level > 0" class="reply-indicator">
+                                        <el-icon><connection /></el-icon>
+                                    </span>
+                                    <span class="comment-user-name-styled">{{ comment.user }}</span>
+                                    <span v-if="comment.level > 0 && comment.replyTo" class="reply-target-block">
+                                        <span class="reply-verb">回复</span>
+                                        <span class="reply-target-user">
+                                            <el-icon class="target-icon" style="margin-right: 2px;"><user /></el-icon>
+                                            {{ comment.replyTo }}
+                                        </span>
+                                    </span>
                                     <span class="sentiment-tag" :class="'sentiment-' + getSentimentClass(comment.sentiment)">
                                         {{ comment.sentiment }}
                                     </span>
                                 </div>
-                                <div class="comment-content" v-html="highlightKeyword(comment.text)"></div>
-                                
-                                <!-- 评论图片 -->
-                                <div v-if="comment.images && comment.images.length > 0" style="margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap;">
-                                    <div 
-                                        v-for="(img, idx) in comment.images" 
-                                        :key="idx"
-                                        style="width: 60px; height: 60px; border-radius: 4px; overflow: hidden; cursor: pointer; border: 1px solid rgba(255,255,255,0.1);"
-                                        @click="openPreview(idx, comment.images)"
-                                    >
-                                        <img 
-                                            :src="getThumbnailUrl(img)" 
-                                            style="width: 100%; height: 100%; object-fit: cover;"
-                                            loading="lazy"
-                                        />
+                                <div class="comment-bubble">
+                                    <div class="comment-text" v-html="highlightKeyword(comment.text, 'comment')"></div>
+                                    
+                                    <!-- 评论图片 (优化后移入气泡内部) -->
+                                    <div v-if="comment.images && comment.images.length > 0" style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; padding-left: 12px;">
+                                        <div 
+                                            v-for="(img, idx) in comment.images" 
+                                            :key="idx"
+                                            class="comment-img-wrapper"
+                                            style="width: 70px; height: 70px; border-radius: 6px; overflow: hidden; cursor: pointer; border: 1px solid rgba(255,255,255,0.15); transition: all 0.2s;"
+                                            @click.stop="openPreview(idx, comment.images)"
+                                        >
+                                            <img 
+                                                :src="getThumbnailUrl(img)" 
+                                                style="width: 100%; height: 100%; object-fit: cover;"
+                                                loading="lazy"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
 
-                                <div style="margin-top: 5px; font-size: 11px; color: var(--text-secondary);">{{ comment.time }}</div>
+                                <!-- AI Analysis Result -->
+                                <div v-if="comment.sentiment_analysis" style="margin-top: 8px; display: flex; align-items: center; justify-content: space-between;">
+                                    <span class="analysis-toggle-btn" @click="comment.showAnalysis = !comment.showAnalysis">
+                                        <el-icon v-if="comment.showAnalysis"><arrow-up /></el-icon>
+                                        <el-icon v-else><arrow-down /></el-icon>
+                                        {{ comment.showAnalysis ? '收起训练详情' : '查看训练详情' }}
+                                    </span>
+                                    <el-button type="primary" link size="small" @click="toggleEditCommentTraining(comment)" class="tech-edit-btn">
+                                        <el-icon style="margin-right: 4px"><edit /></el-icon> 修改训练结果
+                                    </el-button>
+                                </div>
+                                <div v-if="comment.sentiment_analysis && comment.showAnalysis" class="comment-analysis-tech">
+                                    <div class="analysis-item">
+                                        <span class="analysis-label">细粒度:</span>
+                                        <span class="analysis-value">{{ comment.sentiment_analysis.fine_grained_sentiment || '-' }}</span>
+                                    </div>
+                                    <div class="analysis-item">
+                                        <span class="analysis-label">意图:</span>
+                                        <span class="analysis-value">{{ comment.sentiment_analysis.intent || '-' }}</span>
+                                    </div>
+                                    <div class="analysis-item">
+                                        <span class="analysis-label">反讽:</span>
+                                        <span class="analysis-value">{{ comment.sentiment_analysis.irony_detected ? '是' : '否' }}</span>
+                                    </div>
+                                    <div class="analysis-reason" v-if="comment.sentiment_analysis.reasoning">
+                                        <div class="reason-wrapper">
+                                            <span class="analysis-label">分析理由:</span>
+                                            {{ comment.sentiment_analysis.reasoning }}
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Additional Fields -->
+                                    <div class="analysis-reason" v-if="comment.keywords && comment.keywords.length">
+                                        <div class="reason-wrapper">
+                                            <span class="analysis-label">关键词:</span>
+                                            <span class="tech-tag" v-for="(kw, kwi) in comment.keywords" :key="'kw-'+kwi">{{ kw }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="analysis-reason" v-if="comment.labels && comment.labels.length">
+                                        <div class="reason-wrapper">
+                                            <span class="analysis-label">标签:</span>
+                                            <span class="tech-tag" v-for="(lb, lbi) in comment.labels" :key="'lb-'+lbi">{{ lb }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="analysis-reason" v-if="comment.visual_objects && comment.visual_objects.length">
+                                        <div class="reason-wrapper">
+                                            <span class="analysis-label">视觉对象:</span>
+                                            <span class="tech-tag" v-for="(vo, voi) in comment.visual_objects" :key="'vo-'+voi">{{ vo }}</span>
+                                        </div>
+                                    </div>
+                                    <div class="analysis-reason" v-if="comment.ocr_text">
+                                        <div class="reason-wrapper">
+                                            <span class="analysis-label">OCR文本:</span>
+                                            <span style="font-size: 11px; color: rgba(255,255,255,0.8);">{{ comment.ocr_text }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="comment-time">{{ formatTime(comment.time) }}</div>
                             </div>
                             
                             <!-- Load More Button -->
                             <div v-if="currentDetail.total_comments && currentDetail.comments.length < currentDetail.total_comments" style="text-align: center; margin-top: 15px; padding-bottom: 10px;">
-                                <el-button @click="loadMoreComments" size="small" type="primary" plain :loading="currentDetail.loadingComments">加载更多评论 ({{ currentDetail.total_comments - currentDetail.comments.length }}剩余)</el-button>
+                                <el-button @click="loadMoreComments" size="small" type="primary" plain :loading="currentDetail.loadingComments" style="color: white;">加载更多评论 ({{ currentDetail.total_comments - currentDetail.comments.length }}剩余)</el-button>
                             </div>
                         </div>
                     </div>
@@ -1089,6 +2247,9 @@
                 <el-form-item label="监控关键词">
                     <el-input v-model="warningRuleForm.keyword" disabled></el-input>
                 </el-form-item>
+                <el-form-item label="预警词" v-if="warningRuleForm.warningKeywords">
+                    <el-input v-model="warningRuleForm.warningKeywords" disabled type="textarea" :rows="2"></el-input>
+                </el-form-item>
                 <el-form-item label="触发条件">
                     <span style="color: #fff;">{{ warningRuleForm.time_window }}小时内 {{ warningRuleForm.sentiment }}信息 > {{ warningRuleForm.threshold }}条</span>
                 </el-form-item>
@@ -1099,7 +2260,8 @@
                     <el-input-number v-model="warningRuleForm.time_window" :min="1" :max="168"></el-input-number>
                 </el-form-item>
                 <el-form-item label="重大危机模式">
-                    <el-switch v-model="warningRuleForm.is_crisis" :active-value="1" :inactive-value="0"></el-switch>
+                    <el-switch v-model="warningRuleForm.is_crisis" :active-value="1" :inactive-value="0" active-text="开启" inactive-text="关闭"></el-switch>
+                    <div style="font-size: 12px; color: #999; line-height: 1.4; margin-top: 5px;">开启后，当预警数量达到阈值时，任务卡片将标记为红色（Ⅰ级）危机状态。</div>
                 </el-form-item>
             </el-form>
             <template #footer>
@@ -1107,10 +2269,57 @@
                 <el-button type="primary" @click="saveWarningConfig">保存规则</el-button>
             </template>
         </el-dialog>
+
+        <!-- Comment Training Edit Dialog -->
+        <el-dialog v-model="commentEditVisible" title="修改评论训练结果" width="600px" custom-class="tech-dialog" :append-to-body="true">
+            <el-form :model="tempCommentTrainingData" label-width="100px" size="small" class="tech-form">
+                <el-row :gutter="20">
+                    <el-col :span="12">
+                        <el-form-item label="情感倾向">
+                            <el-select v-model="tempCommentTrainingData.sentiment" style="width: 100%">
+                                <el-option label="正面" value="正面"></el-option>
+                                <el-option label="中性" value="中性"></el-option>
+                                <el-option label="负面" value="负面"></el-option>
+                            </el-select>
+                        </el-form-item>
+                    </el-col>
+                    <el-col :span="12">
+                        <el-form-item label="细粒度情感">
+                            <el-input v-model="tempCommentTrainingData.fine_grained_sentiment"></el-input>
+                        </el-form-item>
+                    </el-col>
+                </el-row>
+                <el-row :gutter="20">
+                    <el-col :span="12">
+                        <el-form-item label="意图类别">
+                            <el-input v-model="tempCommentTrainingData.intent"></el-input>
+                        </el-form-item>
+                    </el-col>
+                    <el-col :span="12">
+                        <el-form-item label="反讽标签">
+                            <el-switch v-model="tempCommentTrainingData.irony_detected" active-text="是" inactive-text="否"></el-switch>
+                        </el-form-item>
+                    </el-col>
+                </el-row>
+                <el-form-item label="训练理由">
+                    <el-input v-model="tempCommentTrainingData.reasoning" type="textarea" :rows="2"></el-input>
+                </el-form-item>
+                <el-form-item label="训练关键词">
+                    <el-input v-model="tempCommentTrainingData.keywords" placeholder="使用逗号分隔多个关键词"></el-input>
+                </el-form-item>
+                <el-form-item label="OCR文字">
+                    <el-input v-model="tempCommentTrainingData.ocr_text" type="textarea" :rows="3"></el-input>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <el-button @click="commentEditVisible = false">取消</el-button>
+                <el-button type="primary" @click="saveCommentTrainingResult">保存修改</el-button>
+            </template>
+        </el-dialog>
     </div>
 
     <script>
-        const { createApp, ref, reactive, onMounted, computed, watch } = Vue;
+        const { createApp, ref, reactive, onMounted, computed, watch, nextTick } = Vue;
 
         const app = createApp({
             setup() {
@@ -1120,12 +2329,367 @@
                 const activeMenu = ref('monitor');
                 const loading = ref(false);
                 const tableData = ref([]);
+                const selectedRows = ref([]);
                 const currentTaskId = ref('all');
                 const taskDialogVisible = ref(false);
                 const detailVisible = ref(false);
                 const currentDetail = ref({});
+                
+                // Nested Comments Logic
+                const nestedComments = computed(() => {
+                    if (!currentDetail.value || !currentDetail.value.comments) return [];
+                    
+                    const comments = currentDetail.value.comments;
+                    // Deep copy to avoid mutating original data repeatedly if needed, 
+                    // but here we just want to decorate them with 'level' and 'children'.
+                    // Since 'comments' is reactive, we should be careful.
+                    // Let's create a fresh list of objects that reference the original data but have new props.
+                    // Or just modify the original objects if it's safe (it usually is for display props).
+                    
+                    const commentMap = {};
+                    comments.forEach(c => {
+                        c.children = []; 
+                        c.level = 0;
+                        commentMap[c.id] = c;
+                    });
+
+                    const roots = [];
+                    
+                    comments.forEach(c => {
+                        const pid = c.parent_comment_id;
+                        // Check if parent exists in current list and is not self/root
+                        // User instruction: "check if parent_comment_id equals its own comment_id"
+                        // If pid == c.id, it's root.
+                        // If pid != c.id and pid in map, it's child.
+                        // If pid != c.id and pid NOT in map, it's root (or orphan).
+                        
+                        let isRoot = true;
+                        if (pid && String(pid) !== "0" && String(pid) !== String(c.id)) {
+                             if (commentMap[pid]) {
+                                 commentMap[pid].children.push(c);
+                                 isRoot = false;
+                             }
+                        }
+                        
+                        if (isRoot) {
+                            roots.push(c);
+                        }
+                    });
+                    
+                    // Flatten
+                    const result = [];
+                    const flatten = (nodes, level, parentName = null) => {
+                        nodes.forEach(node => {
+                            node.level = level;
+                            node.replyTo = parentName; // 添加被回复人姓名
+                            result.push(node);
+                            if (node.children && node.children.length > 0) {
+                                flatten(node.children, level + 1, node.user);
+                            }
+                        });
+                    };
+                    
+                    flatten(roots, 0);
+                    return result;
+                });
+
+                const previousMergedDetail = ref(null);
                 const isEditingSentiment = ref(false);
                 const tempSentiment = ref('');
+                
+                // --- Article Training Result Logic ---
+                const isEditingTraining = ref(false);
+                const tempTrainingData = reactive({
+                    sentiment: '',
+                    fine_grained_sentiment: '',
+                    intent: '',
+                    irony_detected: false,
+                    reasoning: '',
+                    keywords: '',
+                    ocr_text: ''
+                });
+
+                const toggleEditTraining = () => {
+                    if (!currentDetail.value) return;
+                    
+                    const d = currentDetail.value;
+                    const sa = d.sentiment_analysis || {};
+                    
+                    tempTrainingData.sentiment = sa.sentiment || d.sentiment || '中性';
+                    tempTrainingData.fine_grained_sentiment = sa.fine_grained_sentiment || '';
+                    tempTrainingData.intent = sa.intent || '';
+                    tempTrainingData.irony_detected = !!sa.irony_detected;
+                    tempTrainingData.reasoning = sa.reasoning || '';
+                    tempTrainingData.keywords = (d.trained_keywords || []).join(', ');
+                    tempTrainingData.ocr_text = d.ocr_text || '';
+                    
+                    isEditingTraining.value = true;
+                };
+
+                const saveTrainingResult = async () => {
+                    try {
+                        const kwList = tempTrainingData.keywords.split(/[,，]/).map(k => k.trim()).filter(k => k);
+                        
+                        const payload = {
+                            note_id: currentDetail.value.note_id,
+                            sentiment: tempTrainingData.sentiment,
+                            fine_grained_sentiment: tempTrainingData.fine_grained_sentiment,
+                            intent: tempTrainingData.intent,
+                            irony_detected: tempTrainingData.irony_detected,
+                            reasoning: tempTrainingData.reasoning,
+                            keywords: kwList,
+                            ocr_text: tempTrainingData.ocr_text,
+                            original_data: currentDetail.value
+                        };
+
+                        const response = await fetch('/api/monitoring/update_training_result', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        
+                        if (!response.ok) {
+                            const err = await response.json();
+                            throw new Error(err.detail || 'Update failed');
+                        }
+                        
+                        ElMessage.success('训练结果已更新');
+                        isEditingTraining.value = false;
+                        
+                        // Update local view
+                        if (!currentDetail.value.sentiment_analysis) currentDetail.value.sentiment_analysis = {};
+                        currentDetail.value.sentiment_analysis.sentiment = tempTrainingData.sentiment;
+                        currentDetail.value.sentiment_analysis.fine_grained_sentiment = tempTrainingData.fine_grained_sentiment;
+                        currentDetail.value.sentiment_analysis.intent = tempTrainingData.intent;
+                        currentDetail.value.sentiment_analysis.irony_detected = tempTrainingData.irony_detected;
+                        currentDetail.value.sentiment_analysis.reasoning = tempTrainingData.reasoning;
+                        
+                        // Update top-level fields
+                        currentDetail.value.sentiment = tempTrainingData.sentiment;
+                        currentDetail.value.trained_keywords = kwList;
+                        currentDetail.value.ocr_text = tempTrainingData.ocr_text;
+                        
+                    } catch (e) {
+                        ElMessage.error('更新失败: ' + e.message);
+                    }
+                };
+
+                // --- Comment Training Result Logic ---
+                const commentEditVisible = ref(false);
+                const currentEditingComment = ref(null);
+                const tempCommentTrainingData = reactive({
+                    sentiment: '',
+                    fine_grained_sentiment: '',
+                    intent: '',
+                    irony_detected: false,
+                    reasoning: '',
+                    keywords: '',
+                    ocr_text: ''
+                });
+
+                const toggleEditCommentTraining = (comment) => {
+                    currentEditingComment.value = comment;
+                    const sa = comment.sentiment_analysis || {};
+                    
+                    tempCommentTrainingData.sentiment = sa.sentiment || comment.sentiment || '中性';
+                    tempCommentTrainingData.fine_grained_sentiment = sa.fine_grained_sentiment || '';
+                    tempCommentTrainingData.intent = sa.intent || '';
+                    tempCommentTrainingData.irony_detected = !!sa.irony_detected;
+                    tempCommentTrainingData.reasoning = sa.reasoning || '';
+                    tempCommentTrainingData.keywords = (comment.keywords || []).join(', ');
+                    tempCommentTrainingData.ocr_text = comment.ocr_text || '';
+                    
+                    commentEditVisible.value = true;
+                };
+
+                const saveCommentTrainingResult = async () => {
+                    if (!currentEditingComment.value) return;
+                    
+                    try {
+                        const kwList = tempCommentTrainingData.keywords.split(/[,，]/).map(k => k.trim()).filter(k => k);
+                        
+                        const payload = {
+                            note_id: currentDetail.value.note_id,
+                            comment_id: currentEditingComment.value.id || currentEditingComment.value.comment_id,
+                            sentiment: tempCommentTrainingData.sentiment,
+                            fine_grained_sentiment: tempCommentTrainingData.fine_grained_sentiment,
+                            intent: tempCommentTrainingData.intent,
+                            irony_detected: tempCommentTrainingData.irony_detected,
+                            reasoning: tempCommentTrainingData.reasoning,
+                            keywords: kwList,
+                            ocr_text: tempCommentTrainingData.ocr_text,
+                            original_data: currentEditingComment.value
+                        };
+
+                        const response = await fetch('/api/monitoring/update_comment_training_result', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload)
+                        });
+                        
+                        if (!response.ok) {
+                            const err = await response.json();
+                            throw new Error(err.detail || 'Update failed');
+                        }
+                        
+                        ElMessage.success('评论训练结果已更新');
+                        commentEditVisible.value = false;
+                        
+                        // Update local view
+                        const comment = currentEditingComment.value;
+                        if (!comment.sentiment_analysis) comment.sentiment_analysis = {};
+                        
+                        comment.sentiment_analysis.sentiment = tempCommentTrainingData.sentiment;
+                        comment.sentiment_analysis.fine_grained_sentiment = tempCommentTrainingData.fine_grained_sentiment;
+                        comment.sentiment_analysis.intent = tempCommentTrainingData.intent;
+                        comment.sentiment_analysis.irony_detected = tempCommentTrainingData.irony_detected;
+                        comment.sentiment_analysis.reasoning = tempCommentTrainingData.reasoning;
+                        
+                        // Update top-level fields
+                        comment.sentiment = tempCommentTrainingData.sentiment;
+                        comment.keywords = kwList;
+                        comment.ocr_text = tempCommentTrainingData.ocr_text;
+                        comment.labels = [tempCommentTrainingData.sentiment];
+                        
+                    } catch (e) {
+                        ElMessage.error('更新失败: ' + e.message);
+                    }
+                };
+
+
+                const detailSentimentStats = computed(() => {
+                    const detail = currentDetail.value;
+                    if (!detail) return { percentage: 0, color: '#909399', label: '无数据' };
+
+                    let pos = 0, neu = 0, neg = 0;
+
+                    // Count article sentiment
+                    if (detail.sentiment === '正面' || detail.sentiment === '愉快' || detail.sentiment === '喜爱') pos++;
+                    else if (detail.sentiment === '负面' || detail.sentiment === '愤怒' || detail.sentiment === '悲伤' || detail.sentiment === '恐惧') neg++;
+                    else neu++;
+
+                    // Count comments sentiment
+                    if (detail.comment_sentiment_stats && Object.keys(detail.comment_sentiment_stats).length > 0) {
+                        // Use backend aggregated stats for accuracy
+                        for (const [key, value] of Object.entries(detail.comment_sentiment_stats)) {
+                            if (key === '正面' || key === '愉快' || key === '喜爱') pos += value;
+                            else if (key === '负面' || key === '愤怒' || key === '悲伤' || key === '恐惧') neg += value;
+                            else neu += value; // '中性' and others
+                        }
+                    } else if (detail.comments && detail.comments.length > 0) {
+                        // Fallback to loaded comments
+                        detail.comments.forEach(c => {
+                            if (c.sentiment === '正面' || c.sentiment === '愉快' || c.sentiment === '喜爱') pos++;
+                            else if (c.sentiment === '负面' || c.sentiment === '愤怒' || c.sentiment === '悲伤' || c.sentiment === '恐惧') neg++;
+                            else neu++;
+                        });
+                    }
+
+                    const total = pos + neu + neg;
+                    if (total === 0) return { percentage: 0, color: '#909399', label: '无数据' };
+
+                    let maxCount = 0;
+                    let type = '中性';
+
+                    // Determine dominant sentiment
+                    if (neg >= pos && neg >= neu) {
+                        maxCount = neg;
+                        type = '负面';
+                    } else if (pos >= neg && pos >= neu) {
+                        maxCount = pos;
+                        type = '正面';
+                    } else {
+                        maxCount = neu;
+                        type = '中性';
+                    }
+
+                    const percentage = Math.round((maxCount / total) * 100);
+                    // Green for positive, Yellow for neutral, Red for negative
+                    const color = type === '正面' ? '#67C23A' : (type === '中性' ? '#E6A23C' : '#F56C6C');
+
+                    return { percentage, color, label: type };
+                });
+
+                const exportComments = (format) => {
+                    if (!currentDetail.value || !currentDetail.value.comments || currentDetail.value.comments.length === 0) {
+                        ElMessage.warning('暂无评论数据可导出');
+                        return;
+                    }
+
+                    const comments = currentDetail.value.comments;
+                    const title = currentDetail.value.title || 'post';
+                    const exportFormat = (typeof format === 'string') ? format : 'csv';
+
+                    let content = '';
+                    let mimeType = '';
+                    let extension = '';
+                    let bom = '';
+
+                    if (exportFormat === 'csv') {
+                        mimeType = 'text/csv;charset=utf-8';
+                        extension = 'csv';
+                        bom = '\uFEFF';
+                        
+                        const headers = ['用户', '评论内容', '情感', '细粒度情感', '意图', '反讽', '关键词', '回复对象'];
+                        content = headers.join(',') + '\n';
+                        
+                        content += comments.map(c => {
+                            const escape = (val) => {
+                                if (!val) return '';
+                                const str = String(val).replace(/"/g, '""');
+                                return `"${str}"`;
+                            };
+                            
+                            const sa = c.sentiment_analysis || {};
+                            
+                            return [
+                                escape(c.user),
+                                escape(c.text),
+                                escape(c.sentiment),
+                                escape(sa.fine_grained_sentiment),
+                                escape(sa.intent),
+                                escape(sa.irony_detected ? '是' : '否'),
+                                escape((c.keywords || []).join('; ')),
+                                escape(c.replyTo || '')
+                            ].join(',');
+                        }).join('\n');
+                        
+                    } else if (exportFormat === 'json') {
+                        mimeType = 'application/json;charset=utf-8';
+                        extension = 'json';
+                        content = JSON.stringify(comments, null, 2);
+                        
+                    } else if (exportFormat === 'txt') {
+                        mimeType = 'text/plain;charset=utf-8';
+                        extension = 'txt';
+                        
+                        content = `文章标题: ${title}\n` +
+                                  `评论总数: ${comments.length}\n` +
+                                  `----------------------------------------\n\n`;
+                                  
+                        content += comments.map((c, index) => {
+                            const sa = c.sentiment_analysis || {};
+                            return `[${index + 1}] 用户: ${c.user}\n` +
+                                   `内容: ${c.text}\n` +
+                                   `情感: ${c.sentiment} | 细粒度: ${sa.fine_grained_sentiment || '-'} | 意图: ${sa.intent || '-'}\n` +
+                                   (c.replyTo ? `回复: ${c.replyTo}\n` : '') +
+                                   `----------------------------------------`;
+                        }).join('\n\n');
+                    }
+
+                    const blob = new Blob([bom + content], { type: mimeType });
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(blob);
+                    // Sanitize filename
+                    const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 50);
+                    link.download = `comments_${safeTitle}_${new Date().toISOString().slice(0,10)}.${extension}`;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    URL.revokeObjectURL(link.href);
+                    
+                    ElMessage.success(`已导出 ${comments.length} 条评论`);
+                };
 
                 // Helper for decoding URL-encoded strings
                 const safeDecode = (str) => {
@@ -1187,6 +2751,7 @@
                 // 图片预览控制
                 const previewImageRef = ref(null);
                 const previewImagesList = ref([]); // 当前预览使用的图片列表
+                const previewKey = ref(0); // 强制刷新 el-image 组件
 
                 // 获取缩略图 URL (后端实时生成)
                 const getThumbnailUrl = (url) => {
@@ -1211,14 +2776,18 @@
                     }
 
                     currentDetail.value.previewIndex = index;
+                    previewKey.value++; // 强制重新渲染组件
+
                     // 等待 DOM 更新，initial-index 生效
-                    setTimeout(() => {
-                        if (previewImageRef.value) {
-                            // 模拟点击隐藏的 el-image 触发预览
-                            const imgEl = previewImageRef.value.$el.querySelector('img');
-                            if (imgEl) imgEl.click();
-                        }
-                    }, 50);
+                    nextTick(() => {
+                        setTimeout(() => {
+                            if (previewImageRef.value) {
+                                // 模拟点击隐藏的 el-image 触发预览
+                                const imgEl = previewImageRef.value.$el.querySelector('img');
+                                if (imgEl) imgEl.click();
+                            }
+                        }, 50);
+                    });
                 };
 
                 // 加载更多评论
@@ -1310,6 +2879,7 @@
                     matchMode: 'full',
                     sortBy: 'time_desc',
                     mergeQuery: false,
+                    warningFilter: false, // 只看预警
                     keywords: '' // 用户手动输入的关键词
                 });
 
@@ -1331,7 +2901,9 @@
                     warningEnabled: false,
                     warningKeywords: '',
                     notifyMethods: ['system'],
-                    frequency: 'realtime'
+                    frequency: 'realtime',
+                    threshold: 50,
+                    is_crisis: 0
                 });
                 
                 // 预警配置状态
@@ -1339,6 +2911,7 @@
                 const warningRuleForm = reactive({
                     taskId: null,
                     keyword: '',
+                    warningKeywords: '',
                     threshold: 50,
                     time_window: 24,
                     sentiment: '负面',
@@ -1348,7 +2921,11 @@
                 const openWarningConfig = (task) => {
                     if (task.id === 'all') return;
                     warningRuleForm.taskId = task.id;
-                    warningRuleForm.keyword = task.keywords || ''; // 默认使用任务关键词
+                    warningRuleForm.keyword = task.keywords || ''; 
+                    warningRuleForm.warningKeywords = task.warning_keywords || '';
+                    warningRuleForm.threshold = task.threshold || 50;
+                    warningRuleForm.is_crisis = task.is_crisis || 0;
+                    warningRuleForm.sentiment = task.warning_sentiment || '负面';
                     warningConfigVisible.value = true;
                 };
 
@@ -1357,7 +2934,7 @@
                         // 创建针对该任务的预警规则
                         const ruleData = {
                             name: `任务预警-${warningRuleForm.taskId}`,
-                            keyword: warningRuleForm.keyword,
+                            keyword: warningRuleForm.warningKeywords,
                             threshold: warningRuleForm.threshold,
                             time_window: warningRuleForm.time_window,
                             sentiment: warningRuleForm.sentiment,
@@ -1368,6 +2945,7 @@
                         await axios.post('/api/alerts/rules', ruleData);
                         ElMessage.success('预警规则已创建');
                         warningConfigVisible.value = false;
+                        await fetchTasks(); // Refresh tasks to update UI colors
                     } catch (e) {
                         ElMessage.error('创建失败');
                     }
@@ -1384,18 +2962,103 @@
                         window.location.href = path;
                         return;
                     }
+
+                    // 处理预警中心 (warning)
+                    if (index === 'warning') {
+                        window.location.href = '/warning';
+                        return;
+                    }
                     
                     // 处理外部页面
                     window.location.href = `/${index}`;
+                };
+
+                const sortableContainer = ref(null);
+                const sortableInstance = ref(null);
+
+                const initSortable = () => {
+                    nextTick(() => {
+                        if (!sortableContainer.value) {
+                            setTimeout(initSortable, 200);
+                            return;
+                        }
+                        
+                        if (sortableInstance.value) return;
+
+                        if (typeof Sortable === 'undefined') {
+                            setTimeout(initSortable, 200);
+                            return;
+                        }
+
+                        try {
+                            sortableInstance.value = new Sortable(sortableContainer.value, {
+                                animation: 150,
+                                draggable: '.draggable-task',
+                                ghostClass: 'sortable-ghost',
+                                dragClass: 'sortable-drag',
+                                forceFallback: true, // Fix for some browsers/devices
+                                onMove: (evt) => {
+                                    // 禁止与固定标签交换位置，确保其始终在第一位
+                                    if (evt.related.classList.contains('fixed-tag')) {
+                                        return false;
+                                    }
+                                },
+                                onEnd: (evt) => {
+                                    const { oldIndex, newIndex } = evt;
+                                    if (oldIndex === newIndex) return;
+
+                                    // 修正索引：减去固定标签占用的 1 个位置
+                                    const arrayOldIndex = oldIndex - 1;
+                                    const arrayNewIndex = newIndex - 1;
+
+                                    if (arrayOldIndex < 0 || arrayNewIndex < 0) return;
+
+                                    // 调整 Vue 响应式数组顺序
+                                    const newTasks = [...tasks.value];
+                                    const movedItem = newTasks.splice(arrayOldIndex, 1)[0];
+                                    newTasks.splice(arrayNewIndex, 0, movedItem);
+                                    tasks.value = newTasks;
+                                    
+                                    // 保存顺序到 LocalStorage
+                                    const orderIds = tasks.value.map(t => t.id);
+                                    localStorage.setItem('monitor_task_order', JSON.stringify(orderIds));
+                                }
+                            });
+                        } catch (e) {
+                            console.error('Sortable init error', e);
+                        }
+                    });
                 };
 
                 // Methods
                 const fetchTasks = async () => {
                     try {
                         const res = await axios.get('/api/monitoring/tasks');
-                        tasks.value = res.data;
+                        let fetchedTasks = res.data;
+                        
+                        // 从 LocalStorage 读取顺序并排序
+                        const savedOrder = localStorage.getItem('monitor_task_order');
+                        if (savedOrder) {
+                            try {
+                                const orderIds = JSON.parse(savedOrder);
+                                const orderMap = new Map(orderIds.map((id, index) => [id, index]));
+                                
+                                fetchedTasks.sort((a, b) => {
+                                    const indexA = orderMap.has(a.id) ? orderMap.get(a.id) : 9999;
+                                    const indexB = orderMap.has(b.id) ? orderMap.get(b.id) : 9999;
+                                    return indexA - indexB;
+                                });
+                            } catch (e) {
+                                console.error('Error parsing task order', e);
+                            }
+                        }
+                        
+                        tasks.value = fetchedTasks;
+                        
+                        // 初始化拖拽
+                        initSortable();
                     } catch (e) {
-                        console.error("Failed to fetch tasks", e);
+                        console.error('Failed to fetch tasks', e);
                         ElMessage.error("获取任务列表失败");
                     }
                 };
@@ -1447,13 +3110,32 @@
                         });
                 };
 
-                const openTaskDialog = () => {
-                    // Reset form
-                    Object.assign(taskForm, {
-                        id: null, name: '', group: '', keywords: '', excludeWords: '',
-                        platforms: ['weibo', 'zhihu'], warningEnabled: false,
-                        warningKeywords: '', notifyMethods: ['system'], frequency: 'realtime'
-                    });
+                const openTaskDialog = (task) => {
+                    if (task && task.id) {
+                        // Edit Mode
+                        Object.assign(taskForm, {
+                            id: task.id,
+                            name: task.name,
+                            group: task.group,
+                            keywords: task.keywords,
+                            excludeWords: task.excludeWords || '',
+                            platforms: task.platforms || ['weibo', 'zhihu'],
+                            warningEnabled: !!task.warningEnabled,
+                            warningKeywords: task.warningKeywords || '',
+                            notifyMethods: task.notifyMethods || ['system'],
+                            frequency: task.frequency || 'realtime',
+                            threshold: task.threshold || 50,
+                            is_crisis: task.is_crisis || 0
+                        });
+                    } else {
+                        // Create Mode (or event object passed)
+                        Object.assign(taskForm, {
+                            id: null, name: '', group: '', keywords: '', excludeWords: '',
+                            platforms: ['weibo', 'zhihu'], warningEnabled: false,
+                            warningKeywords: '', notifyMethods: ['system'], frequency: 'realtime',
+                            threshold: 50, is_crisis: 0
+                        });
+                    }
                     taskDialogVisible.value = true;
                 };
 
@@ -1465,6 +3147,34 @@
                     try {
                         const res = await axios.post('/api/monitoring/tasks', taskForm);
                         ElMessage.success('任务保存成功');
+
+                        // 同步创建预警规则
+                        if (taskForm.warningEnabled) {
+                            try {
+                                // Check for duplicates
+                                const rulesRes = await axios.get('/api/alerts/rules');
+                                const ruleName = `[自动] ${taskForm.name}`;
+                                const exists = rulesRes.data.find(r => r.name === ruleName);
+                                
+                                if (!exists) {
+                                    const ruleData = {
+                                        name: ruleName,
+                                        keyword: taskForm.warningKeywords,
+                                        threshold: taskForm.threshold,
+                                        time_window: 24,
+                                        sentiment: '负面',
+                                        is_crisis: taskForm.is_crisis,
+                                        notify_methods: 'system',
+                                        is_active: 1
+                                    };
+                                    await axios.post('/api/alerts/rules', ruleData);
+                                    ElMessage.success('已自动同步创建预警规则');
+                                }
+                            } catch (e) {
+                                console.error('Auto sync rule failed', e);
+                            }
+                        }
+
                         taskDialogVisible.value = false;
                         await fetchTasks();
                         
@@ -1481,6 +3191,23 @@
                 };
 
                 const handleFilterChange = () => {
+                    // Check warning filter restriction
+                    if (filter.warningFilter) {
+                        const currentTask = tasks.value.find(t => t.id === currentTaskId.value);
+                        // currentTask might be undefined if loading or all? assuming currentTaskId is valid.
+                        // If currentTaskId is 'all' or specific id.
+                        // If 'all', warningEnabled might not be applicable or we check if ANY task has it? 
+                        // Usually 'all' doesn't have warningEnabled property directly unless we aggregate.
+                        // Assuming task-specific context. If task is 'all', maybe we shouldn't allow warning filter or check logic.
+                        // But usually users select a specific task.
+                        
+                        if (currentTask && !currentTask.warningEnabled) {
+                            ElMessage.warning('当前任务未开启预警功能，无法查看预警内容');
+                            filter.warningFilter = false;
+                            return;
+                        }
+                    }
+
                     pagination.page = 1;
                     fetchData();
                 };
@@ -1490,7 +3217,7 @@
                         filter.sortBy = order === 'ascending' ? 'time_asc' : 'time_desc';
                         fetchData();
                     } else if (prop === 'relevance') {
-                        filter.sortBy = 'relevance';
+                        filter.sortBy = order === 'ascending' ? 'relevance_asc' : 'relevance_desc';
                         fetchData();
                     }
                     // For sentiment (client-side sort), do not trigger fetch
@@ -1528,15 +3255,28 @@
                             dateStart = formatDate(startTime);
                         }
 
-                        // Extract main keyword (simple logic: take first part before & or |)
-                        let mainKeyword = keywords.split(/[&|]/)[0].trim();
+                        // Use full keyword string to support complex logic (&, |)
+                        let mainKeyword = keywords;
                         // 如果用户手动输入了关键词，优先级最高
                         if (filter.keywords) mainKeyword = filter.keywords;
+
+                        // 准备平台参数
+                        const platformParam = (task.platforms || []).join(',');
+                        
+                        // 准备预警词参数 (只有当勾选"只看预警"时才生效，或者是必须生效？)
+                        // 用户需求："如果用户开启检测...预警词是必须的...返回的文章内容必须结合关键词的配置，然后必须组合预警词"
+                        // 结合"只看预警"复选框，我们逻辑如下：
+                        // 如果勾选了"只看预警"，则传递 warning_keywords，强制交集。
+                        // 如果未勾选，则不传递，显示所有符合 mainKeyword 的内容。
+                        const warningParam = filter.warningFilter ? (task.warningKeywords || '') : '';
 
                         const params = {
                             page: pagination.page,
                             size: pagination.size,
                             keyword: mainKeyword,
+                            warning_keywords: warningParam,
+                            platforms: platformParam,
+                            exclude_words: task.excludeWords || '',
                             keyword_mode: filter.matchMode,
                             date_start: dateStart,
                             date_end: dateEnd,
@@ -1555,6 +3295,7 @@
                             top_name: safeDecode(item.top_name),
                             original_top_id: item.original_top_id, // 保存原始 top_id 用于查询详情
                             content: item.content,
+                            matched_comment_id: item.matched_comment_id, // 保存匹配的评论ID
                             comment_content: item.comment_content,
                             source: item.source,
                             author: item.author,
@@ -1654,6 +3395,13 @@
                             // 无论是从普通列表点进来的，还是从聚合列表点进来的，都走这里
                             // 注意：如果是从聚合列表点进来的，row 是一个 item 对象，可能没有 comment_id
                             
+                            // Check if we are navigating from a merged view
+                            if (detailVisible.value && currentDetail.value && currentDetail.value.is_merged_view) {
+                                previousMergedDetail.value = { ...currentDetail.value };
+                            } else {
+                                previousMergedDetail.value = null;
+                            }
+                            
                             // 防御性检查：确保 note_id 存在
                             if (!row.note_id) {
                                 console.error("Invalid row data: missing note_id", row);
@@ -1662,7 +3410,8 @@
                             }
                             
                             const noteId = encodeURIComponent(String(row.note_id).trim());
-                            const commentId = row.comment_id || "0";
+                            // 优先使用搜索匹配到的 matched_comment_id，否则使用 row.comment_id
+                            const commentId = row.matched_comment_id || row.comment_id || "0";
                             
                             const response = await axios.get(`/api/monitoring/detail/${noteId}/${commentId}`);
                             const data = response.data;
@@ -1670,19 +3419,54 @@
                             currentDetail.value = {
                                 is_merged_view: false,
                                 ...data,
-                                commentsPage: 1, // 初始化分页
+                                commentsPage: data.current_comments_page || 1, // 使用后端返回的当前页码
                                 loadingComments: false,
                                 showAllImages: false, // 默认收起图片
                                 visibleImageCount: 1, // 控制分批渲染
                                 publish_time: data.created_at,
                                 sentiment_score: data.sentiment_score || (data.sentiment === '正面' ? 80 : (data.sentiment === '负面' ? 20 : 50))
                             };
+                            
+                            // 自动定位到评论
+                            if (commentId && commentId !== "0") {
+                                nextTick(() => {
+                                    const el = document.getElementById('comment-' + commentId);
+                                    if (el) {
+                                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                        // 添加高亮动画效果
+                                        el.style.transition = 'background-color 0.5s';
+                                        el.style.backgroundColor = 'rgba(255, 184, 0, 0.2)';
+                                        setTimeout(() => {
+                                            el.style.backgroundColor = '';
+                                        }, 2000);
+                                    }
+                                });
+                            }
                         }
                         
                         detailVisible.value = true;
                     } catch (e) {
                         console.error("Detail fetch error:", e);
                         ElMessage.error('获取详情失败');
+                    }
+                };
+
+                const backToMergedView = () => {
+                    if (previousMergedDetail.value) {
+                        currentDetail.value = previousMergedDetail.value;
+                        previousMergedDetail.value = null;
+                        
+                        // 恢复滚动位置 (可选，这里简单做)
+                        nextTick(() => {
+                            const container = document.querySelector('.merged-items-list');
+                            if (container) {
+                                // 找到之前展开的项
+                                const expandedItem = currentDetail.value.items.find(i => i.is_expanded);
+                                if (expandedItem) {
+                                    // 这里暂时不做精确定位，因为DOM是重新渲染的
+                                }
+                            }
+                        });
                     }
                 };
 
@@ -1717,34 +3501,233 @@
                     }
                 };
 
-                const exportData = () => {
-                    const csvContent = "data:text/csv;charset=utf-8," 
-                        + "标题,来源,作者,时间,情感,匹配度\n"
-                        + tableData.value.map(e => `${e.top_id},${e.source},${e.author},${e.publish_time},${e.sentiment},${e.relevance}%`).join("\n");
+                const handleSelectionChange = (val) => {
+                    selectedRows.value = val;
+                };
+
+                const exportData = async (format) => {
+                    // Decide which data to export
+                    const dataToExport = selectedRows.value.length > 0 ? selectedRows.value : tableData.value;
                     
-                    const encodedUri = encodeURI(csvContent);
-                    const link = document.createElement("a");
-                    link.setAttribute("href", encodedUri);
-                    link.setAttribute("download", "monitor_data.csv");
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
+                    if (dataToExport.length === 0) {
+                        ElMessage.warning('暂无数据可导出');
+                        return;
+                    }
+
+                    // Default to csv if format is an event object or undefined
+                    const exportFormat = (typeof format === 'string') ? format : 'csv';
+
+                    // Show loading
+                    const loadingInstance = ElementPlus.ElLoading.service({
+                        lock: true,
+                        text: '正在准备包含评论的数据，请稍候...',
+                        background: 'rgba(0, 0, 0, 0.7)',
+                    });
+
+                    try {
+                        // Fetch comments for all items (skip merged items for now as they are topics)
+                        const exportItems = await Promise.all(dataToExport.map(async (row) => {
+                            const item = { ...row };
+                            
+                            // If it's a single article and we don't have full comments yet
+                            if (!item.is_merged && item.note_id) {
+                                try {
+                                    // Use detail API to get comments (Top 20 usually)
+                                    const noteId = encodeURIComponent(String(item.note_id).trim());
+                                    const commentId = item.matched_comment_id || item.comment_id || "0";
+                                    
+                                    // Only fetch if not already loaded (though tableData items usually don't have comments)
+                                    if (!item.comments || item.comments.length === 0) {
+                                        const res = await axios.get(`/api/monitoring/detail/${noteId}/${commentId}`);
+                                        if (res.data && res.data.comments) {
+                                            item.full_comments = res.data.comments;
+                                        }
+                                    } else {
+                                        item.full_comments = item.comments;
+                                    }
+                                } catch (e) {
+                                    console.warn(`Failed to fetch comments for ${item.note_id}`, e);
+                                    item.full_comments = [];
+                                }
+                            }
+                            return item;
+                        }));
+
+                        let content = '';
+                        let mimeType = '';
+                        let extension = '';
+                        let bom = '';
+
+                        if (exportFormat === 'csv') {
+                            mimeType = 'text/csv;charset=utf-8';
+                            extension = 'csv';
+                            bom = '\uFEFF'; // Add BOM for Excel compatibility
+                            
+                            // CSV Header
+                            const headers = ['标题', '来源', '作者', '时间', '情感', '匹配度', '文章内容', '匹配评论', '全部评论(Top20)'];
+                            content = headers.join(',') + '\n';
+                            
+                            // CSV Rows
+                            content += exportItems.map(row => {
+                                // Helper to escape CSV fields
+                                const escape = (val) => {
+                                    if (!val) return '';
+                                    const str = String(val).replace(/"/g, '""');
+                                    return `"${str}"`; // Always quote
+                                };
+                                
+                                // Format all comments
+                                let commentsStr = '';
+                                if (row.full_comments && row.full_comments.length > 0) {
+                                    commentsStr = row.full_comments.map(c => `[${c.user}]: ${c.text}`).join(' | ');
+                                }
+                                
+                                return [
+                                    escape(row.top_id),
+                                    escape(row.source),
+                                    escape(row.author),
+                                    escape(row.publish_time),
+                                    escape(row.sentiment),
+                                    escape(row.relevance + '%'),
+                                    escape(row.content || ''),
+                                    escape(row.comment_content || ''),
+                                    escape(commentsStr)
+                                ].join(',');
+                            }).join('\n');
+                            
+                        } else if (exportFormat === 'json') {
+                            mimeType = 'application/json;charset=utf-8';
+                            extension = 'json';
+                            content = JSON.stringify(exportItems, null, 2);
+                            
+                        } else if (exportFormat === 'txt') {
+                            mimeType = 'text/plain;charset=utf-8';
+                            extension = 'txt';
+                            
+                            content = exportItems.map(row => {
+                                let txt = `标题: ${row.top_id}\n` +
+                                       `来源: ${row.source}\n` +
+                                       `作者: ${row.author}\n` +
+                                       `时间: ${row.publish_time}\n` +
+                                       `情感: ${row.sentiment}\n` +
+                                       `内容: ${row.content || '无内容'}\n`;
+                                
+                                if (row.comment_content) {
+                                    txt += `匹配评论: ${row.comment_content}\n`;
+                                }
+                                
+                                if (row.full_comments && row.full_comments.length > 0) {
+                                    txt += `\n--- 评论列表 (Top ${row.full_comments.length}) ---\n`;
+                                    txt += row.full_comments.map(c => `[${c.user}] (${c.sentiment}): ${c.text}`).join('\n');
+                                    txt += `\n`;
+                                }
+
+                                txt += `----------------------------------------`;
+                                return txt;
+                            }).join('\n\n');
+                        }
+
+                        // Create Blob and Download
+                        const blob = new Blob([bom + content], { type: mimeType });
+                        const link = document.createElement("a");
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `monitor_data_${new Date().toISOString().slice(0,10)}.${extension}`;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        URL.revokeObjectURL(link.href);
+                        
+                        ElMessage.success(`已导出 ${dataToExport.length} 条数据 (含评论)`);
+                    } catch (err) {
+                        console.error("Export error:", err);
+                        ElMessage.error("导出过程中发生错误");
+                    } finally {
+                        loadingInstance.close();
+                    }
                 };
 
                 const getSentimentClass = (s) => {
                     if (s === '正面') return 'positive';
-                    if (s === '负面') return 'negative';
+                    if (s === '负面') {
+                        // 如果是全选模式，或者任务未启用预警，使用默认负面样式
+                        if (currentTaskId.value === 'all') return 'negative';
+                        
+                        const task = tasks.value.find(t => t.id === currentTaskId.value);
+                        if (!task || !task.warningEnabled) return 'negative';
+                        
+                        // 依据任务预警等级区分负面数据颜色
+                        // Priority 1: Crisis Mode (Level I - Red)
+                        if (task.is_crisis === 1) {
+                            return 'level-1'; // Red
+                        }
+                        
+                        // Priority 2: Threshold Levels
+                        const threshold = task.threshold || 100;
+                        
+                        // Level IV: Blue (< 100)
+                        if (threshold < 100) {
+                            return 'level-4'; // Blue
+                        }
+                        // Level III: Yellow (100-500)
+                        else if (threshold < 500) {
+                            return 'level-3'; // Yellow
+                        }
+                        // Level II: Orange (>= 500)
+                        else {
+                            return 'level-2'; // Orange
+                        }
+                    }
                     return 'neutral';
                 };
                 
                 const getSentimentColor = (s) => {
                      if (s === '正面') return '#67C23A';
-                     if (s === '负面') return '#F56C6C';
-                     return '#E6A23C';
+                     if (s === '负面') {
+                         if (currentTaskId.value === 'all') return '#F56C6C';
+                         const task = tasks.value.find(t => t.id === currentTaskId.value);
+                         if (!task || !task.warningEnabled) return '#F56C6C';
+                         
+                         if (task.is_crisis === 1) return '#f56c6c'; // Level I
+                         const threshold = task.threshold || 100;
+                         if (threshold < 100) return '#409eff'; // Level IV
+                         if (threshold < 500) return '#e6a23c'; // Level III
+                         return '#ff7800'; // Level II
+                     }
+                     return '#909399';
+                };
+
+                // Determine task warning level class
+                const getTaskClass = (task) => {
+                    if (!task.warningEnabled) return '';
+                    
+                    const count = task.warning_count || 0;
+                    const threshold = task.threshold || 50;
+                    
+                    // Level I: Red (Crisis Mode AND Reached Threshold)
+                    if (task.is_crisis === 1 && count >= threshold) {
+                        return 'warning-red';
+                    }
+                    
+                    // Dynamic Levels based on Count/Threshold Ratio
+                    const ratio = threshold > 0 ? count / threshold : 0;
+                    
+                    // Level IV: Blue (< 50%)
+                    if (ratio < 0.5) {
+                        return 'warning-blue';
+                    }
+                    // Level III: Yellow (50% - 80%)
+                    else if (ratio < 0.8) {
+                        return 'warning-yellow';
+                    }
+                    // Level II: Orange (>= 80%)
+                    else {
+                        return 'warning-orange';
+                    }
                 };
 
                 const handleSizeChange = (val) => {
                     pagination.size = val;
+                    pagination.page = 1; // Reset to first page
                     fetchData();
                 };
                 const handleCurrentChange = (val) => {
@@ -1761,46 +3744,127 @@
                 };
 
                 // 预计算高亮正则，避免在列表渲染中重复计算
-                const highlightPattern = computed(() => {
-                    let keywordsToHighlight = [];
+                // Separate patterns for normal keywords and warning keywords
+                const highlightPatterns = computed(() => {
+                    let normalKeywords = [];
+                    let warningKeywords = [];
                     
-                    // 1. 优先使用用户手动输入的关键词
+                    // 1. 获取任务关键词 (正常高亮 - 黄色)
                     if (filter.keywords && filter.keywords.trim()) {
-                        keywordsToHighlight.push(filter.keywords.trim());
-                    } 
-                    // 2. 如果没有手动输入，且当前选择了特定任务，则高亮任务关键词
-                    else if (currentTaskId.value !== 'all') {
+                        // 用户手动输入的关键词优先级最高
+                        const parts = filter.keywords.split(/[&|\n]/).map(k => k.trim()).filter(k => k);
+                        normalKeywords.push(...parts);
+                    } else if (currentTaskId.value !== 'all') {
                         const task = tasks.value.find(t => t.id === currentTaskId.value);
                         if (task && task.keywords) {
-                            // 分割关键词，支持 & 和 |
-                            keywordsToHighlight = task.keywords.split(/[&|]/).map(k => k.trim()).filter(k => k);
+                            normalKeywords = task.keywords.split(/[&|]/).map(k => k.trim()).filter(k => k);
                         }
                     }
-                    
-                    if (keywordsToHighlight.length === 0) return null;
-                    
-                    // 转义正则特殊字符并构建匹配模式
-                    const escapedKeywords = keywordsToHighlight.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-                    // 按长度降序排列，确保先匹配长词
-                    escapedKeywords.sort((a, b) => b.length - a.length);
-                    
-                    try {
-                        return new RegExp(`(${escapedKeywords.join('|')})`, 'gi');
-                    } catch (e) {
-                        return null;
+
+                    // 2. 获取预警关键词 (预警高亮 - 红色)
+                    if (currentTaskId.value !== 'all') {
+                         const task = tasks.value.find(t => t.id === currentTaskId.value);
+                         if (task && task.warningKeywords) {
+                             // 如果启用了"只看预警"，或者仅仅是为了展示高亮
+                             // 用户反馈要求高亮预警词
+                             warningKeywords = task.warningKeywords.split(/[&|]/).map(k => k.trim()).filter(k => k);
+                         }
                     }
+
+                    const createPattern = (words) => {
+                        if (words.length === 0) return null;
+                        const escaped = words.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+                        escaped.sort((a, b) => b.length - a.length);
+                        try {
+                            return new RegExp(`(${escaped.join('|')})`, 'gi');
+                        } catch (e) {
+                            return null;
+                        }
+                    };
+
+                    return {
+                        normal: createPattern(normalKeywords),
+                        warning: createPattern(warningKeywords)
+                    };
                 });
 
-                const highlightKeyword = (text) => {
+                const highlightKeyword = (text, field) => {
                     if (!text) return '';
                     
                     // Try to decode if encoded
                     text = safeDecode(text);
 
-                    if (!highlightPattern.value) return text;
+                    // Check filter mode
+                    const mode = filter.matchMode;
+                    if (mode && mode !== 'full' && field && mode !== field) {
+                         if (mode === 'title' && field === 'top_name') {
+                             // allow
+                         } else {
+                             return text;
+                         }
+                    }
                     
-                    // 赛博琥珀色设计：高亮但不刺眼
-                    return text.replace(highlightPattern.value, '<span class="keyword-highlight" style="color: #ffb800; font-weight: 900; background: rgba(255, 184, 0, 0.15); padding: 0 4px; border-radius: 4px; border: 1px solid rgba(255, 184, 0, 0.3); box-shadow: 0 0 8px rgba(255, 184, 0, 0.2); text-shadow: 0 0 8px rgba(255, 184, 0, 0.6); transition: all 0.3s;">$1</span>');
+                    let result = text;
+                    const patterns = highlightPatterns.value;
+
+                    // 1. 先匹配预警词 (优先级高，红色)
+                    if (patterns.warning) {
+                        result = result.replace(patterns.warning, '<span class="keyword-highlight-warning" style="color: #F56C6C; font-weight: 900; background: rgba(245, 108, 108, 0.15); padding: 0 4px; border-radius: 4px; border: 1px solid rgba(245, 108, 108, 0.3); box-shadow: 0 0 8px rgba(245, 108, 108, 0.2); text-shadow: 0 0 8px rgba(245, 108, 108, 0.6); transition: all 0.3s;">$1</span>');
+                    }
+
+                    // 2. 再匹配普通关键词 (黄色)，避免重复替换已替换的标签
+                    // 由于 replace 会替换所有匹配项，我们需要小心不要破坏已经生成的 HTML 标签
+                    // 简单的做法是先替换警告词，再替换普通词。
+                    // 但是如果普通词包含了警告词（或者是子集），可能会有问题。
+                    // 暂时假设预警词和关键词不太冲突，或者简单的先后顺序能满足大部分需求。
+                    // 更好的做法是分词处理，但这里为了性能和简单，先尝试顺序替换。
+                    // 为了防止替换掉 span 标签里的 class 等属性，我们可以暂时忽略 HTML 标签内的内容?
+                    // 但 text 这里应该是纯文本输入（除了我们刚刚加的 span）。
+                    
+                    if (patterns.normal) {
+                         // 简单的避免匹配到 HTML 标签的方法：
+                         // 只有当匹配项不在 > 和 < 之间时才替换？比较复杂。
+                         // 或者，我们只在尚未被高亮的部分进行匹配。
+                         
+                         // 这里使用一个简单的 trick: 
+                         // 我们假设预警高亮已经添加了 class="keyword-highlight-warning"。
+                         // 普通高亮只匹配那些还没有被包裹的词。
+                         // 但正则很难直接做到 "不匹配特定标签内"。
+                         
+                         // 权衡：如果预警词和关键词重叠，优先显示预警红色。
+                         // 如果没有重叠，各自显示。
+                         // 如果普通关键词包含预警词（如“上海疫情” vs “疫情”），先替换了“疫情”，剩下的“上海”能被普通匹配吗？
+                         // 比如 "上海疫情爆发" -> "上海<span red>疫情</span>爆发"
+                         // 普通关键词 "上海" -> "<span yellow>上海</span><span red>疫情</span>爆发" -> OK
+                         
+                         // 如果普通关键词是 "上海疫情"，预警词是 "疫情"
+                         // 1. Warning: "上海<span red>疫情</span>爆发"
+                         // 2. Normal: "上海疫情" 无法匹配 "上海<span..." 
+                         
+                         // 为了稳健，我们可以把 text 拆分成 token，或者...
+                         // 给定用户需求，预警词高亮是必须的。
+                         // 既然已经替换了预警词，普通词如果无法匹配也无所谓（预警更重要）。
+                         // 只要确保普通词不破坏预警词的 HTML 结构。
+                         
+                         result = result.replace(patterns.normal, (match) => {
+                             // 如果这个 match 已经被包含在 HTML 标签里了（比如它是 <span ...>match</span> 的一部分），则跳过
+                             // 但在这里我们也拿不到上下文。
+                             
+                             // 既然 text 已经是混合了 HTML 的字符串
+                             // 我们可以用一个更安全的做法：
+                             // 仅当 match 不在 <...> 内部时替换。
+                             // 但 JS 正则不支持 lookbehind (部分浏览器)。
+                             
+                             // 简单方案：直接替换。
+                             // 风险：如果关键词是 "span" 或者 "class"，会破坏 HTML。
+                             // 解决：关键词通常是中文或特定词汇，不太可能是 HTML 标签名。
+                             // 除非关键词是 "div", "style" 等。
+                             
+                             return `<span class="keyword-highlight" style="color: #ffb800; font-weight: 900; background: rgba(255, 184, 0, 0.15); padding: 0 4px; border-radius: 4px; border: 1px solid rgba(255, 184, 0, 0.3); box-shadow: 0 0 8px rgba(255, 184, 0, 0.2); text-shadow: 0 0 8px rgba(255, 184, 0, 0.6); transition: all 0.3s;">${match}</span>`;
+                         });
+                    }
+
+                    return result;
                 };
 
                 const customColors = [
@@ -1816,17 +3880,43 @@
                     fetchData();
                 });
 
+                const formatTime = (timeStr) => {
+                    if (!timeStr) return '';
+                    try {
+                        const date = new Date(timeStr);
+                        if (isNaN(date.getTime())) return timeStr.split('+')[0].replace('T', ' ');
+                        
+                        const year = date.getFullYear();
+                        const month = String(date.getMonth() + 1).padStart(2, '0');
+                        const day = String(date.getDate()).padStart(2, '0');
+                        const hours = String(date.getHours()).padStart(2, '0');
+                        const minutes = String(date.getMinutes()).padStart(2, '0');
+                        
+                        return `${year}-${month}-${day} ${hours}:${minutes}`;
+                    } catch (e) {
+                        return timeStr;
+                    }
+                };
+
                 return {
+                    formatTime,
                     isCollapse, activeMenu, loading, tableData, tasks, currentTaskId,
                     filter, pagination, taskDialogVisible, taskForm, groups,
-                    detailVisible, currentDetail, isEditingSentiment, tempSentiment,
+                    detailVisible, currentDetail, nestedComments, isEditingSentiment, tempSentiment,
                     switchTask, deleteTask, openTaskDialog, saveTask,
                     handleMenuSelect, handleFilterChange, handleSortChange,
                     showDetail, deleteContent, exportData, toggleEditSentiment, saveSentiment,
-                    getSentimentClass, getSentimentColor, handleSizeChange, handleCurrentChange, customColors, filterSentiment, sortSentiment, highlightKeyword, toggleExpand,
+                    selectedRows, handleSelectionChange, exportComments,
+                    getSentimentClass, getTaskClass, getSentimentColor, handleSizeChange, handleCurrentChange, customColors, filterSentiment, sortSentiment, highlightKeyword, toggleExpand,
                     loadMoreMergedItems, loadMoreComments, expandAllImages,
-                    previewImageRef, openPreview, getThumbnailUrl, previewImagesList,
-                    warningConfigVisible, warningRuleForm, openWarningConfig, saveWarningConfig
+                    previewImageRef, openPreview, getThumbnailUrl, previewImagesList, previewKey,
+                    warningConfigVisible, warningRuleForm, openWarningConfig, saveWarningConfig,
+                    sortableContainer,
+                    backToMergedView, previousMergedDetail, detailSentimentStats,
+                    // Training Results
+                    isEditingTraining, tempTrainingData, toggleEditTraining, saveTrainingResult,
+                    // Comment Training Results
+                    commentEditVisible, tempCommentTrainingData, toggleEditCommentTraining, saveCommentTrainingResult
                 };
             }
         });

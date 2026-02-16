@@ -127,7 +127,7 @@
                         <el-table-column prop="title" label="预警描述" min-width="200">
                             <template #default="scope">
                                 <div class="tech-description">
-                                    <el-icon class="alert-icon" :class="scope.row.level === 'high' ? 'is-danger' : 'is-warning'">
+                                    <el-icon class="alert-icon" :class="{'is-danger': scope.row.level === 'high', 'is-warning': scope.row.level === 'medium', 'is-success': scope.row.level === 'low'}">
                                         <warning />
                                     </el-icon>
                                     {{ scope.row.title }}
@@ -141,8 +141,8 @@
                         </el-table-column>
                         <el-table-column label="级别" width="100">
                             <template #default="scope">
-                                <span :class="['tech-tag', scope.row.level === 'high' ? 'tag-danger' : 'tag-warning']">
-                                    {{ scope.row.level === 'high' ? '高' : '中' }}
+                                <span :class="['tech-tag', scope.row.level === 'high' ? 'tag-danger' : (scope.row.level === 'low' ? 'tag-success' : 'tag-warning')]">
+                                    {{ scope.row.level === 'high' ? '高' : (scope.row.level === 'low' ? '低' : '中') }}
                                 </span>
                             </template>
                         </el-table-column>
@@ -320,7 +320,7 @@
                             tooltip: { trigger: 'item' },
                             series: [{
                                 type: 'pie',
-                                radius: ['40%', '70%'],
+                                radius: ['35%', '60%'],
                                 data: data,
                                 label: { color: '#fff' }
                             }]

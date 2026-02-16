@@ -1,8 +1,26 @@
 import json
 import os
 from urllib.parse import unquote
+from collections import Counter
+import jieba
+import jieba.analyse
 from fastapi import APIRouter, HTTPException, Body
 from .database import query_db, execute_db
+
+# Try to import PLATFORM_MAP from Transformers.config
+try:
+    from Transformers.config import PLATFORM_MAP
+except ImportError:
+    # Fallback if import fails
+    PLATFORM_MAP = {
+        "weibo": "微博",
+        "zhihu": "知乎",
+        "toutiao": "头条",
+        "douyin": "抖音",
+        "kuaishou": "快手",
+        "bilibili": "B站",
+        "xiaohongshu": "小红书"
+    }
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
@@ -10,6 +28,134 @@ router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 IMAGE_SERVER_URL = "http://localhost:8002"
 
 VLM_RESULT_PATH = r"e:\JNU-OPORC\Transformers\output\vlm_result.jsonl"
+
+@router.post("/update_training_result")
+async def update_training_result(
+    note_id: str = Body(...),
+    sentiment: str = Body(None),
+    fine_grained_sentiment: str = Body(None),
+    intent: str = Body(None),
+    irony_detected: bool = Body(None),
+    reasoning: str = Body(None),
+    keywords: list = Body(None),
+    ocr_text: str = Body(None),
+    original_data: dict = Body(...)
+):
+    """
+    Update article training results (sentiment, intent, reasoning, etc.)
+    Sync to database and append to vlm_result.jsonl
+    """
+    try:
+        # 1. Construct result object for jsonl
+        # Filter out frontend-specific fields and restore original IDs
+        result_entry = original_data.copy()
+        
+        # Restore original top_id if it was replaced by top_name for display
+        if "original_top_id" in result_entry:
+            result_entry["top_id"] = result_entry["original_top_id"]
+            
+        # Remove frontend-only fields
+        frontend_fields = [
+            "original_top_id", "is_merged_view", "is_expanded", "loading", 
+            "showAllImages", "visibleImageCount", "current_comments_page", 
+            "loadingComments", "sentiment_score", "relevance", "trained_keywords",
+            "has_details", "matched_comment_id", "comment_content", "merge_count",
+            "images", "previewIndex"
+        ]
+        for field in frontend_fields:
+            if field in result_entry:
+                del result_entry[field]
+        
+        # Ensure sentiment_analysis structure exists
+        if "sentiment_analysis" not in result_entry or not isinstance(result_entry["sentiment_analysis"], dict):
+            result_entry["sentiment_analysis"] = {}
+
+        # Update fields in result_entry
+        if sentiment is not None:
+            result_entry["sentiment_analysis"]["sentiment"] = sentiment
+            result_entry["sentiment"] = sentiment # Top-level sync
+            # Update labels list
+            result_entry["labels"] = [sentiment]
+            
+        if fine_grained_sentiment is not None:
+            result_entry["sentiment_analysis"]["fine_grained_sentiment"] = fine_grained_sentiment
+            
+        if intent is not None:
+            result_entry["sentiment_analysis"]["intent"] = intent
+            
+        if irony_detected is not None:
+            result_entry["sentiment_analysis"]["irony_detected"] = irony_detected
+            
+        if reasoning is not None:
+            result_entry["sentiment_analysis"]["reasoning"] = reasoning
+
+        if keywords is not None:
+            result_entry["keywords"] = keywords
+            
+        if ocr_text is not None:
+            result_entry["ocr_text"] = ocr_text
+
+        # 2. Append to vlm_result.jsonl
+        os.makedirs(os.path.dirname(VLM_RESULT_PATH), exist_ok=True)
+        
+        with open(VLM_RESULT_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(result_entry, ensure_ascii=False) + "\n")
+            
+        # 3. Update Database (content table only, assuming this is for articles)
+        # Construct dynamic UPDATE query
+        update_fields = []
+        params = []
+        
+        if sentiment is not None:
+            update_fields.append("sentiment = ?")
+            params.append(sentiment)
+            
+        if fine_grained_sentiment is not None:
+            update_fields.append("fine_grained_sentiment = ?")
+            params.append(fine_grained_sentiment)
+            
+        if intent is not None:
+            update_fields.append("intent = ?")
+            params.append(intent)
+            
+        if irony_detected is not None:
+            update_fields.append("irony_detected = ?")
+            params.append(1 if irony_detected else 0) # SQLite boolean as integer
+            
+        if reasoning is not None:
+            update_fields.append("reasoning = ?")
+            params.append(reasoning)
+            
+        if keywords is not None:
+            # Join list to string for DB storage if needed, or store as JSON string
+            # Check how it's stored. Usually JSON string or comma separated.
+            # Based on previous code: item["trained_keywords"] = item.get("keywords", [])
+            # And query_db returns it.
+            # If the DB column is TEXT, we should serialize it.
+            # Let's assume JSON string for now as it's safer for lists.
+            # Wait, the DB check showed 'keywords' column.
+            # Let's check how it's stored in `original_data`.
+            # If `original_data` has it as list, fine.
+            # In DB, it's likely a string.
+            update_fields.append("keywords = ?")
+            params.append(json.dumps(keywords, ensure_ascii=False))
+            
+        if ocr_text is not None:
+            update_fields.append("ocr_text = ?")
+            params.append(ocr_text)
+
+        if update_fields:
+            query = f"UPDATE content SET {', '.join(update_fields)} WHERE note_id = ?"
+            params.append(note_id)
+            execute_db(query, tuple(params))
+             
+        return {"status": "success", "message": "Training result updated"}
+        
+    except Exception as e:
+        print(f"Error updating training result: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/update_sentiment")
 async def update_sentiment(
@@ -69,24 +215,314 @@ async def update_sentiment(
         print(f"Error updating sentiment: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/update_comment_training_result")
+async def update_comment_training_result(
+    note_id: str = Body(...),
+    comment_id: str = Body(...),
+    sentiment: str = Body(None),
+    fine_grained_sentiment: str = Body(None),
+    intent: str = Body(None),
+    irony_detected: bool = Body(None),
+    reasoning: str = Body(None),
+    keywords: list = Body(None),
+    ocr_text: str = Body(None),
+    original_data: dict = Body(...)
+):
+    """
+    Update comment training results (sentiment, intent, reasoning, etc.)
+    Sync to database (sentiment only) and append to vlm_result.jsonl in specific format.
+    """
+    try:
+        # 1. Construct result object for jsonl
+        c = original_data
+        
+        # Helper to safely get fields
+        def get_val(keys, default=""):
+            for k in keys:
+                if k in c and c[k] is not None:
+                    return c[k]
+            return default
+
+        # Ensure sentiment_analysis structure exists
+        sa = c.get("sentiment_analysis", {})
+        if not isinstance(sa, dict):
+            sa = {}
+            
+        # Construct the target format
+        result_entry = {
+            "note_id": note_id,
+            "comment_id": comment_id,
+            "content": get_val(["text", "content"]),
+            "image_paths": get_val(["images", "image_paths"], []),
+            "source": get_val(["source"], "微博"), 
+            "author": get_val(["user", "author", "user_name"]),
+            "created_at": get_val(["time", "created_at"]),
+            "url": get_val(["url"]),
+            "ip_location": get_val(["location", "ip_location"]),
+            "comment_like_count": str(get_val(["likes", "like_count", "comment_like_count"], "0")),
+            "sub_comment_count": int(get_val(["reply_count", "sub_comment_count"], 0)),
+            "gender": get_val(["gender"], "unknown"),
+            "parent_comment_id": get_val(["parent_id", "parent_comment_id"], comment_id),
+            "sentiment_analysis": sa,
+            "labels": c.get("labels", []),
+            "keywords": c.get("keywords", []),
+            "visual_objects": c.get("visual_objects", []),
+            "ocr_text": c.get("ocr_text", "")
+        }
+        
+        # Update fields in sentiment_analysis
+        if sentiment is not None:
+            result_entry["sentiment_analysis"]["sentiment"] = sentiment
+            # Sync top-level labels
+            result_entry["labels"] = [sentiment]
+            
+        if fine_grained_sentiment is not None:
+            result_entry["sentiment_analysis"]["fine_grained_sentiment"] = fine_grained_sentiment
+            
+        if intent is not None:
+            result_entry["sentiment_analysis"]["intent"] = intent
+            
+        if irony_detected is not None:
+            result_entry["sentiment_analysis"]["irony_detected"] = irony_detected
+            
+        if reasoning is not None:
+            result_entry["sentiment_analysis"]["reasoning"] = reasoning
+
+        if keywords is not None:
+            result_entry["keywords"] = keywords
+            
+        if ocr_text is not None:
+            result_entry["ocr_text"] = ocr_text
+
+        # 2. Append to vlm_result.jsonl
+        os.makedirs(os.path.dirname(VLM_RESULT_PATH), exist_ok=True)
+        
+        with open(VLM_RESULT_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(result_entry, ensure_ascii=False) + "\n")
+            
+        # 3. Update Database (sentiment only for comments table)
+        if sentiment is not None:
+            execute_db("UPDATE comments SET sentiment = ? WHERE note_id = ? AND comment_id = ?", (sentiment, note_id, comment_id))
+             
+        return {"status": "success", "message": "Comment training result updated"}
+        
+    except Exception as e:
+        print(f"Error updating comment result: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # --- Task Management APIs ---
 
 @router.get("/tasks")
 async def get_tasks():
-    """获取所有监控任务"""
+    """获取所有监控任务，并附带预警统计信息"""
     try:
         tasks = query_db("SELECT * FROM monitoring_tasks ORDER BY created_at DESC")
+        rules = query_db("SELECT * FROM alert_rules")
+        
+        # Build a map of rules by name for faster lookup
+        rule_map = {}
+        if rules:
+            for r in rules:
+                rule_map[r['name']] = dict(r)
+
         result = []
         if tasks:
             for row in tasks:
                 t = dict(row)
-                # Convert comma-separated strings back to lists/booleans
                 t["platforms"] = t["platforms"].split(",") if t["platforms"] else []
                 t["notifyMethods"] = t["notify_methods"].split(",") if t.get("notify_methods") else []
                 t["warningEnabled"] = bool(t["warning_enabled"])
-                t["group"] = t["group_name"] # alias for frontend
+                t["group"] = t["group_name"]
                 t["warningKeywords"] = t["warning_keywords"]
                 t["excludeWords"] = t["exclude_words"]
+                
+                # Attach advanced warning config
+                rule_name = f"任务预警-{t['id']}"
+                if rule_name in rule_map:
+                    rule = rule_map[rule_name]
+                    t["threshold"] = rule.get("threshold", 100)
+                    t["is_crisis"] = rule.get("is_crisis", 0)
+                    t["warning_sentiment"] = rule.get("sentiment", "负面")
+                else:
+                    t["threshold"] = 50 # Default to 50 as per user request example
+                    t["is_crisis"] = 0
+                    t["warning_sentiment"] = "负面"
+                
+                # Calculate warning count if enabled
+                t["warning_count"] = 0
+                if t["warningEnabled"]:
+                    try:
+                        # Construct count query
+                        # Re-use logic from get_monitoring_list but simpler
+                        # 1. Base constraints (Keywords, Platforms, Exclude)
+                        where_clauses = []
+                        params = []
+                        
+                        # Task Keywords
+                        if t["keywords"]:
+                            k_sql, k_params = parse_keyword_expr(t["keywords"], mode="full", table_alias="T")
+                            if k_sql:
+                                where_clauses.append(k_sql)
+                                params.extend(k_params)
+                        
+                        # Platforms
+                        if t["platforms"]:
+                            platform_clauses = []
+                            for p in t["platforms"]:
+                                if not p.strip(): continue
+                                p_str = p.strip()
+                                search_terms = [p_str]
+                                if p_str in PLATFORM_MAP:
+                                    search_terms.append(PLATFORM_MAP[p_str])
+                                or_group = []
+                                for term in search_terms:
+                                    or_group.append("T.source LIKE ?")
+                                    params.append(f"%{term}%")
+                                platform_clauses.append(f"({' OR '.join(or_group)})")
+                            if platform_clauses:
+                                where_clauses.append(f"({' OR '.join(platform_clauses)})")
+                        
+                        # Exclude Words
+                        if t["excludeWords"]:
+                            excludes = t["excludeWords"].replace(',', ' ').split()
+                            for ew in excludes:
+                                if not ew.strip(): continue
+                                ew_wild = f"%{ew.strip()}%"
+                                where_clauses.append("NOT (T.title LIKE ? OR T.content LIKE ? OR T.top_name LIKE ?)")
+                                params.extend([ew_wild, ew_wild, ew_wild])
+                                
+                        # Warning Keywords (The specific filter for "warning count")
+                        if t["warningKeywords"]:
+                            w_sql, w_params = parse_keyword_expr(t["warningKeywords"], mode="full", table_alias="T")
+                            if w_sql:
+                                where_clauses.append(w_sql)
+                                params.extend(w_params)
+                        
+                        # Add Sentiment Filter (Must be Negative)
+                        warning_sentiment = t.get("warning_sentiment", "负面")
+                        where_clauses.append("T.sentiment = ?")
+                        params.append(warning_sentiment)
+
+                        # Build Query
+                        if where_clauses:
+                            # 1. Count Negative Articles
+                            article_count_sql = f"""
+                                SELECT COUNT(DISTINCT T.note_id) 
+                                FROM content T 
+                                LEFT JOIN top_topics t_top ON T.top_id = t_top.top_id
+                                WHERE {' AND '.join(where_clauses)}
+                            """
+                            
+                            # 2. Count Negative Comments
+                            # Comments must match:
+                            # a) Comment text matches Warning Keywords (Strictly speaking, user said "Single comment involving keywords and warning words")
+                            # b) Comment sentiment is Negative
+                            # c) Parent Article matches Task Keywords & Platforms (Scope)
+                            # To be safe and efficient, we find comments whose parent matches scope, and the comment itself matches warning/sentiment.
+                            
+                            # Construct Comment Where Clauses
+                            # Scope constraints (Keywords, Platforms, Exclude) apply to Parent Article (T)
+                            # Warning/Sentiment constraints apply to Comment (C)
+                            
+                            comment_where = []
+                            comment_params = []
+                            
+                            # Scope: Parent Article Matches
+                            # We can reuse where_clauses logic but we need to separate "Scope" from "Warning"
+                            # Let's rebuild carefully.
+                            
+                            scope_clauses = []
+                            scope_params = []
+                            
+                            # Task Keywords (Article must match topic)
+                            if t["keywords"]:
+                                k_sql, k_params = parse_keyword_expr(t["keywords"], mode="full", table_alias="T")
+                                if k_sql:
+                                    scope_clauses.append(k_sql)
+                                    scope_params.extend(k_params)
+                                    
+                            # Platforms (Article source)
+                            if t["platforms"]:
+                                platform_clauses = []
+                                for p in t["platforms"]:
+                                    if not p.strip(): continue
+                                    p_str = p.strip()
+                                    search_terms = [p_str]
+                                    if p_str in PLATFORM_MAP:
+                                        search_terms.append(PLATFORM_MAP[p_str])
+                                    or_group = []
+                                    for term in search_terms:
+                                        or_group.append("T.source LIKE ?")
+                                        scope_params.append(f"%{term}%")
+                                    platform_clauses.append(f"({' OR '.join(or_group)})")
+                                if platform_clauses:
+                                    scope_clauses.append(f"({' OR '.join(platform_clauses)})")
+                                    
+                            # Exclude Words (Article)
+                            if t["excludeWords"]:
+                                excludes = t["excludeWords"].replace(',', ' ').split()
+                                for ew in excludes:
+                                    if not ew.strip(): continue
+                                    ew_wild = f"%{ew.strip()}%"
+                                    scope_clauses.append("NOT (T.title LIKE ? OR T.content LIKE ? OR T.top_name LIKE ?)")
+                                    scope_params.extend([ew_wild, ew_wild, ew_wild])
+
+                            # Comment Specific Constraints
+                            comment_specific = []
+                            comment_specific_params = []
+                            
+                            # Warning Keywords (Applied to Comment Text)
+                            if t["warningKeywords"]:
+                                # parse_keyword_expr generates SQL like (T.title LIKE ... OR T.content LIKE ...)
+                                # We need it to apply to C.content (assuming comments table column is 'content' as seen in line 422)
+                                w_sql_c, w_params_c = parse_keyword_expr(t["warningKeywords"], mode="simple", table_alias="C", column_name="content")
+                                if w_sql_c:
+                                    comment_specific.append(w_sql_c)
+                                    comment_specific_params.extend(w_params_c)
+                                    
+                            # Sentiment (Applied to Comment)
+                            comment_specific.append("C.sentiment = ?")
+                            comment_specific_params.append(warning_sentiment)
+                            
+                            # Combine for Comment Query
+                            # We join comments with content
+                            # SELECT COUNT(DISTINCT C.comment_id) FROM comments C JOIN content T ON C.note_id = T.note_id
+                            
+                            full_comment_where = scope_clauses + comment_specific
+                            full_comment_params = scope_params + comment_specific_params
+                            
+                            if full_comment_where:
+                                comment_count_sql = f"""
+                                    SELECT COUNT(DISTINCT C.comment_id)
+                                    FROM comments C
+                                    JOIN content T ON C.note_id = T.note_id
+                                    LEFT JOIN top_topics t_top ON T.top_id = t_top.top_id
+                                    WHERE {' AND '.join(full_comment_where)}
+                                """
+                                
+                                # Execute Queries
+                                # We need to run these against the Transformers DB
+                                # query_db detects "content" or "comments" and should route correctly if logic supports it.
+                                # Let's assume query_db handles it.
+                                
+                                article_res = query_db(article_count_sql, tuple(params), one=True)
+                                article_count = article_res[0] if article_res else 0
+                                
+                                comment_res = query_db(comment_count_sql, tuple(full_comment_params), one=True)
+                                comment_count = comment_res[0] if comment_res else 0
+                                
+                                t["warning_count"] = article_count + comment_count
+                            else:
+                                t["warning_count"] = 0
+                        else:
+                            t["warning_count"] = 0
+                    except Exception as e:
+                        print(f"Error calculating warning count for task {t['id']}: {e}")
+                        t["warning_count"] = 0
+
                 result.append(t)
         return result
     except Exception as e:
@@ -108,25 +544,55 @@ async def create_task(task: dict = Body(...)):
         notify_methods = ",".join(task.get("notifyMethods", []))
         frequency = task.get("frequency", "realtime")
         
-        # Check if update (if id exists)
-        if "id" in task and task["id"]:
-            # Update
+        # Extra fields for alert_rules
+        threshold = task.get("threshold", 50)
+        is_crisis = 1 if task.get("is_crisis") else 0
+        
+        task_id = task.get("id")
+
+        if task_id:
+            # Update Task
             sql = """
                 UPDATE monitoring_tasks 
                 SET name=?, group_name=?, keywords=?, exclude_words=?, platforms=?, 
                     warning_enabled=?, warning_keywords=?, notify_methods=?, frequency=?
                 WHERE id=?
             """
-            execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, task["id"]))
-            return {"status": "success", "message": "Task updated", "id": task["id"]}
+            execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, task_id))
         else:
-            # Create
+            # Create Task
             sql = """
                 INSERT INTO monitoring_tasks (name, group_name, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
+            # execute_db returns True/False, not ID directly with current impl, 
+            # but we need ID for alert_rules.
+            # We need to fetch the last inserted ID.
             execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency))
-            return {"status": "success", "message": "Task created"}
+            # Get the new ID
+            last_task = query_db("SELECT id FROM monitoring_tasks ORDER BY id DESC LIMIT 1", one=True)
+            if last_task:
+                task_id = last_task['id']
+        
+        # Update/Create Alert Rule
+        if task_id:
+            rule_name = f"任务预警-{task_id}"
+            # Check if rule exists
+            existing_rule = query_db("SELECT id FROM alert_rules WHERE name = ?", (rule_name,), one=True)
+            
+            if existing_rule:
+                execute_db("""
+                    UPDATE alert_rules 
+                    SET threshold=?, is_crisis=?, notify_methods=?, is_active=?, keyword=?
+                    WHERE id=?
+                """, (threshold, is_crisis, notify_methods, warning_enabled, warning_keywords, existing_rule['id']))
+            else:
+                execute_db("""
+                    INSERT INTO alert_rules (name, threshold, is_crisis, notify_methods, is_active, keyword)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (rule_name, threshold, is_crisis, notify_methods, warning_enabled, warning_keywords))
+
+        return {"status": "success", "message": "Task saved", "id": task_id}
             
     except Exception as e:
         print(f"Error saving task: {e}")
@@ -158,12 +624,148 @@ async def delete_content(note_id: str):
         print(f"Error deleting content: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, column_name: str = None) -> tuple[str, list]:
+    """
+    Parses complex keyword expressions supporting '&' (AND), '|' (OR), and newline (OR group).
+    Returns (sql_clause, params_list).
+    """
+    if not keyword_str:
+        return "", []
+
+    prefix = f"{table_alias}." if table_alias else ""
+    
+    def build_condition(term):
+        term_wild = f"%{term}%"
+        if mode == "simple" and column_name:
+             return f"({prefix}{column_name} LIKE ?)", [term_wild]
+        elif mode == "title":
+            if table_alias == 'c': # Merged query logic
+                 return f"({prefix}top_id LIKE ? OR t.top_name LIKE ?)", [term_wild, term_wild]
+            else: # Normal query logic
+                 return f"({prefix}top_name LIKE ? OR {prefix}title LIKE ?)", [term_wild, term_wild]
+        elif mode == "content":
+            return f"({prefix}content LIKE ?)", [term_wild]
+        elif mode == "comment":
+            # For comment mode, we need to handle the subquery
+            outer_ref = f"{prefix}note_id" if table_alias else "T.note_id"
+            return f"EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.content LIKE ?)", [term_wild]
+        else: # full
+            if table_alias == 'c':
+                return f"({prefix}top_id LIKE ? OR t.top_name LIKE ? OR {prefix}content LIKE ? OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {prefix}note_id AND cm_sub.content LIKE ?))", [term_wild, term_wild, term_wild, term_wild]
+            else:
+                outer_ref = "T.note_id"
+                return f"({prefix}top_name LIKE ? OR {prefix}title LIKE ? OR {prefix}content LIKE ? OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.content LIKE ?))", [term_wild, term_wild, term_wild, term_wild]
+
+    groups = keyword_str.split('\n')
+    group_clauses = []
+    all_params = []
+    
+    for group in groups:
+        if not group.strip(): continue
+        # Split by | for OR
+        or_terms = group.split('|')
+        or_clauses = []
+        for term in or_terms:
+            if not term.strip(): continue
+            # Split by & for AND
+            and_terms = term.split('&')
+            and_clauses = []
+            for subterm in and_terms:
+                subterm = subterm.strip()
+                if not subterm: continue
+                clause, params = build_condition(subterm)
+                and_clauses.append(clause)
+                all_params.extend(params)
+            
+            if and_clauses:
+                if len(and_clauses) > 1:
+                    or_clauses.append("(" + " AND ".join(and_clauses) + ")")
+                else:
+                    or_clauses.append(and_clauses[0])
+                    
+        if or_clauses:
+            if len(or_clauses) > 1:
+                group_clauses.append("(" + " OR ".join(or_clauses) + ")")
+            else:
+                group_clauses.append(or_clauses[0])
+                
+    if not group_clauses:
+        return "", []
+        
+    final_sql = "(" + " OR ".join(group_clauses) + ")"
+    return final_sql, all_params
+
+def calculate_tfidf_relevance(item, query_tokens, comment_text=""):
+    """
+    Calculate relevance score using TF-IDF based on user formula:
+    Total Match = (Title Score * 0.5) + (Content Score * 0.3) + (Comment Score * 0.2)
+    """
+    if not query_tokens:
+        return 0
+        
+    # Pre-check IDF loader once
+    idf_loader = jieba.analyse.default_tfidf
+    if not hasattr(idf_loader, 'idf_freq'):
+         jieba.analyse.extract_tags("")
+
+    # Helper to calculate score for a field
+    def get_field_score(text):
+        if not text: return 0
+        try:
+            # Tokenize document
+            words = jieba.lcut(text)
+            # Filter empty
+            words = [w for w in words if w.strip()]
+            if not words: return 0
+            
+            # Calculate TF
+            word_counts = Counter(words)
+            total_words = len(words)
+            
+            score = 0
+            
+            for token in query_tokens:
+                if token in word_counts:
+                    tf = word_counts[token] / total_words
+                    idf = idf_loader.idf_freq.get(token, idf_loader.median_idf)
+                    score += tf * idf
+                    
+            return score
+        except Exception as e:
+            # print(f"Error in relevance calculation: {e}")
+            return 0
+
+    # 2. Calculate Scores
+    # Title (High weight 0.5)
+    title_text = item.get("title") or item.get("top_name") or ""
+    title_score = get_field_score(title_text)
+    
+    # Content (Medium weight 0.3)
+    content_text = item.get("content") or ""
+    content_score = get_field_score(content_text)
+    
+    # Comment (Low weight 0.2)
+    comment_score = get_field_score(comment_text)
+    
+    # 3. Weighted Sum & Normalization
+    # TF-IDF scores are usually small (0.1-2.0). We scale them to 0-100 range.
+    # We assume a score of 2.0 is "very relevant" (100%).
+    scale_factor = 50 
+    
+    weighted_score = (title_score * 0.5) + (content_score * 0.3) + (comment_score * 0.2)
+    final_score = weighted_score * scale_factor
+    
+    return min(int(final_score), 100)
+
 @router.get("/list")
 async def get_monitoring_list(
     page: int = 1, 
     size: int = 20, 
     sentiment: str = None, 
     keyword: str = None,
+    warning_keywords: str = None,
+    platforms: str = None,
+    exclude_words: str = None,
     keyword_mode: str = "full",
     date_start: str = None,
     date_end: str = None,
@@ -187,23 +789,62 @@ async def get_monitoring_list(
             where_clauses.append("sentiment = ?")
             params.append(sentiment)
         
+        if platforms:
+            platform_list = platforms.split(",")
+            platform_clauses = []
+            for p in platform_list:
+                if not p.strip(): continue
+                # Match platform in source
+                p_str = p.strip()
+                search_terms = [p_str]
+                if p_str in PLATFORM_MAP:
+                    search_terms.append(PLATFORM_MAP[p_str])
+                
+                # Create OR group for this platform: (source LIKE '%weibo%' OR source LIKE '%微博%')
+                or_group = []
+                for term in search_terms:
+                    or_group.append("T.source LIKE ?")
+                    params.append(f"%{term}%")
+                
+                platform_clauses.append(f"({' OR '.join(or_group)})")
+            if platform_clauses:
+                where_clauses.append(f"({' OR '.join(platform_clauses)})")
+
+        if warning_keywords:
+            # Warning Keywords: Strict intersection (AND) with existing filters
+            # Logic: If warning keywords are provided, only return items that match them
+            # This follows the user's "If user inputs warning trigger words... Return results must be..."
+            
+            # Use parse_keyword_expr but with "full" mode (check title, content, comment)
+            w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="T")
+            if w_sql:
+                where_clauses.append(w_sql)
+                params.extend(w_params)
+
         if keyword:
-            if keyword_mode == "title":
-                # 修复：content 表没有 top_id，普通查询只搜 title
-                # 升级：改为搜索 标题 OR 话题(#关键词#) OR 系统提取的 keywords
-                where_clauses.append("(title LIKE ? OR content LIKE ? OR keywords LIKE ?)")
-                params.append(f"%{keyword}%")
-                params.append(f"%#{keyword}#%") # 尝试匹配带井号的话题
-                params.append(f"%{keyword}%")   # 匹配系统提取的关键词
-            elif keyword_mode == "content":
-                where_clauses.append("(content LIKE ?)")
-                params.append(f"%{keyword}%")
-            else: # full
-                where_clauses.append("(ocr_text LIKE ? OR keywords LIKE ? OR content LIKE ? OR title LIKE ?)")
-                params.append(f"%{keyword}%")
-                params.append(f"%{keyword}%")
-                params.append(f"%{keyword}%")
-                params.append(f"%{keyword}%")
+            if keyword_mode == "comment":
+                # Comment mode: strict matching in comments (A&B means a single comment has A and B)
+                # Use strict alias to avoid ambiguity
+                inner_sql, inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm_strict")
+                if inner_sql:
+                    where_clauses.append(f"EXISTS (SELECT 1 FROM comments cm_strict WHERE cm_strict.note_id = T.note_id AND {inner_sql})")
+                    params.extend(inner_params)
+            else:
+                # Normal modes (Title, Content, Full)
+                k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="T")
+                if k_sql:
+                    where_clauses.append(k_sql)
+                    params.extend(k_params)
+
+        if exclude_words:
+            excludes = exclude_words.replace(',', ' ').split()
+            for ew in excludes:
+                if not ew.strip(): continue
+                ew_wild = f"%{ew.strip()}%"
+                where_clauses.append("NOT (T.title LIKE ? OR T.content LIKE ? OR T.top_name LIKE ?)")
+                params.append(ew_wild)
+                params.append(ew_wild)
+                params.append(ew_wild)
 
         if date_start:
             where_clauses.append(f"{date_col} >= ?")
@@ -228,7 +869,8 @@ async def get_monitoring_list(
                        (SELECT source FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as source,
                        (SELECT author FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as author,
                        -- 简单的情感统计：取众数或最新的
-                       (SELECT sentiment FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as sentiment
+                       (SELECT sentiment FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as sentiment,
+                       NULL as matched_comment_id
                 FROM content c
                 LEFT JOIN top_topics t ON c.top_id = t.top_id
                 WHERE c.top_id IS NOT NULL AND c.top_id != ''
@@ -242,22 +884,55 @@ async def get_monitoring_list(
                 if sentiment:
                     c_where_clauses.append("c.sentiment = ?")
                     c_params.append(sentiment)
+
+                if platforms:
+                    platform_list = platforms.split(",")
+                    platform_clauses = []
+                    for p in platform_list:
+                        if not p.strip(): continue
+                        p_str = p.strip()
+                        search_terms = [p_str]
+                        if p_str in PLATFORM_MAP:
+                            search_terms.append(PLATFORM_MAP[p_str])
+                            
+                        or_group = []
+                        for term in search_terms:
+                            or_group.append("c.source LIKE ?")
+                            c_params.append(f"%{term}%")
+                        
+                        platform_clauses.append(f"({' OR '.join(or_group)})")
+                        
+                    if platform_clauses:
+                        c_where_clauses.append(f"({' OR '.join(platform_clauses)})")
+
+                if warning_keywords:
+                    # Warning Keywords: Strict intersection for Merged Query
+                    w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="c")
+                    if w_sql:
+                        c_where_clauses.append(w_sql)
+                        c_params.extend(w_params)
+
                 if keyword:
-                    if keyword_mode == "title":
-                        # 搜索 top_id 或 top_name
-                        c_where_clauses.append("(c.top_id LIKE ? OR t.top_name LIKE ?)")
-                        c_params.append(f"%{keyword}%")
-                        c_params.append(f"%{keyword}%")
-                    elif keyword_mode == "content":
-                        c_where_clauses.append("(c.content LIKE ?)")
-                        c_params.append(f"%{keyword}%")
-                    else: # full
-                        c_where_clauses.append("(c.ocr_text LIKE ? OR c.keywords LIKE ? OR c.content LIKE ? OR c.top_id LIKE ? OR t.top_name LIKE ?)")
-                        c_params.append(f"%{keyword}%")
-                        c_params.append(f"%{keyword}%")
-                        c_params.append(f"%{keyword}%")
-                        c_params.append(f"%{keyword}%")
-                        c_params.append(f"%{keyword}%")
+                    if keyword_mode == "comment":
+                        inner_sql, inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm")
+                        if inner_sql:
+                            c_where_clauses.append(f"EXISTS (SELECT 1 FROM comments cm WHERE cm.note_id = c.note_id AND {inner_sql})")
+                            c_params.extend(inner_params)
+                    else:
+                        k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="c")
+                        if k_sql:
+                            c_where_clauses.append(k_sql)
+                            c_params.extend(k_params)
+
+                if exclude_words:
+                    excludes = exclude_words.replace(',', ' ').split()
+                    for ew in excludes:
+                        if not ew.strip(): continue
+                        ew_wild = f"%{ew.strip()}%"
+                        c_where_clauses.append("NOT (c.title LIKE ? OR c.content LIKE ? OR t.top_name LIKE ?)")
+                        c_params.append(ew_wild)
+                        c_params.append(ew_wild)
+                        c_params.append(ew_wild)
                 if date_start:
                     c_where_clauses.append(f"c.{date_col} >= ?")
                     c_params.append(date_start)
@@ -282,20 +957,75 @@ async def get_monitoring_list(
             # 普通查询
             # Updated: Only fetch articles for the list view
             # Comments will be displayed in the detail view
+            
+            matched_comment_expr = "NULL"
+            matched_comment_params = []
+            matched_comment_parts = []
+            
+            # 1. Warning Keywords (Highest Priority)
+            matched_comment_content_parts = []
+            matched_comment_content_params = []
+            
+            if warning_keywords:
+                 # Warning keywords are always "full" mode, check if they match in comments
+                 w_inner_sql, w_inner_params = parse_keyword_expr(warning_keywords, mode="content", table_alias="cm_w")
+                 if w_inner_sql:
+                     # ID
+                     part = f"(SELECT comment_id FROM comments cm_w WHERE cm_w.note_id = content.note_id AND {w_inner_sql} LIMIT 1)"
+                     matched_comment_parts.append(part)
+                     matched_comment_params.extend(w_inner_params)
+                     # Content
+                     part_c = f"(SELECT content FROM comments cm_w WHERE cm_w.note_id = content.note_id AND {w_inner_sql} LIMIT 1)"
+                     matched_comment_content_parts.append(part_c)
+                     matched_comment_content_params.extend(w_inner_params)
+
+            # 2. Normal Keywords
+            if keyword and (keyword_mode == "comment" or keyword_mode == "full"):
+                 # Find the first matching comment using strict logic
+                 k_inner_sql, k_inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm_k")
+                 if k_inner_sql:
+                     # ID
+                     part = f"(SELECT comment_id FROM comments cm_k WHERE cm_k.note_id = content.note_id AND {k_inner_sql} LIMIT 1)"
+                     matched_comment_parts.append(part)
+                     matched_comment_params.extend(k_inner_params)
+                     # Content
+                     part_c = f"(SELECT content FROM comments cm_k WHERE cm_k.note_id = content.note_id AND {k_inner_sql} LIMIT 1)"
+                     matched_comment_content_parts.append(part_c)
+                     matched_comment_content_params.extend(k_inner_params)
+            
+            if matched_comment_parts:
+                if len(matched_comment_parts) > 1:
+                    matched_comment_expr = f"COALESCE({', '.join(matched_comment_parts)})"
+                else:
+                    matched_comment_expr = matched_comment_parts[0]
+            
+            matched_comment_content_expr = "NULL"
+            if matched_comment_content_parts:
+                if len(matched_comment_content_parts) > 1:
+                    matched_comment_content_expr = f"COALESCE({', '.join(matched_comment_content_parts)})"
+                else:
+                    matched_comment_content_expr = matched_comment_content_parts[0]
+            
             base_query = f"""
                 SELECT note_id, NULL as comment_id, title, content, NULL as comment_content, author, source, url, created_at, sync_date, sync_time, ip_location, 
                        sentiment, fine_grained_sentiment, intent, keywords, visual_objects, ocr_text, 
                        liked_count, comments_count, shared_count, 'article' as type,
                        top_id,
-                       (SELECT top_name FROM top_topics WHERE top_id = content.top_id) as top_name
+                       (SELECT top_name FROM top_topics WHERE top_id = content.top_id) as top_name,
+                       {matched_comment_expr} as matched_comment_id,
+                       {matched_comment_content_expr} as matched_comment_content,
+                       (SELECT group_concat(content, ' ') FROM (SELECT content FROM comments WHERE note_id = content.note_id ORDER BY created_at DESC LIMIT 5)) as comment_sample
                 FROM content
             """
             
-            full_query = f"SELECT * FROM ({base_query}) WHERE 1=1"
+            full_query = f"SELECT * FROM ({base_query}) AS T WHERE 1=1"
+            
+            # Prepend matched_comment_params and content params to params
+            params = matched_comment_params + matched_comment_content_params + params
             if where_clauses:
                 full_query += " AND " + " AND ".join(where_clauses)
                 
-            count_query = f"SELECT COUNT(*) FROM ({base_query}) WHERE 1=1"
+            count_query = f"SELECT COUNT(*) FROM ({base_query}) AS T WHERE 1=1"
             if where_clauses:
                 count_query += " AND " + " AND ".join(where_clauses)
 
@@ -309,6 +1039,10 @@ async def get_monitoring_list(
                     full_query += f" ORDER BY sync_date DESC, sync_time DESC, created_at DESC"
                 else:
                     full_query += f" ORDER BY created_at DESC"
+            elif sort_by.startswith("relevance"):
+                # Relevance sort is handled in Python after fetching
+                # We need all items to calculate score and sort
+                pass
             else:
                 # Default desc
                 if use_sync_date:
@@ -317,7 +1051,10 @@ async def get_monitoring_list(
                     full_query += f" ORDER BY created_at DESC"
         
         # 分页
-        if size != -1:
+        # If sorting by relevance, we must fetch all items first
+        is_relevance_sort = sort_by and sort_by.startswith("relevance")
+        
+        if size != -1 and not is_relevance_sort:
             full_query += " LIMIT ? OFFSET ?"
             params_with_limit = params + [size, (page - 1) * size]
         else:
@@ -326,9 +1063,20 @@ async def get_monitoring_list(
         items = query_db(full_query, tuple(params_with_limit))
         total_res = query_db(count_query, tuple(params), one=True)
         total_count = total_res[0] if total_res else 0
+        
+        # Pre-compute query tokens for relevance scoring
+        query_tokens = []
+        if keyword:
+            try:
+                query_tokens = jieba.lcut(keyword)
+                query_tokens = [t.strip() for t in query_tokens if t.strip()]
+            except:
+                query_tokens = []
 
         formatted_items = []
         if items:
+            # First pass: Format items and calculate relevance
+            temp_items = []
             for row in items:
                 item = dict(row)
                 
@@ -372,6 +1120,7 @@ async def get_monitoring_list(
                         "fine_grained_sentiment": item.get("fine_grained_sentiment"),
                         "intent": item.get("intent")
                     }
+                    item["trained_keywords"] = item["keywords"]
 
                     # --- 新增：解码 top_name ---
                     if item.get("top_name"):
@@ -446,29 +1195,35 @@ async def get_monitoring_list(
                         except:
                             pass
 
-                    # --- 新增：计算匹配度 ---
+                    # --- 新增：计算匹配度 (TF-IDF) ---
                     relevance_score = 0
                     if keyword:
-                        # 简单匹配算法
-                        # 标题命中：50分
-                        # 内容命中：每次10分，上限50分
-                        # 总分上限100
-                        kw = keyword.strip()
-                        if kw:
-                            title = item.get("title") or ""
-                            content = item.get("content") or ""
-                            
-                            if kw in title:
-                                relevance_score += 50
-                            
-                            count = content.count(kw)
-                            relevance_score += min(count * 10, 50)
-                            
-                            if relevance_score > 100: relevance_score = 100
+                        # Use matched comment content if available (highest relevance for comment part), 
+                        # otherwise fall back to sample of recent comments.
+                        comment_text = item.get("matched_comment_content") or item.get("comment_sample") or ""
+                        relevance_score = calculate_tfidf_relevance(item, query_tokens, comment_text)
                     
                     item["relevance"] = relevance_score
 
                     formatted_items.append(item)
+
+        # Sort by relevance if needed
+        if is_relevance_sort:
+            print(f"DEBUG: Sorting by relevance, order={sort_by}")
+            # Determine sort order
+            reverse = True
+            if sort_by == 'relevance_asc':
+                reverse = False
+            
+            # Sort in place
+            formatted_items.sort(key=lambda x: x.get("relevance", 0), reverse=reverse)
+            print(f"DEBUG: Top relevance scores: {[x.get('relevance', 0) for x in formatted_items[:5]]}")
+            
+            # Apply pagination
+            if size != -1:
+                start = (page - 1) * size
+                end = start + size
+                formatted_items = formatted_items[start:end]
 
         return {
             "total": total_count,
@@ -577,8 +1332,12 @@ async def get_topic_detail(top_id: str, page: int = 1, size: int = 10):
                 item["sentiment_analysis"] = {
                     "sentiment": item.get("sentiment"),
                     "fine_grained_sentiment": item.get("fine_grained_sentiment"),
-                    "intent": item.get("intent")
+                    "intent": item.get("intent"),
+                    "irony_detected": item.get("irony_detected"),
+                    "reasoning": item.get("reasoning")
                 }
+                item["trained_keywords"] = item["keywords"]
+                item["ocr_text"] = item.get("ocr_text", "")
                 formatted_items.append(item)
                 
         return formatted_items
@@ -650,10 +1409,26 @@ async def get_item_detail(note_id: str, comment_id: str, comments_page: int = 1,
         item["sentiment_analysis"] = {
             "sentiment": item.get("sentiment"),
             "fine_grained_sentiment": item.get("fine_grained_sentiment"),
-            "intent": item.get("intent")
+            "intent": item.get("intent"),
+            "irony_detected": item.get("irony_detected"),
+            "reasoning": item.get("reasoning")
         }
+        item["trained_keywords"] = item["keywords"]
+        item["ocr_text"] = item.get("ocr_text", "")
 
         # 5. 获取相关评论 (从 comments 表) - 分页
+        # 如果指定了 comment_id，需要计算它在第几页
+        if comment_id and comment_id != "0":
+            try:
+                # 假设按时间倒序
+                position_query = "SELECT COUNT(*) FROM comments WHERE note_id = ? AND created_at >= (SELECT created_at FROM comments WHERE comment_id = ?)"
+                position = query_db(position_query, (note_id, comment_id), one=True)[0]
+                if position > 0:
+                    comments_page = (position - 1) // comments_size + 1
+                    offset = (comments_page - 1) * comments_size
+            except Exception as e:
+                print(f"Error calculating page for comment {comment_id}: {e}")
+
         # 先获取总数
         count_query = "SELECT COUNT(*) FROM comments WHERE note_id = ?"
         total_comments = query_db(count_query, (note_id,), one=True)[0]
@@ -689,6 +1464,38 @@ async def get_item_detail(note_id: str, comment_id: str, comments_page: int = 1,
                     except:
                         c_images = []
 
+                # 解析 JSON 字段
+                c_keywords = []
+                try:
+                    if c_item.get("keywords"):
+                        c_keywords = json.loads(c_item["keywords"]) if isinstance(c_item["keywords"], str) else c_item["keywords"]
+                except: pass
+
+                c_labels = []
+                try:
+                    if c_item.get("labels"):
+                        c_labels = json.loads(c_item["labels"]) if isinstance(c_item["labels"], str) else c_item["labels"]
+                except: pass
+
+                c_visual_objects = []
+                try:
+                    if c_item.get("visual_objects"):
+                        c_visual_objects = json.loads(c_item["visual_objects"]) if isinstance(c_item["visual_objects"], str) else c_item["visual_objects"]
+                except: pass
+
+                # 构造情感分析对象
+                c_sentiment_analysis = {
+                    "fine_grained_sentiment": c_item.get("fine_grained_sentiment"),
+                    "intent": c_item.get("intent"),
+                    "irony_detected": bool(c_item.get("irony_detected")) if c_item.get("irony_detected") is not None else False,
+                    "reasoning": c_item.get("reasoning")
+                }
+
+                # 检查是否有分析结果
+                # has_analysis = any(v is not None for v in c_sentiment_analysis.values())
+                # 只要有reasoning或者intent等，就显示。哪怕只是初始化了结构。
+                # 前端 v-if="comment.sentiment_analysis"
+                
                 item["comments"].append({
                     "id": c_item.get("comment_id"),
                     "user": c_item.get("author"),
@@ -697,13 +1504,79 @@ async def get_item_detail(note_id: str, comment_id: str, comments_page: int = 1,
                     "time": c_item.get("created_at"),
                     "images": c_images,
                     # 标记当前请求的评论 (如果有)
-                    "is_current": str(c_item.get("comment_id")) == str(comment_id)
+                    "is_current": str(c_item.get("comment_id")) == str(comment_id),
+                    "parent_comment_id": c_item.get("parent_comment_id"),
+                    # 新增字段
+                    "sentiment_analysis": c_sentiment_analysis,
+                    "keywords": c_keywords,
+                    "labels": c_labels,
+                    "visual_objects": c_visual_objects,
+                    "ocr_text": c_item.get("ocr_text", "")
                 })
 
         # 6. 补充前端需要的字段
-        item["trained_keywords"] = item.get("keywords", [])
-        item["comment_keywords"] = [] # 暂时留空
+        article_keywords = item.get("keywords", [])
+        if isinstance(article_keywords, str):
+            try:
+                article_keywords = json.loads(article_keywords)
+            except:
+                article_keywords = []
         
+        # 聚合所有评论的关键词
+        all_comment_keywords = []
+        try:
+            # Query ALL keywords for this article's comments (not just the paginated ones)
+            # Fetch raw JSON strings
+            kw_rows = query_db("SELECT keywords FROM comments WHERE note_id = ?", (note_id,))
+            if kw_rows:
+                for row in kw_rows:
+                    kw_json = row["keywords"]
+                    if kw_json:
+                        try:
+                            kws = json.loads(kw_json)
+                            if isinstance(kws, list):
+                                all_comment_keywords.extend(kws)
+                        except:
+                            pass
+        except Exception as e:
+            print(f"Error aggregating comment keywords: {e}")
+
+        # Calculate frequency for comment keywords
+        keyword_counts = Counter(all_comment_keywords)
+        # Top 20 most frequent comment keywords
+        top_comment_keywords = [k for k, v in keyword_counts.most_common(20)]
+
+        # trained_keywords: Union of Article Keywords + All Comment Keywords (Unique)
+        # Use a set to remove duplicates, but preserve order if possible (article first, then high freq comments)
+        unique_keywords = set(article_keywords)
+        final_trained_keywords = list(article_keywords)
+        
+        # Append comment keywords that are not in article keywords, sorted by frequency
+        for k, v in keyword_counts.most_common():
+            if k not in unique_keywords:
+                final_trained_keywords.append(k)
+                unique_keywords.add(k)
+
+        item["trained_keywords"] = final_trained_keywords
+        item["comment_keywords"] = top_comment_keywords
+        item["current_comments_page"] = comments_page # Return current page
+        
+        # 7. Get sentiment statistics for all comments (for accurate progress bar)
+        try:
+            sentiment_stats = query_db(
+                "SELECT sentiment, COUNT(*) as count FROM comments WHERE note_id = ? GROUP BY sentiment", 
+                (note_id,)
+            )
+            item["comment_sentiment_stats"] = {}
+            if sentiment_stats:
+                for stat in sentiment_stats:
+                    s = stat["sentiment"]
+                    if s:
+                        item["comment_sentiment_stats"][s] = stat["count"]
+        except Exception as e:
+            print(f"Error getting sentiment stats: {e}")
+            item["comment_sentiment_stats"] = {}
+
         return item
 
     except HTTPException as e:

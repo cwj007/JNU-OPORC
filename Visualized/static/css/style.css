@@ -2277,6 +2277,11 @@ img.circular-icon {
         filter: drop-shadow(0 0 5px rgba(250, 173, 20, 0.5));
     }
 
+    .alerts-table .alert-icon.is-success {
+        color: #52c41a;
+        filter: drop-shadow(0 0 5px rgba(82, 196, 26, 0.5));
+    }
+
     /* Tech Tag Style Enhancement */
     .tech-tag {
         display: inline-flex;
@@ -2339,6 +2344,36 @@ img.circular-icon {
         to {
             box-shadow: 0 0 15px rgba(255, 77, 79, 0.5);
         }
+    }
+
+    /* Comment Tag Style - High Frequency Words */
+    .comment-tag {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 10px;
+        font-family: 'Orbitron', sans-serif;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        color: #b388ff; /* Light purple */
+        background: rgba(179, 136, 255, 0.08);
+        border: 1px solid rgba(179, 136, 255, 0.3);
+        border-radius: 4px;
+        transition: all 0.3s ease;
+        cursor: default;
+        user-select: none;
+        text-transform: uppercase;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .comment-tag:hover {
+        background: rgba(179, 136, 255, 0.2);
+        border-color: #b388ff;
+        box-shadow: 0 0 10px rgba(179, 136, 255, 0.4);
+        transform: translateY(-1px);
+        color: #fff;
     }
 
     /* Detail Button Optimization */
@@ -3193,6 +3228,16 @@ img.circular-icon {
         box-shadow: 0 0 20px rgba(0, 210, 255, 0.2);
     }
 
+    /* Fix Element Plus Image Viewer conflict */
+    .el-image-viewer__wrapper .img-item,
+    .el-image-viewer__wrapper .img-item:hover {
+        transform: none !important;
+        box-shadow: none !important;
+        border: none !important;
+        width: auto !important;
+        height: auto !important;
+    }
+
     .detail-label {
         font-weight: bold;
         color: var(--text-secondary);
@@ -3330,6 +3375,95 @@ img.circular-icon {
         position: relative;
         max-width: 95%;
         /* 稍微减小宽度 */
+    }
+
+    /* Nested Comment Specifics */
+    .comment-item.nested-comment {
+        border-left: 4px solid var(--primary-color) !important;
+        background: rgba(0, 240, 255, 0.08) !important;
+        border: 1px solid rgba(0, 240, 255, 0.25);
+        box-shadow: inset 4px 0 0 rgba(0, 240, 255, 0.1), 0 4px 15px rgba(0, 0, 0, 0.3);
+        margin-top: 10px;
+        position: relative;
+    }
+
+    .comment-item.nested-comment::before {
+        content: '';
+        position: absolute;
+        left: -20px;
+        top: 20px;
+        width: 15px;
+        height: 2px;
+        background: rgba(0, 240, 255, 0.4);
+    }
+
+    .comment-item.nested-comment:hover {
+        background: rgba(0, 240, 255, 0.12) !important;
+        border-color: rgba(0, 240, 255, 0.5);
+        box-shadow: inset 4px 0 0 rgba(0, 240, 255, 0.25), 0 6px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .comment-item.nested-comment:hover::before {
+        background: var(--primary-color);
+        box-shadow: 0 0 8px var(--primary-color);
+    }
+
+    .comment-item.nested-comment .reply-indicator {
+        opacity: 1;
+        text-shadow: 0 0 5px var(--primary-color);
+        transform: rotate(180deg); /* Make it look like a return arrow */
+    }
+
+    /* Reply Target Styling */
+    .reply-target-block {
+        display: inline-flex;
+        align-items: center;
+        margin: 0 8px;
+        padding: 2px 8px;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        height: 24px;
+    }
+
+    .reply-verb {
+        font-size: 10px;
+        color: rgba(255, 255, 255, 0.5);
+        margin-right: 6px;
+        font-weight: bold;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .reply-target-user {
+        color: var(--primary-color);
+        font-weight: bold;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        background: rgba(0, 240, 255, 0.15);
+        padding: 0 6px;
+        border-radius: 2px;
+        height: 18px;
+        border: 1px solid rgba(0, 240, 255, 0.3);
+        box-shadow: 0 0 5px rgba(0, 240, 255, 0.15);
+        text-shadow: 0 0 5px rgba(0, 240, 255, 0.4);
+    }
+
+    .target-icon {
+        font-size: 11px;
+    }
+
+    .reply-indicator {
+        color: var(--primary-color);
+        margin-right: 6px;
+        font-size: 14px;
+        opacity: 0.7;
+        display: inline-flex;
+        align-items: center;
+        vertical-align: middle;
+        transform: rotate(90deg);
     }
 
     .comment-item:hover {
