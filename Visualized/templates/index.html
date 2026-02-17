@@ -573,21 +573,28 @@
                 const fetchDashboardData = async () => {
                     try {
                         const days = dateRange.value === 'custom' ? calculateDays(customDate.value) : parseInt(dateRange.value);
+                        
+                        // Helper to catch individual API errors without failing Promise.all
+                        const safeGet = (url) => axios.get(url).catch(e => {
+                            console.error(`API Failed: ${url}`, e);
+                            return { data: null, error: true };
+                        });
+
                         const [statsRes, trendsRes, wordCloudRes, alertsRes, mapRes, sentimentFineRes, intentRes] = await Promise.all([
-                            axios.get(`/api/dashboard/stats?days=${days}`),
-                            axios.get(`/api/dashboard/trends?days=${days}`),
-                            axios.get(`/api/dashboard/wordcloud?days=${days}`),
-                            axios.get('/api/alerts/list'),
-                            axios.get(`/api/dashboard/map?days=${days}`),
-                            axios.get(`/api/dashboard/sentiment_fine?days=${days}`),
-                            axios.get(`/api/dashboard/intent?days=${days}`)
+                            safeGet(`/api/dashboard/stats?days=${days}`),
+                            safeGet(`/api/dashboard/trends?days=${days}`),
+                            safeGet(`/api/dashboard/wordcloud?days=${days}`),
+                            safeGet('/api/alerts/list'),
+                            safeGet(`/api/dashboard/map?days=${days}`),
+                            safeGet(`/api/dashboard/sentiment_fine?days=${days}`),
+                            safeGet(`/api/dashboard/intent?days=${days}`)
                         ]);
                         
                         if (statsRes.data) {
                             stats.value = statsRes.data;
                         }
-                        if (alertsRes.data) {
-                            recentAlerts.value = alertsRes.data.slice(0, 5);
+                        if (alertsRes.data && alertsRes.data.data) {
+                            recentAlerts.value = alertsRes.data.data.slice(0, 5);
                         }
                         
                         let cleanMapData = [];

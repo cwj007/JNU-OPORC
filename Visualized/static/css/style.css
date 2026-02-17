@@ -581,6 +581,24 @@ body::after {
     transform: translateX(0);
 }
 
+.cyber-btn-detail.is-disabled,
+.cyber-btn-detail.is-disabled:hover,
+.cyber-btn-detail.is-disabled:focus,
+.cyber-btn-detail.is-disabled:active {
+    color: #4b5563 !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    cursor: not-allowed;
+    text-shadow: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+.cyber-btn-detail.is-disabled::before,
+.cyber-btn-detail.is-disabled::after {
+    display: none !important;
+}
+
 /* Table Action Buttons - Delete (System Purge Style) */
 .cyber-btn-delete {
     position: relative;
@@ -711,18 +729,7 @@ body::after {
     background: rgba(0, 240, 255, 0.08) !important;
 }
 
-/* Specific Alerts Table Hover Optimization (Unified solid color) */
-.alerts-table .el-table__body tr.el-table__row:hover>td,
-.alerts-table .el-table__body tr.hover-row>td,
-.alerts-table .el-table__body tr.el-table__row:hover>td.el-table__cell,
-.alerts-table .el-table__body tr.hover-row>td.el-table__cell,
-.alerts-table .el-table__body tr.el-table__row:hover>td.el-table-fixed-column--right,
-.alerts-table .el-table__body tr.hover-row>td.el-table-fixed-column--right,
-.alerts-table .el-table__body tr.el-table__row:hover>td.el-table-fixed-column--left,
-.alerts-table .el-table__body tr.hover-row>td.el-table-fixed-column--left {
-    background-color: rgba(0, 240, 255, 0.12) !important;
-    background: rgba(0, 240, 255, 0.12) !important;
-}
+
 
 /* Form Styles */
 .el-input__wrapper {
@@ -2139,148 +2146,9 @@ img.circular-icon {
         opacity: 0.6;
     }
 
-    /* Alerts Table Tech Optimization */
-    .alerts-table,
-    .alerts-table .el-table__inner-wrapper,
-    .alerts-table .el-table__body-wrapper,
-    .alerts-table .el-scrollbar__view,
-    .alerts-table .el-table__header-wrapper {
-        background-color: transparent !important;
-    }
 
-    .alerts-table {
-        background-color: rgba(10, 20, 30, 0.4) !important;
-        --el-table-bg-color: transparent;
-        --el-table-tr-bg-color: transparent;
-        --el-table-header-bg-color: rgba(0, 240, 255, 0.12);
-        --el-table-border-color: rgba(0, 240, 255, 0.1);
-        --el-table-row-hover-bg-color: rgba(0, 240, 255, 0.12) !important;
-        margin-top: 15px;
-        border: 1px solid rgba(0, 240, 255, 0.1);
-        position: relative;
-        z-index: 1;
-        border-radius: 4px;
-        overflow: hidden;
-        border-collapse: collapse !important;
-    }
 
-    .alerts-table .el-table__cell {
-        border-bottom: 1px solid rgba(0, 240, 255, 0.05) !important;
-        border-right: none !important;
-        /* 明确移除列分割线 */
-    }
 
-    .alerts-table .el-table__row--striped td.el-table__cell {
-        background-color: rgba(255, 255, 255, 0.04) !important;
-    }
-
-    .alerts-table::before {
-        display: none;
-    }
-
-    .alerts-table .el-table__inner-wrapper::after {
-        display: none;
-    }
-
-    .alerts-table .el-table__header th {
-        font-family: 'Inter', sans-serif;
-        color: var(--primary-color) !important;
-        font-size: 13px;
-        font-weight: 600;
-        letter-spacing: 1px;
-        background: rgba(0, 240, 255, 0.12) !important;
-        border-bottom: 2px solid rgba(0, 240, 255, 0.3) !important;
-        border-right: none !important;
-        /* 移除表头列分割线 */
-        padding: 14px 0;
-    }
-
-    .alerts-table .el-table__row {
-        transition: all 0.3s ease;
-    }
-
-    .alerts-table .el-table__row:nth-child(1) {
-        animation-delay: 0.1s;
-    }
-
-    .alerts-table .el-table__row:nth-child(2) {
-        animation-delay: 0.2s;
-    }
-
-    .alerts-table .el-table__row:nth-child(3) {
-        animation-delay: 0.3s;
-    }
-
-    .alerts-table .el-table__row:nth-child(4) {
-        animation-delay: 0.4s;
-    }
-
-    .alerts-table .el-table__row:nth-child(5) {
-        animation-delay: 0.5s;
-    }
-
-    @keyframes row-entry {
-        from {
-            opacity: 0;
-            transform: translateX(-10px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateX(0);
-        }
-    }
-
-    .alerts-table .tech-time {
-        font-family: 'Orbitron', sans-serif;
-        color: var(--text-secondary);
-        font-size: 12px;
-        letter-spacing: 0.5px;
-    }
-
-    .alerts-table .tech-description {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        color: var(--text-primary);
-        font-size: 14px;
-        position: relative;
-        padding-left: 5px;
-    }
-
-    .alerts-table .tech-description::before {
-        content: '';
-        position: absolute;
-        left: 0;
-        width: 2px;
-        height: 0;
-        background: var(--primary-color);
-        transition: height 0.3s ease;
-    }
-
-    .alerts-table .el-table__row:hover .tech-description::before {
-        height: 100%;
-        box-shadow: 0 0 10px var(--primary-color);
-    }
-
-    .alerts-table .alert-icon {
-        font-size: 18px;
-    }
-
-    .alerts-table .alert-icon.is-danger {
-        color: #ff4d4f;
-        filter: drop-shadow(0 0 5px rgba(255, 77, 79, 0.5));
-    }
-
-    .alerts-table .alert-icon.is-warning {
-        color: #faad14;
-        filter: drop-shadow(0 0 5px rgba(250, 173, 20, 0.5));
-    }
-
-    .alerts-table .alert-icon.is-success {
-        color: #52c41a;
-        filter: drop-shadow(0 0 5px rgba(82, 196, 26, 0.5));
-    }
 
     /* Tech Tag Style Enhancement */
     .tech-tag {
@@ -2306,10 +2174,10 @@ img.circular-icon {
     }
 
     .tech-tag:hover {
-        background: currentColor;
-        color: #000 !important;
+        background: rgba(0, 0, 0, 0.6);
         box-shadow: 0 0 20px currentColor;
         transform: scale(1.05);
+        text-shadow: 0 0 8px currentColor;
     }
 
     .tech-tag::before {
@@ -2477,26 +2345,7 @@ img.circular-icon {
         border-color: rgba(148, 163, 184, 0.3);
     }
 
-    /* Row Hover Effect for Alerts Table */
-    .alerts-table .el-table__body tr.el-table__row:hover>td.el-table__cell,
-    .alerts-table .el-table__body tr.hover-row>td.el-table__cell {
-        background: linear-gradient(90deg,
-                rgba(0, 240, 255, 0.18) 0%,
-                rgba(0, 240, 255, 0.08) 50%,
-                rgba(0, 240, 255, 0.03) 100%) !important;
-        background-color: transparent !important;
-    }
 
-    .alerts-table .el-table__body tr.el-table__row:hover td,
-    .alerts-table .el-table__body tr.hover-row td {
-        border-bottom-color: rgba(0, 240, 255, 0.5) !important;
-        color: var(--primary-color) !important;
-        box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.1);
-    }
-
-    .alerts-table .el-table__row:hover .tech-time {
-        color: var(--primary-color);
-    }
 
     .header-actions {
         display: flex;
@@ -3109,6 +2958,154 @@ img.circular-icon {
         padding: 0;
     }
 
+    /* Tech Form Styles */
+    .tech-form .el-form-item__label {
+        color: var(--text-secondary) !important;
+        font-family: 'Fira Code', monospace;
+        font-size: 13px;
+        text-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+    }
+
+    .tech-form .el-input__wrapper,
+    .tech-form .el-select__wrapper,
+    .tech-form .el-textarea__inner {
+        background-color: rgba(10, 20, 30, 0.6) !important;
+        box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.2) inset !important;
+        transition: all 0.3s ease;
+        border-radius: 4px;
+    }
+
+    .tech-form .el-input__wrapper:hover,
+    .tech-form .el-select__wrapper:hover,
+    .tech-form .el-input__wrapper.is-focus, 
+    .tech-form .el-select__wrapper.is-focus {
+        box-shadow: 0 0 0 1px var(--primary-color) inset !important;
+        background-color: rgba(0, 240, 255, 0.08) !important;
+    }
+
+    .tech-form .el-input__inner {
+        color: #fff !important;
+        font-family: 'Fira Code', monospace;
+    }
+
+    /* Input Number specific */
+    .tech-form .el-input-number__decrease,
+    .tech-form .el-input-number__increase {
+        background-color: rgba(10, 20, 30, 0.8) !important;
+        border: 1px solid rgba(0, 240, 255, 0.2) !important;
+        color: var(--primary-color) !important;
+        border-radius: 0;
+    }
+    
+    .tech-form .el-input-number__decrease {
+        border-right: none !important;
+        border-top-left-radius: 4px;
+        border-bottom-left-radius: 4px;
+    }
+
+    .tech-form .el-input-number__increase {
+        border-left: none !important;
+        border-top-right-radius: 4px;
+        border-bottom-right-radius: 4px;
+    }
+
+    .tech-form .el-input-number__decrease:hover,
+    .tech-form .el-input-number__increase:hover {
+        background-color: rgba(0, 240, 255, 0.1) !important;
+        color: #fff !important;
+    }
+
+    /* Switch - Tech Style (Red/Green) */
+    .tech-form .el-switch {
+        --el-switch-off-color: #F56C6C;
+        --el-switch-on-color: #67C23A;
+    }
+
+    .tech-form .el-switch__core {
+        background-color: rgba(245, 108, 108, 0.15) !important; /* Off - Red bg */
+        border: 1px solid rgba(245, 108, 108, 0.5) !important;
+    }
+    
+    .tech-form .el-switch__core .el-switch__action {
+        background-color: #F56C6C !important; /* Off - Red dot */
+        box-shadow: 0 0 5px rgba(245, 108, 108, 0.5);
+    }
+
+    .tech-form .el-switch.is-checked .el-switch__core {
+        background-color: rgba(103, 194, 58, 0.15) !important; /* On - Green bg */
+        border-color: rgba(103, 194, 58, 0.5) !important;
+        box-shadow: 0 0 10px rgba(103, 194, 58, 0.3);
+    }
+
+    .tech-form .el-switch.is-checked .el-switch__core .el-switch__action {
+        background-color: #67C23A !important; /* On - Green dot */
+        box-shadow: 0 0 8px rgba(103, 194, 58, 0.8);
+    }
+
+    /* Dialog Footer Buttons */
+    .tech-dialog .el-dialog__footer .el-button {
+        background: transparent !important;
+        border: 1px solid rgba(0, 240, 255, 0.3) !important;
+        color: var(--primary-color) !important;
+        font-family: 'Orbitron', sans-serif;
+        transition: all 0.3s;
+        border-radius: 2px;
+        letter-spacing: 1px;
+    }
+
+    .tech-dialog .el-dialog__footer .el-button:hover {
+        background: rgba(0, 240, 255, 0.1) !important;
+        box-shadow: 0 0 15px rgba(0, 240, 255, 0.3);
+        color: #fff !important;
+        border-color: var(--primary-color) !important;
+    }
+
+    .tech-dialog .el-dialog__footer .el-button--primary {
+        background: rgba(0, 240, 255, 0.15) !important;
+        border-color: var(--primary-color) !important;
+        color: #fff !important;
+        text-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
+        box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+    }
+
+    .tech-dialog .el-dialog__footer .el-button--primary:hover {
+        background: var(--primary-color) !important;
+        color: #000 !important;
+        box-shadow: 0 0 20px rgba(0, 240, 255, 0.6);
+        text-shadow: none;
+    }
+
+    /* Tech Popper (Select Dropdown) */
+    .tech-popper.el-select__popper,
+    .tech-popper.el-popper {
+        background: rgba(10, 22, 35, 0.95) !important;
+        border: 1px solid rgba(0, 240, 255, 0.3) !important;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.5) !important;
+    }
+
+    .tech-popper .el-select-dropdown__item {
+        color: var(--text-secondary) !important;
+        font-family: 'Fira Code', monospace;
+    }
+
+    .tech-popper .el-select-dropdown__item.hover,
+    .tech-popper .el-select-dropdown__item:hover {
+        background-color: rgba(0, 240, 255, 0.1) !important;
+        color: var(--primary-color) !important;
+    }
+
+    .tech-popper .el-select-dropdown__item.selected {
+        color: var(--primary-color) !important;
+        font-weight: bold;
+        text-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
+        background-color: rgba(0, 240, 255, 0.05) !important;
+    }
+
+    .tech-popper .el-popper__arrow::before {
+        background: rgba(10, 22, 35, 0.95) !important;
+        border: 1px solid rgba(0, 240, 255, 0.3) !important;
+    }
+
 
     .tech-section-title {
         font-weight: bold;
@@ -3464,6 +3461,18 @@ img.circular-icon {
         align-items: center;
         vertical-align: middle;
         transform: rotate(90deg);
+    }
+
+    /* Prevent hover flicker due to translateX */
+    .comment-item::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: -10px;
+        width: 15px;
+        background: transparent;
+        z-index: 1;
     }
 
     .comment-item:hover {

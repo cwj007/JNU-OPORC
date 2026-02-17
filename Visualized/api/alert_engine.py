@@ -1,8 +1,11 @@
 import sqlite3
+import traceback
 from datetime import datetime, timedelta
 import os
+import json
 from pathlib import Path
 from .database import query_db, execute_db, HOTSEARCH_DB_PATH, TRANSFORMERS_DB_PATH
+from .risk_assessment import calculate_cri, check_veto_rules, get_dynamic_threshold, determine_level, get_sentiment_score
 
 # 危机识别关键词
 CRISIS_KEYWORDS = {
@@ -13,21 +16,77 @@ CRISIS_KEYWORDS = {
 
 class NotificationService:
     @staticmethod
-    def notify(method: str, title: str, content: str, level: str):
+    def notify(method: str, title: str, content: str, level: str, reference_id: str = None, meta_data: dict = None, timestamp: str = None, rule_name: str = None):
         methods = method.split(',')
+        meta_str = json.dumps(meta_data) if meta_data else None
+        
+        # Prevent duplicate alerts for the same reference_id AND title
+        # This allows the same article to trigger different types of alerts (e.g., "Crisis" vs "Article Burst")
+        if reference_id:
+            existing = query_db(
+                "SELECT id FROM alerts WHERE reference_id = ? AND title = ?", 
+                (reference_id, title), 
+                one=True
+            )
+            if existing:
+                print(f"[Skip Notification] Duplicate alert for {reference_id} with title {title}")
+                return
+
         for m in methods:
             m = m.strip().lower()
             if m == 'system':
-                NotificationService._send_system_msg(title, content, level)
+                NotificationService._send_system_msg(title, content, level, reference_id, meta_str, timestamp, rule_name)
             elif m == 'email':
                 NotificationService._send_email(title, content, level)
 
     @staticmethod
-    def _send_system_msg(title: str, content: str, level: str):
+    def _send_system_msg(title: str, content: str, level: str, reference_id: str = None, meta_data: str = None, timestamp: str = None, rule_name: str = None):
         """发送站内信"""
-        sql = "INSERT INTO alerts (level, title, content, status, type) VALUES (?, ?, ?, 'unread', 'system')"
-        execute_db(sql, (level, title, content))
-        print(f"[System Notification] {level.upper()}: {title}")
+        # If rule_name is provided, use it as 'type', otherwise default to 'system'
+        alert_type = rule_name if rule_name else 'system'
+        
+        # New field: alerts_time (current detection time)
+        alerts_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        try:
+            if timestamp:
+                sql = """
+                    INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, time, alerts_time) 
+                    VALUES (?, ?, ?, 'unread', ?, ?, ?, ?, ?)
+                """
+                execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, timestamp, alerts_time))
+            else:
+                sql = """
+                    INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, alerts_time) 
+                    VALUES (?, ?, ?, 'unread', ?, ?, ?, ?)
+                """
+                execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, alerts_time))
+                
+            print(f"[System Notification] {level.upper()}: {title} (Rule: {alert_type})")
+        except Exception as e:
+            # Fallback for old schema or error
+            print(f"Error inserting alert with alerts_time: {e}")
+            try:
+                # Try inserting without alerts_time
+                if timestamp:
+                    sql = """
+                        INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, time) 
+                        VALUES (?, ?, ?, 'unread', ?, ?, ?, ?)
+                    """
+                    execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, timestamp))
+                else:
+                    sql = """
+                        INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data) 
+                        VALUES (?, ?, ?, 'unread', ?, ?, ?)
+                    """
+                    execute_db(sql, (level, title, content, alert_type, reference_id, meta_data))
+            except Exception as e2:
+                 print(f"Error inserting alert (fallback 1): {e2}")
+                 try:
+                    sql = "INSERT INTO alerts (level, title, content, status, type) VALUES (?, ?, ?, 'unread', ?)"
+                    execute_db(sql, (level, title, content, alert_type))
+                 except:
+                    pass
 
     @staticmethod
     def _send_email(title: str, content: str, level: str):
@@ -45,14 +104,283 @@ class AlertEngine:
         results = query_db(sql)
         self.rules = [dict(row) for row in results] if results else []
 
-    def run_check(self):
-        """执行预警检查"""
+    def run_check(self, override_days: int = None):
+        """
+        执行预警检查
+        override_days: 如果提供，强制检查过去 N 天内的文章（覆盖规则配置的 time_window）
+        """
         self.load_rules()
         for rule in self.rules:
-            self._check_rule(rule)
+            try:
+                # 复制规则，以免影响原配置
+                current_rule = rule.copy()
+                if override_days:
+                    # 将天数转换为小时
+                    current_rule['time_window'] = override_days * 24
+                
+                if current_rule.get('rule_type') == 'cri_trend':
+                    self._check_cri_rule(current_rule)
+                elif current_rule.get('rule_type') == 'article_burst':
+                    self._check_article_burst_rule(current_rule)
+                else:
+                    self._check_threshold_rule(current_rule)
+            except Exception as e:
+                print(f"Error checking rule {rule.get('name')}: {e}")
+                traceback.print_exc()
 
-    def _check_rule(self, rule: dict):
-        """检查单条规则是否触发"""
+    def _check_article_burst_rule(self, rule: dict):
+        """
+        Check for high negative engagement on individual articles
+        Logic: Article is Negative (or High Negative Score) AND (Total Comments > X OR Negative Comments > Y)
+        """
+        config = json.loads(rule.get('config', '{}')) if rule.get('config') else {}
+        min_comments = config.get('min_comments', 20)
+        min_negative_comments = config.get('min_negative_comments', 10)
+        
+        # Override time window if set in rule (e.g. from generate_auto_alerts override)
+        time_window = rule.get('time_window', 24)
+        start_time = (datetime.now() - timedelta(hours=time_window)).strftime("%Y-%m-%d %H:%M:%S")
+
+        # 1. Fetch recent articles
+        # Instead of strict "sentiment='负面'", check all and filter by score if possible
+        # Or fetch articles with any negative indication
+        sql = "SELECT * FROM content WHERE created_at >= ?"
+        articles = query_db(sql, (start_time,))
+        
+        if not articles:
+            return
+
+        for article in articles:
+            # Check article sentiment first
+            # Convert to dict to avoid sqlite3.Row issues
+            article_dict = dict(article)
+            
+            sentiment_val = article_dict.get('sentiment', '')
+            score = get_sentiment_score(sentiment_val) if get_sentiment_score else 0.5
+            
+            # If strictly neutral/positive, skip (unless user wants to catch turning tides)
+            # User requirement: "if an article is judged as negative public opinion"
+            # We assume score >= 0.6 is negative enough, or label is '负面'
+            is_article_negative = (sentiment_val == '负面') or (score >= 0.6)
+            
+            if not is_article_negative:
+                continue
+
+            note_id = article_dict['note_id']
+            
+            # 2. Fetch comments
+            c_sql = "SELECT * FROM comments WHERE note_id = ?"
+            comments = query_db(c_sql, (note_id,))
+            if not comments:
+                comments = []
+            
+            # Convert comments to dicts
+            comments_list = [dict(c) for c in comments]
+            
+            total_comments = len(comments_list)
+            
+            # 3. Filter negative comments
+            negative_comments = []
+            for c in comments_list:
+                # Use sentiment label or calculate score
+                is_negative = False
+                c_sentiment = c.get('sentiment', '')
+                if c_sentiment == '负面':
+                    is_negative = True
+                elif get_sentiment_score and get_sentiment_score(c_sentiment) >= 0.6:
+                    is_negative = True
+                
+                if is_negative:
+                    negative_comments.append(c)
+            
+            neg_count = len(negative_comments)
+            
+            # 4. Check Thresholds
+            # User requirement: "comments count is high, and negative comments also high"
+            if total_comments >= min_comments and neg_count >= min_negative_comments:
+                # Trigger Alert
+                title = f"【单贴高危预警】{article_dict['title'][:20]}..."
+                
+                # Content now stores the article snippet for direct display in the list
+                article_snippet = article_dict['content'][:200] + "..." if article_dict.get('content') else ""
+                stats_info = f" [评论激增: 总{total_comments}/负{neg_count}]"
+                content = article_snippet + stats_info
+                
+                # Prepare details for frontend
+                details = {
+                    'article_title': article_dict['title'],
+                    # Store full content into hotsearch.db (no truncation)
+                    'article_content': article_dict.get('content', ''),
+                    'article_id': article_dict['note_id'],
+                    'total_comments': total_comments,
+                    'negative_comments_count': neg_count,
+                    'top_negative_comments': [],
+                    'alert_type': 'article_burst',
+                    'publish_time': article_dict.get('created_at')
+                }
+                
+                # Sort negative comments by sentiment score
+                try:
+                    # Pre-calculate scores for sorting to avoid repeated calls and handling
+                    for c in negative_comments:
+                        c['score'] = get_sentiment_score(c.get('sentiment', '')) if get_sentiment_score else 0
+                    
+                    negative_comments.sort(key=lambda x: x.get('score', 0), reverse=True)
+                except Exception as e:
+                    print(f"Error sorting comments: {e}")
+                
+                # Format for frontend - Store ALL negative comments into hotsearch.db
+                for c in negative_comments: 
+                    details['top_negative_comments'].append({
+                        'content': c['content'],
+                        'sentiment': c.get('sentiment', '负面'),
+                        'score': c.get('score', 0),
+                        'created_at': c['created_at']
+                    })
+                
+                NotificationService.notify(
+                    rule['notify_methods'], 
+                    title, 
+                    content, 
+                    "high", # Force high level for burst
+                    str(note_id), 
+                    details,
+                    timestamp=article_dict.get('created_at'),
+                    rule_name=rule['name']
+                )
+
+    def _check_cri_rule(self, rule: dict):
+        """
+        Check Article Comprehensive Risk Index (CRI)
+        """
+        config = json.loads(rule['config']) if rule.get('config') else {}
+        
+        # Override time window if requested, else use rule config
+        time_window = rule.get('time_window', 24)
+        
+        # Calculate start time for article scanning
+        start_time = (datetime.now() - timedelta(hours=time_window)).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 1. Fetch recent articles from Transformers DB
+        # Use query_db which handles DB routing. "content" table is in Transformers DB.
+        sql = "SELECT * FROM content WHERE created_at >= ?"
+        articles = query_db(sql, (start_time,))
+        
+        if not articles:
+            return
+
+        # 2. Get Dynamic Threshold Baseline (Group Stats)
+        # For now, we calculate global stats from these articles as a baseline
+        # In a real system, this should be pre-calculated per group (topic/source)
+        # Simplified: Use default (0.3, 0.15) or calculate from current batch
+        
+        for article in articles:
+            note_id = article['note_id']
+            
+            # 3. Fetch comments for this article
+            # "comments" table is in Transformers DB
+            c_sql = "SELECT * FROM comments WHERE note_id = ?"
+            comments = query_db(c_sql, (note_id,))
+            if not comments:
+                comments = []
+            
+            # Convert Row objects to dicts
+            article_dict = dict(article)
+            comments_list = [dict(c) for c in comments]
+            
+            # 4. Calculate CRI
+            cri, details_cri = calculate_cri(article_dict, comments_list, config)
+            
+            # --- Enrich details for frontend display ---
+            # Create a new dictionary to avoid modifying the one returned by calculate_cri if needed
+            details = details_cri.copy() if details_cri else {}
+            details['article_title'] = article_dict.get('title', '')
+            # Store full content into hotsearch.db (no truncation)
+            details['article_content'] = article_dict.get('content', '')
+            details['article_id'] = article_dict['note_id']
+            details['publish_time'] = article_dict['created_at']
+            
+            # Extract top negative comments for display
+            neg_comments_list = []
+            for c in comments_list:
+                try:
+                    score = get_sentiment_score(c.get('sentiment'))
+                    # Filter for negative comments
+                    if score >= 0.6: 
+                        neg_comments_list.append({
+                            'content': c['content'],
+                            'sentiment': c.get('sentiment', '负面'),
+                            'score': score,
+                            'created_at': c['created_at']
+                        })
+                except Exception as e:
+                    pass
+            
+            # Sort by score descending
+            neg_comments_list.sort(key=lambda x: x['score'], reverse=True)
+            details['top_negative_comments'] = neg_comments_list
+            
+            # 5. Check Veto Rules (Highest Priority)
+            veto_triggered, veto_reason, veto_level = check_veto_rules(article_dict, comments_list, details)
+            
+            if veto_triggered:
+                title = f"【严重风险预警】{article_dict.get('title', '')[:20]}..."
+                # Content now stores the article snippet for direct display in the list
+                article_snippet = article_dict.get('content', '')[:200] + "..." if article_dict.get('content') else ""
+                stats_info = f" [触发规则: {veto_reason}]"
+                content = article_snippet + stats_info
+                
+                # Add veto info to details
+                details['alert_reason'] = veto_reason
+                details['alert_type'] = 'veto'
+                
+                NotificationService.notify(
+                    rule['notify_methods'], 
+                    title, 
+                    content, 
+                    veto_level, # Usually 'red'
+                    str(note_id), 
+                    details, 
+                    timestamp=article_dict.get('created_at'),
+                    rule_name=rule['name']
+                )
+                continue # Skip CRI level check if veto triggered
+            
+            # 6. Dynamic Threshold Check
+            # Get baseline stats (using default for now as we don't have historical stats DB yet)
+            mu, sigma = get_dynamic_threshold() 
+            level_color, level_desc = determine_level(cri, mu, sigma)
+            
+            # Only alert if risk is significant (Yellow/Orange/Red)
+            # Green (Normal) is ignored to reduce noise
+            if level_color != "green":
+                title = f"【综合风险预警-{level_desc}】{article_dict.get('title', '')[:20]}..."
+                
+                # Content now stores the article snippet for direct display in the list
+                article_snippet = article_dict.get('content', '')[:200] + "..." if article_dict.get('content') else ""
+                stats_info = f" [CRI: {cri:.2f}/{mu+sigma:.2f} ({level_desc})]"
+                content = article_snippet + stats_info
+                
+                # Add threshold info to details
+                details['threshold_mean'] = round(mu, 2)
+                details['threshold_stdev'] = round(sigma, 2)
+                details['level_desc'] = level_desc
+                details['cri_score'] = round(cri, 2)
+                details['alert_type'] = 'cri'
+                
+                NotificationService.notify(
+                    rule['notify_methods'], 
+                    title, 
+                    content, 
+                    level_color, 
+                    str(note_id), 
+                    details,
+                    timestamp=article_dict.get('created_at'),
+                    rule_name=rule['name']
+                )
+
+    def _check_threshold_rule(self, rule: dict):
+        """检查单条规则是否触发 (Legacy Threshold Logic)"""
         time_window = rule['time_window']
         threshold = rule['threshold']
         keyword = rule['keyword']
@@ -79,7 +407,15 @@ class AlertEngine:
         # 阈值触发
         if count >= threshold:
             triggered = True
-            reason = f"在过去 {time_window} 小时内，检测到 {count} 条{sentiment}舆情，达到阈值 {threshold}。"
+            # Format time window description
+            time_desc = f"{time_window}小时"
+            if time_window >= 24:
+                days = time_window // 24
+                time_desc = f"{days}天"
+            if time_window >= 720: # Special case for long history scan
+                time_desc = "历史周期"
+                
+            reason = f"在过去 {time_desc} 内，累计检测到 {count} 条{sentiment}舆情，达到阈值 {threshold}。"
             
         # 2. 危机识别触发 (如果是危机规则)
         if is_crisis:
@@ -101,14 +437,143 @@ class AlertEngine:
                 level = "high"
                 title = f"【危机预警】{rule['name']}"
                 content = f"检测到涉及敏感领域({', '.join(found_kws)})的内容。触发规则: {rule['name']}。"
-                NotificationService.notify(rule['notify_methods'], title, content, level)
+                # 尝试查找触发危机词的具体文章
+                try:
+                    crisis_article_sql = "SELECT title FROM content WHERE (content LIKE ? OR title LIKE ?) AND created_at >= ? LIMIT 1"
+                    # Use the first found keyword for title lookup
+                    kw = found_kws[0]
+                    ca_res = query_db(crisis_article_sql, (f"%{kw}%", f"%{kw}%", start_time), one=True)
+                    if ca_res:
+                        ca_res = dict(ca_res)
+                        if ca_res.get('title'):
+                            title = f"【危机预警】{ca_res['title'][:20]}..."
+                            content = f"检测到涉及敏感领域({', '.join(found_kws)})的内容。文章: {ca_res['title']}。触发规则: {rule['name']}。"
+                except Exception as e:
+                    print(f"Error fetching crisis article title: {e}")
+                
+                # --- Fetch details for crisis alert ---
+                details = {"type": "crisis_list", "keywords": found_kws, "articles": []}
+                try:
+                    # Fetch top 5 crisis articles
+                    kw = found_kws[0]
+                    # Note: simplified to first keyword for now
+                    c_articles_sql = "SELECT * FROM content WHERE (content LIKE ? OR title LIKE ?) AND created_at >= ? ORDER BY created_at DESC LIMIT 5"
+                    c_articles = query_db(c_articles_sql, (f"%{kw}%", f"%{kw}%", start_time))
+                    if c_articles:
+                        c_articles = [dict(row) for row in c_articles]
+                        for art in c_articles:
+                            art_info = {
+                                "title": art.get('title', ''),
+                                "content": art.get('content', '')[:200] + "..." if art.get('content') else "",
+                                "note_id": art['note_id'],
+                                "created_at": art['created_at'],
+                                "comments": []
+                            }
+                            # Fetch top comments for this article
+                            cm_sql = "SELECT * FROM comments WHERE note_id = ? ORDER BY created_at DESC LIMIT 3"
+                            cms = query_db(cm_sql, (art['note_id'],))
+                            if cms:
+                                cms = [dict(c) for c in cms]
+                                for c in cms:
+                                    art_info['comments'].append({
+                                        "content": c.get('content', ''),
+                                        "sentiment": c.get('sentiment', ''),
+                                        "created_at": c['created_at']
+                                    })
+                            details['articles'].append(art_info)
+                except Exception as e:
+                    print(f"Error fetching crisis details: {e}")
+
+                NotificationService.notify(
+                    rule['notify_methods'], 
+                    title, 
+                    content, 
+                    level, 
+                    meta_data=details,
+                    rule_name=rule['name']
+                )
                 return # 危机预警优先处理
 
         if triggered:
-            level = "high" if count > threshold * 2 else "medium"
-            title = f"【阈值预警】{rule['name']}"
-            content = f"{reason} 规则名称: {rule['name']}。"
-            NotificationService.notify(rule['notify_methods'], title, content, level)
+            # New Logic: One alert per article
+            try:
+                # Fetch ALL matching articles
+                article_sql = "SELECT * FROM content WHERE sentiment = ? AND created_at >= ? ORDER BY created_at DESC"
+                params = [sentiment, start_time]
+                if keyword:
+                    article_sql = "SELECT * FROM content WHERE sentiment = ? AND content LIKE ? AND created_at >= ? ORDER BY created_at DESC"
+                    params = [sentiment, f"%{keyword}%", start_time]
+                
+                articles = query_db(article_sql, tuple(params))
+                articles = [dict(row) for row in articles] if articles else []
+
+                for art in articles:
+                    # Construct Title
+                    art_title = art.get('title', '')
+                    if not art_title:
+                         art_title = art.get('content', '')[:20].replace('\n', ' ') + "..." if art.get('content') else "无标题内容"
+                    
+                    # Fetch Comments (needed for Veto check)
+                    cm_sql = "SELECT * FROM comments WHERE note_id = ? ORDER BY created_at DESC LIMIT 50"
+                    cms = query_db(cm_sql, (art['note_id'],))
+                    comments_list = [dict(c) for c in cms] if cms else []
+
+                    # Check Veto Rules (Highest Priority)
+                    veto_triggered, veto_reason, veto_level = check_veto_rules(art, comments_list)
+                    
+                    if veto_triggered:
+                        alert_level = veto_level
+                        alert_title = f"【严重风险预警】{art_title}"
+                        alert_content = f"{art.get('content', '')[:200]}... [触发规则: {veto_reason}]"
+                        meta_data = {
+                            "type": "veto",
+                            "article": {
+                                "title": art_title,
+                                "content": art.get('content', ''),
+                                "note_id": art['note_id'],
+                                "created_at": art['created_at'],
+                                "comments": []
+                            },
+                            "alert_reason": veto_reason
+                        }
+                    else:
+                        alert_title = f"【敏感内容】{art_title}"
+                        alert_content = art.get('content', '')[:200] + "..." if art.get('content') else "无内容"
+                        alert_level = "medium"
+                        
+                        meta_data = {
+                            "type": "single_article",
+                            "article": {
+                                "title": art_title,
+                                "content": art.get('content', ''),
+                                "note_id": art['note_id'],
+                                "created_at": art['created_at'],
+                                "comments": []
+                            }
+                        }
+
+                    # Add comments to meta_data
+                    for c in comments_list[:20]: # Limit to 20 for display
+                         meta_data['article']['comments'].append({
+                            "content": c.get('content', ''),
+                            "sentiment": c.get('sentiment', ''),
+                            "created_at": c['created_at']
+                         })
+
+                    # Notify (Idempotent)
+                    NotificationService.notify(
+                        rule['notify_methods'], 
+                        alert_title, 
+                        alert_content, 
+                        alert_level, 
+                        reference_id=str(art['note_id']), 
+                        meta_data=meta_data,
+                        timestamp=art['created_at'],
+                        rule_name=rule['name']
+                    )
+
+            except Exception as e:
+                print(f"Error processing individual alerts: {e}")
 
 def run_alert_engine():
     """便捷启动函数"""

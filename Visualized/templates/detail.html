@@ -141,8 +141,15 @@
 
                 const fetchDetail = async () => {
                     const noteId = getNoteIdFromUrl();
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const sentiment = urlParams.get('sentiment');
+                    
                     try {
-                        const res = await axios.get(`/api/monitoring/detail/${noteId}`);
+                        let url = `/api/monitoring/detail/${noteId}`;
+                        if (sentiment) {
+                            url += `?sentiment=${encodeURIComponent(sentiment)}`;
+                        }
+                        const res = await axios.get(url);
                         article.value = res.data;
                     } catch (e) {
                         console.error('Failed to fetch detail', e);

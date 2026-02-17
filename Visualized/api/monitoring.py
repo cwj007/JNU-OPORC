@@ -5,6 +5,7 @@ from collections import Counter
 import jieba
 import jieba.analyse
 from fastapi import APIRouter, HTTPException, Body
+from typing import Optional
 from .database import query_db, execute_db
 
 # Try to import PLATFORM_MAP from Transformers.config
@@ -1346,8 +1347,15 @@ async def get_topic_detail(top_id: str, page: int = 1, size: int = 10):
         print(f"Error in get_topic_detail: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/detail/{note_id}")
 @router.get("/detail/{note_id}/{comment_id}")
-async def get_item_detail(note_id: str, comment_id: str, comments_page: int = 1, comments_size: int = 20):
+async def get_item_detail(
+    note_id: str, 
+    comment_id: Optional[str] = None, 
+    comments_page: int = 1, 
+    comments_size: int = 20,
+    sentiment: Optional[str] = None
+):
     """从数据库获取舆情详情，包含文章内容和相关评论(分页)"""
     try:
         # 清理 note_id
@@ -1430,12 +1438,25 @@ async def get_item_detail(note_id: str, comment_id: str, comments_page: int = 1,
                 print(f"Error calculating page for comment {comment_id}: {e}")
 
         # 先获取总数
-        count_query = "SELECT COUNT(*) FROM comments WHERE note_id = ?"
-        total_comments = query_db(count_query, (note_id,), one=True)[0]
+        count_sql = "SELECT COUNT(*) FROM comments WHERE note_id = ?"
+        count_params = [note_id]
+        if sentiment:
+            count_sql += " AND sentiment = ?"
+            count_params.append(sentiment)
+            
+        total_comments = query_db(count_sql, tuple(count_params), one=True)[0]
         item["total_comments"] = total_comments
         
-        comments_query = "SELECT * FROM comments WHERE note_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?"
-        comments_rows = query_db(comments_query, (note_id, comments_size, offset))
+        comments_sql = "SELECT * FROM comments WHERE note_id = ?"
+        comments_params = [note_id]
+        if sentiment:
+            comments_sql += " AND sentiment = ?"
+            comments_params.append(sentiment)
+            
+        comments_sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        comments_params.extend([comments_size, offset])
+        
+        comments_rows = query_db(comments_sql, tuple(comments_params))
         
         item["comments"] = []
         if comments_rows:

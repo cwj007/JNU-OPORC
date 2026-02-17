@@ -6,8 +6,431 @@
     <title>JNU-OPORC 预警中心</title>
     <!-- Element Plus CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <!-- Custom Style -->
     <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .risk-score-circle {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: 8px solid #409EFF;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 30px;
+            background: rgba(64, 158, 255, 0.1);
+            box-shadow: 0 0 20px rgba(64, 158, 255, 0.3);
+        }
+
+        .risk-score-circle.risk-high {
+            border-color: #F56C6C;
+            background: rgba(245, 108, 108, 0.1);
+            box-shadow: 0 0 20px rgba(245, 108, 108, 0.3);
+        }
+        
+        .risk-score-circle.risk-medium {
+            border-color: #E6A23C;
+            background: rgba(230, 162, 60, 0.1);
+            box-shadow: 0 0 20px rgba(230, 162, 60, 0.3);
+        }
+
+        .score-value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #fff;
+            line-height: 1.2;
+        }
+
+        .score-label {
+            font-size: 14px;
+            color: #dcdfe6;
+        }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .detail-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 12px;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .detail-item.full-width {
+            grid-column: span 2;
+        }
+
+        .detail-item .label {
+            font-size: 12px;
+            color: #909399;
+            margin-bottom: 5px;
+        }
+
+        .detail-item .value {
+            font-size: 16px;
+            font-weight: bold;
+            color: #dcdfe6;
+        }
+        
+        .detail-item .value.risk-high { color: #F56C6C; }
+        .detail-item .value.risk-medium { color: #E6A23C; }
+        .detail-item .value.risk-low { color: #67C23A; }
+
+        .metrics-tags {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .article-link {
+            color: #409EFF !important;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+        
+        .article-link:hover {
+            color: #66b1ff !important;
+        }
+
+        /* Tech Task Tag Style */
+        .tech-task-tag {
+            display: inline-block;
+            padding: 2px 10px;
+            font-size: 12px;
+            color: #00f0ff;
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            border-radius: 4px;
+            box-shadow: 0 0 5px rgba(0, 240, 255, 0.2);
+            text-shadow: 0 0 2px rgba(0, 240, 255, 0.5);
+            font-family: 'Fira Code', monospace;
+            transition: all 0.3s ease;
+        }
+
+        .tech-task-tag:hover {
+            background: rgba(0, 240, 255, 0.2);
+            box-shadow: 0 0 10px rgba(0, 240, 255, 0.4);
+            transform: scale(1.05);
+        }
+
+        /* Tech Tabs Styles */
+        .tech-tabs .el-tabs__header {
+            margin-bottom: 0px; /* Reduced from 20px to 0px */
+            border-bottom: 1px solid rgba(0, 240, 255, 0.1);
+        }
+
+        .tech-tabs .el-tabs__nav-wrap::after {
+            background-color: transparent !important;
+        }
+
+        .tech-tabs .el-tabs__item {
+            color: #94a3b8;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 16px;
+            padding: 0 20px;
+            transition: all 0.3s;
+            height: 40px; /* Explicit height */
+            line-height: 40px; /* Center text vertically */
+        }
+
+        .tech-tabs .el-tabs__item:hover {
+            color: #fff;
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+        }
+
+        .tech-tabs .el-tabs__item.is-active {
+            color: #00f0ff;
+            text-shadow: 0 0 15px rgba(0, 240, 255, 0.6);
+            font-weight: bold;
+        }
+
+        .tech-tabs .el-tabs__active-bar {
+            background-color: #00f0ff;
+            box-shadow: 0 0 10px #00f0ff;
+            height: 3px;
+            border-radius: 2px;
+        }
+
+        /* Pagination Styles for Dark Theme */
+        .pagination-container {
+            margin-top: 20px;
+            padding: 10px 0;
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .pagination-container .el-pagination {
+            --el-pagination-bg-color: transparent;
+            --el-pagination-button-bg-color: transparent; 
+            --el-pagination-hover-color: #00f0ff;
+            --el-text-color-primary: #fff; 
+            --el-text-color-regular: #94a3b8;
+            --el-disabled-text-color: #4b5563;
+        }
+
+        .pagination-container .el-pagination button:disabled {
+            background-color: transparent;
+            color: #4b5563;
+        }
+
+        .pagination-container .el-pagination .el-pager li {
+            background: rgba(255, 255, 255, 0.05);
+            color: #94a3b8;
+            border: 1px solid #1e293b;
+            margin: 0 4px;
+            border-radius: 4px;
+        }
+        
+        .pagination-container .el-pagination .el-pager li:hover {
+            color: #00f0ff;
+            border-color: #00f0ff;
+        }
+
+        .pagination-container .el-pagination .el-pager li.is-active {
+            background: rgba(0, 240, 255, 0.1);
+            color: #00f0ff;
+            border-color: #00f0ff;
+            font-weight: bold;
+        }
+        
+        .pagination-container .el-pagination .btn-prev,
+        .pagination-container .el-pagination .btn-next {
+            background: rgba(255, 255, 255, 0.05);
+            color: #94a3b8;
+            border: 1px solid #1e293b;
+            border-radius: 4px;
+            margin: 0 4px;
+        }
+        
+        .pagination-container .el-pagination .el-input__inner {
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            border: 1px solid #1e293b;
+        }
+
+        /* 预警历史表格悬停优化 - 终极科技风格（连续边框修复版） */
+        .alerts-table .el-table__body tr {
+            transition: all 0.3s ease;
+        }
+        
+        .alerts-table .el-table__body tr td {
+            transition: all 0.3s ease;
+            /* 预留边框位置，防止悬停时抖动 */
+            border-top: 1px solid transparent; 
+            border-bottom: 1px solid transparent; /* 默认可能有下边框，这里设置为透明或保持默认需谨慎，但在hover时会覆盖 */
+            border-right: 1px solid transparent;  /* 预留右边框 */
+        }
+
+        /* 专门为第一列预留左侧光条位置 */
+        .alerts-table .el-table__body tr td:first-child {
+            border-left: 4px solid transparent;
+        }
+
+        /* 1. 悬停背景：实色背景 (#0c202b) */
+        .alerts-table.el-table .el-table__body tr.el-table__row:hover > td,
+        .alerts-table.el-table .el-table__body tr:hover > td,
+        .alerts-table.el-table .el-table__body tr.el-table__row:hover > td.el-table-fixed-column--right,
+        .alerts-table.el-table .el-table__body tr.el-table__row:hover > td.el-table-fixed-column--left {
+            background-color: #0c202b !important; 
+            color: #fff !important;
+            cursor: pointer;
+            
+            /* 关键：使用边框着色代替 box-shadow，实现无断点连续线条 */
+            border-top-color: #00f0ff !important;    /* 上光刃 */
+            border-bottom-color: #00f0ff !important; /* 下光刃 */
+            border-right-color: #0c202b !important;  /* 隐藏垂直分割线（与背景同色） */
+            
+            box-shadow: none !important; /* 清除之前的阴影 */
+        }
+
+        /* 2. 左侧强光指示器 (使用 border-left) */
+        .alerts-table.el-table .el-table__body tr:hover > td:first-child {
+            border-left: 4px solid #00f0ff !important;
+            box-shadow: none !important;
+        }
+
+        /* 3. 文字发光效果 */
+        .alerts-table .el-table__body tr:hover .cell {
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.8);
+        }
+ 
+        /* 4. 移除行背景 */
+        .alerts-table.el-table .el-table__body tr:hover {
+            background: transparent !important;
+        }
+
+        /* 文字发光效果 */
+        .alerts-table .el-table__body tr:hover .cell {
+            color: #ffffff;
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.5);
+        }
+
+        /* 图标动画增强 */
+        .alerts-table .el-table__body tr:hover .alert-icon {
+            transform: scale(1.2);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* Tech Style for Level Filter Icon */
+        .el-table th.el-table__cell > .cell .el-table__column-filter-trigger {
+            margin-left: 4px;
+        }
+
+        .el-table th.el-table__cell > .cell .el-table__column-filter-trigger svg {
+            color: #00f0ff !important; /* Tech Cyan */
+            filter: drop-shadow(0 0 4px rgba(0, 240, 255, 0.7));
+            transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); /* Bouncy effect */
+            transform-origin: center;
+        }
+
+        .el-table th.el-table__cell > .cell .el-table__column-filter-trigger:hover svg {
+            color: #fff !important;
+            filter: drop-shadow(0 0 8px rgba(0, 240, 255, 1));
+            transform: scale(1.3) rotate(180deg);
+        }
+        
+        /* Make the popup tech style as well */
+        .el-table-filter {
+            background-color: rgba(12, 32, 43, 0.95) !important;
+            border: 1px solid #00f0ff !important;
+            box-shadow: 0 0 15px rgba(0, 240, 255, 0.3) !important;
+            border-radius: 4px !important;
+        }
+        
+        .el-table-filter__list-item {
+            color: #94a3b8 !important;
+            font-family: 'Fira Code', monospace;
+        }
+        
+        .el-table-filter__list-item:hover {
+            background-color: rgba(0, 240, 255, 0.1) !important;
+            color: #00f0ff !important;
+        }
+        
+        .el-table-filter__list-item.is-active {
+            background-color: rgba(0, 240, 255, 0.2) !important;
+            color: #00f0ff !important;
+            font-weight: bold;
+        }
+
+        .action-column-container {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 0;
+        }
+        
+        .action-column-container .el-button {
+            margin-left: 0 !important;
+            width: 100%;
+            justify-content: center;
+        }
+
+        /* Tech Table Styles for Warning Rules */
+        .tech-text-bold {
+            color: #fff;
+            font-weight: bold;
+            font-family: 'Inter', sans-serif;
+            font-size: 14px;
+        }
+
+        .tech-condition-box {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            font-family: 'Fira Code', monospace;
+            font-size: 12px;
+        }
+
+        .condition-time {
+            color: #00f0ff;
+            font-family: 'Orbitron', 'Fira Code', monospace;
+            font-size: 11px;
+            font-weight: bold;
+            background: rgba(0, 240, 255, 0.1);
+            border: 1px solid rgba(0, 240, 255, 0.3);
+            border-radius: 4px;
+            padding: 1px 4px;
+            text-shadow: 0 0 5px rgba(0, 240, 255, 0.6);
+            display: inline-block;
+            margin-bottom: 2px;
+            text-align: left;
+            box-shadow: 0 0 8px rgba(0, 240, 255, 0.15) inset;
+            letter-spacing: 0.5px;
+            align-self: flex-start;
+        }
+
+        .condition-operator {
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .sentiment-label {
+            color: #E6A23C; /* Warning color for sentiment */
+        }
+
+        .threshold-value {
+            color: #F56C6C; /* Danger color for threshold */
+            font-weight: bold;
+        }
+
+        .cyber-btn-delete {
+            position: relative;
+            color: #F56C6C !important;
+            border: 1px solid rgba(245, 108, 108, 0.3) !important;
+            background: rgba(245, 108, 108, 0.05) !important;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+            font-family: 'Orbitron', sans-serif;
+            letter-spacing: 1px;
+            border-radius: 2px;
+            padding: 0 15px !important;
+            height: 24px;
+            line-height: 22px;
+        }
+
+        .cyber-btn-delete:hover {
+            background: rgba(245, 108, 108, 0.15) !important;
+            border-color: #F56C6C !important;
+            box-shadow: 0 0 12px rgba(245, 108, 108, 0.3);
+            text-shadow: 0 0 8px #F56C6C;
+        }
+
+        .cyber-btn-delete::before {
+            content: '[';
+            position: absolute;
+            left: 2px;
+            opacity: 0;
+            transition: all 0.3s;
+            transform: translateX(-5px);
+        }
+
+        .cyber-btn-delete::after {
+            content: ']';
+            position: absolute;
+            right: 2px;
+            opacity: 0;
+            transition: all 0.3s;
+            transform: translateX(5px);
+        }
+
+        .cyber-btn-delete:hover::before,
+        .cyber-btn-delete:hover::after {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    </style>
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&family=Fira+Code&display=swap" rel="stylesheet">
     <!-- Vue 3 -->
@@ -111,89 +534,213 @@
                                 <el-tab-pane label="预警历史" name="history"></el-tab-pane>
                                 <el-tab-pane label="预警规则" name="rules"></el-tab-pane>
                             </el-tabs>
-                            <el-button v-if="warningActiveTab === 'rules'" type="primary" size="small" class="cyber-btn-tech" @click="openRuleDialog">
-                                <el-icon style="margin-right: 5px"><plus /></el-icon> 新建预警规则
-                            </el-button>
+                            <div class="header-actions">
+                                <div v-if="warningActiveTab === 'history'" class="time-filter">
+                                    <div class="radio-wrapper" style="display: inline-block;">
+                                        <el-radio-group v-model="timeRange" size="small" @change="handleTimeRangeChange" class="cyber-radio-group">
+                                            <el-radio-button label="1">24小时</el-radio-button>
+                                            <el-radio-button label="3">3天</el-radio-button>
+                                            <el-radio-button label="7">7天</el-radio-button>
+                                            <el-radio-button label="15">15天</el-radio-button>
+                                            <el-radio-button label="custom">自定义</el-radio-button>
+                                        </el-radio-group>
+                                    </div>
+                                    <el-date-picker
+                                        v-if="timeRange === 'custom'"
+                                        v-model="customDateRange"
+                                        type="daterange"
+                                        range-separator="至"
+                                        start-placeholder="开始日期"
+                                        end-placeholder="结束日期"
+                                        size="small"
+                                        value-format="YYYY-MM-DD"
+                                        @change="handleCustomDateChange"
+                                        style="margin-left: 10px; width: 240px;"
+                                    >
+                                    </el-date-picker>
+                                </div>
+                                <el-button v-if="warningActiveTab === 'rules'" type="primary" size="small" class="cyber-btn-tech" @click="openRuleDialog">
+                                    <el-icon style="margin-right: 5px"><plus /></el-icon> 新建预警规则
+                                </el-button>
+                            </div>
                         </div>
                     </template>
 
                     <!-- 预警历史表格 -->
-                    <el-table v-if="warningActiveTab === 'history'" :data="allAlerts" style="width: 100%" class="alerts-table">
-                        <el-table-column prop="time" label="预警时间" width="180">
+                    <el-table 
+                        v-if="warningActiveTab === 'history'" 
+                        :data="allAlerts" 
+                        style="width: 100%" 
+                        class="alerts-table"
+                        @filter-change="handleFilterChange"
+                    >
+                        <el-table-column prop="alerts_time" label="预警时间" width="180" sortable>
                             <template #default="scope">
-                                <span class="tech-time">{{ scope.row.time }}</span>
+                                <span class="tech-time">{{ scope.row.alerts_time || scope.row.time }}</span>
                             </template>
                         </el-table-column>
-                        <el-table-column prop="title" label="预警描述" min-width="200">
+                        <el-table-column prop="title" label="预警文章内容" min-width="300">
                             <template #default="scope">
                                 <div class="tech-description">
-                                    <el-icon class="alert-icon" :class="{'is-danger': scope.row.level === 'high', 'is-warning': scope.row.level === 'medium', 'is-success': scope.row.level === 'low'}">
-                                        <warning />
-                                    </el-icon>
-                                    {{ scope.row.title }}
+                                    <div>
+                                        <div style="font-weight: bold; margin-bottom: 5px;">{{ scope.row.title }}</div>
+                                        <!-- Prefer showing direct content (article snippet) -->
+                                        <div style="font-size: 13px; color: #dcdfe6; line-height: 1.5; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer;" @click="viewArticleContent(scope.row)">
+                                            {{ scope.row.content || (scope.row.meta_data && scope.row.meta_data.article_content ? scope.row.meta_data.article_content.substring(0, 150) + '...' : '暂无内容') }}
+                                        </div>
+                                    </div>
                                 </div>
                             </template>
                         </el-table-column>
-                        <el-table-column prop="type" label="类型" width="120">
+                        <el-table-column prop="type" label="任务名称" min-width="150" show-overflow-tooltip align="center">
                             <template #default="scope">
-                                <el-tag size="small" effect="plain">{{ scope.row.type }}</el-tag>
+                                <span class="tech-task-tag">{{ scope.row.type }}</span>
                             </template>
                         </el-table-column>
-                        <el-table-column label="级别" width="100">
+                        <el-table-column 
+                            label="级别" 
+                            width="100" 
+                            align="center"
+                            :filters="levelFilters"
+                            :filter-multiple="false"
+                            column-key="level"
+                        >
                             <template #default="scope">
-                                <span :class="['tech-tag', scope.row.level === 'high' ? 'tag-danger' : (scope.row.level === 'low' ? 'tag-success' : 'tag-warning')]">
-                                    {{ scope.row.level === 'high' ? '高' : (scope.row.level === 'low' ? '低' : '中') }}
+                                <span :class="['tech-tag', scope.row.level === 'high' || scope.row.level === 'red' || scope.row.level === 'orange' ? 'tag-danger' : (scope.row.level === 'low' || scope.row.level === 'green' ? 'tag-success' : 'tag-warning')]">
+                                    {{ formatLevel(scope.row.level) }}
                                 </span>
                             </template>
                         </el-table-column>
-                        <el-table-column label="状态" width="100">
+                        <el-table-column label="状态" width="100" align="center">
                             <template #default="scope">
                                 <span :class="['tech-tag', scope.row.status === 'unread' ? 'tag-info' : 'tag-success']">
                                     {{ scope.row.status === 'unread' ? '未处理' : '已处理' }}
                                 </span>
                             </template>
                         </el-table-column>
-                        <el-table-column label="操作" width="100" fixed="right">
+                        <el-table-column label="操作" width="100" fixed="right" align="center">
                             <template #default="scope">
-                                <el-button 
-                                    link 
-                                    class="cyber-btn-detail"
-                                    size="small" 
-                                    @click="handleReadAlert(scope.row)"
-                                    :disabled="scope.row.status === 'read'"
-                                >
-                                    {{ scope.row.status === 'read' ? '完成' : '处理' }}
-                                </el-button>
+                                <div class="action-column-container">
+                                    <el-button 
+                                        link 
+                                        class="cyber-btn-detail" 
+                                        size="small" 
+                                        @click="viewArticleContent(scope.row)"
+                                    >
+                                        文章
+                                    </el-button>
+                                    <el-button 
+                                        link 
+                                        class="cyber-btn-detail" 
+                                        size="small" 
+                                        @click="viewAlertDetails(scope.row)"
+                                    >
+                                        详情
+                                    </el-button>
+                                    <el-button 
+                                        link 
+                                        class="cyber-btn-detail"
+                                        size="small" 
+                                        @click="handleReadAlert(scope.row)"
+                                        :disabled="scope.row.status === 'read'"
+                                    >
+                                        {{ scope.row.status === 'read' ? '完成' : '处理' }}
+                                    </el-button>
+                                </div>
                             </template>
                         </el-table-column>
                     </el-table>
 
+                    <!-- Pagination -->
+                    <div v-if="warningActiveTab === 'history'" class="pagination-container" style="margin-top: 20px; display: flex; justify-content: flex-end;">
+                        <el-pagination
+                            v-model:current-page="currentPage"
+                            v-model:page-size="pageSize"
+                            :page-sizes="[10, 15, 20, 50, 100]"
+                            :small="false"
+                            :disabled="false"
+                            :background="true"
+                            layout="total, sizes, prev, pager, next, jumper"
+                            :total="totalAlerts"
+                            @size-change="handleSizeChange"
+                            @current-change="handleCurrentChange"
+                        />
+                    </div>
+
                     <!-- 预警规则表格 -->
                     <el-table v-if="warningActiveTab === 'rules'" :data="alertRules" style="width: 100%" class="alerts-table">
-                        <el-table-column prop="name" label="规则名称" min-width="150"></el-table-column>
-                        <el-table-column prop="keyword" label="关键词" width="120"></el-table-column>
-                        <el-table-column label="条件" width="200">
+                        <el-table-column prop="name" label="规则名称" width="400">
                             <template #default="scope">
-                                <span class="tech-text">
-                                    {{ scope.row.time_window }}h内 {{ scope.row.sentiment }} > {{ scope.row.threshold }}
-                                </span>
+                                <span class="tech-text-bold">{{ scope.row.name }}</span>
                             </template>
                         </el-table-column>
-                        <el-table-column label="状态" width="100">
+                        <el-table-column label="关键词" min-width="350">
                             <template #default="scope">
-                                <el-switch v-model="scope.row.is_active" :active-value="1" :inactive-value="0" disabled></el-switch>
+                                <template v-if="scope.row.keyword">
+                                    <el-tag 
+                                        v-for="(kw, index) in formatKeywords(scope.row.keyword)"
+                                        :key="index"
+                                        class="tech-tag" 
+                                        effect="dark" 
+                                        size="small"
+                                        style="margin-right: 5px; margin-bottom: 2px; background-color: rgba(64, 158, 255, 0.1); border-color: rgba(64, 158, 255, 0.2); color: #409EFF;"
+                                    >
+                                        {{ kw }}
+                                    </el-tag>
+                                </template>
+                                <span v-else class="tech-text-dim" style="font-size: 12px; color: #909399;">全网监测</span>
                             </template>
                         </el-table-column>
-                        <el-table-column label="操作" width="100" fixed="right">
+                        <el-table-column label="触发条件" min-width="100">
                             <template #default="scope">
-                                <el-button link type="danger" size="small" @click="handleDeleteRule(scope.row.id)">删除</el-button>
+                                <div class="tech-condition-box">
+                                    <span class="condition-time">{{ scope.row.time_window }}h内</span>
+                                    <span class="condition-operator">
+                                        <span class="sentiment-label">{{ scope.row.sentiment }}</span> 
+                                        &gt; 
+                                        <span class="threshold-value">{{ scope.row.threshold }}</span>
+                                    </span>
+                                </div>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="状态" width="100" align="center">
+                            <template #default="scope">
+                                <el-switch 
+                                    v-model="scope.row.is_active" 
+                                    :active-value="1" 
+                                    :inactive-value="0" 
+                                    @change="handleStatusChange(scope.row)"
+                                    style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
+                                ></el-switch>
+                            </template>
+                        </el-table-column>
+                        <el-table-column label="操作" width="100" fixed="right" align="center">
+                            <template #default="scope">
+                                <div class="action-column-container">
+                                    <el-button 
+                                        link 
+                                        class="cyber-btn-detail" 
+                                        size="small" 
+                                        @click="handleEditRule(scope.row)"
+                                    >
+                                        详情
+                                    </el-button>
+                                    <el-button 
+                                        link 
+                                        class="cyber-btn-delete" 
+                                        size="small" 
+                                        @click="handleDeleteRule(scope.row.id)"
+                                    >
+                                        删除
+                                    </el-button>
+                                </div>
                             </template>
                         </el-table-column>
                     </el-table>
                 </el-card>
 
-                <!-- 新建规则对话框 -->
-                <el-dialog v-model="ruleDialogVisible" title="新建预警规则" width="500px" custom-class="tech-dialog">
+                <!-- 新建/编辑规则对话框 -->
+                <el-dialog v-model="ruleDialogVisible" :title="ruleForm.id ? '编辑预警规则' : '新建预警规则'" width="500px" class="tech-dialog">
                     <el-form :model="ruleForm" label-width="100px" class="tech-form">
                         <el-form-item label="规则名称">
                             <el-input v-model="ruleForm.name" placeholder="例如：品牌负面爆发预警"></el-input>
@@ -205,7 +752,7 @@
                             <el-input-number v-model="ruleForm.time_window" :min="1" :max="168"></el-input-number>
                         </el-form-item>
                         <el-form-item label="预警情感">
-                            <el-select v-model="ruleForm.sentiment">
+                            <el-select v-model="ruleForm.sentiment" popper-class="tech-popper">
                                 <el-option label="负面" value="负面"></el-option>
                                 <el-option label="全部" value="全部"></el-option>
                             </el-select>
@@ -217,18 +764,92 @@
                             <el-switch v-model="ruleForm.is_crisis" :active-value="1" :inactive-value="0"></el-switch>
                             <span style="margin-left: 10px; font-size: 12px; color: #909399;">开启后触发政治/法律敏感词即预警</span>
                         </el-form-item>
+                        <el-form-item label="启用状态" v-if="ruleForm.id">
+                             <el-switch v-model="ruleForm.is_active" :active-value="1" :inactive-value="0"></el-switch>
+                        </el-form-item>
                     </el-form>
                     <template #footer>
                         <el-button @click="ruleDialogVisible = false">取消</el-button>
-                        <el-button type="primary" @click="handleCreateRule">确定</el-button>
+                        <el-button type="primary" @click="handleSaveRule">确定</el-button>
                     </template>
+                </el-dialog>
+
+                <!-- Article Content Dialog -->
+                <el-dialog v-model="articleDialogVisible" title="文章内容与评论详情 (完整版)" width="800px" class="tech-dialog">
+                    <div class="article-content-view" v-loading="!currentArticle.content || currentArticle.content === '正在加载完整内容...'">
+                        <h3 class="detail-title" style="margin-bottom: 10px;">{{ currentArticle.title }}</h3>
+                        <p class="article-snippet" style="white-space: pre-wrap; font-size: 14px; line-height: 1.6; color: #dcdfe6; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--border-color);">{{ currentArticle.content }}</p>
+                        
+                        <div v-if="currentArticle.comments && currentArticle.comments.length > 0">
+                            <h4 class="detail-title" style="margin-bottom: 15px; font-size: 16px;">相关负面评论 (共 {{ currentArticle.comments.length }} 条)</h4>
+                            <div class="comments-list" style="max-height: 400px; overflow-y: auto;">
+                                <div v-for="(comment, idx) in currentArticle.comments" :key="idx" class="comment-item" style="margin-bottom: 10px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 12px; color: #999; margin-bottom: 5px;">
+                                        <span>{{ comment.created_at }}</span>
+                                        <span :class="{'score-red': comment.score >= 0.8 || comment.sentiment === '负面', 'score-orange': comment.score >= 0.6}">{{ comment.sentiment }} {{ comment.score ? '(' + comment.score.toFixed(2) + ')' : '' }}</span>
+                                    </div>
+                                    <div style="font-size: 13px; color: #dcdfe6; white-space: pre-wrap;">{{ comment.content }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div v-else style="text-align: center; color: #909399; padding: 20px;">暂无评论数据</div>
+                    </div>
+                    <template #footer>
+                        <div style="display: flex; justify-content: flex-end;">
+                            <el-button @click="articleDialogVisible = false" size="small">关闭</el-button>
+                        </div>
+                    </template>
+                </el-dialog>
+
+                <!-- Alert Details Dialog (CRI & Risk) -->
+                <el-dialog v-model="detailsDialogVisible" title="舆情风险评估详情" width="500px" class="tech-dialog">
+                    <div class="alert-details-view" v-if="currentAlertDetails">
+                        <div class="risk-score-circle" :class="getRiskClass(currentAlertDetails.risk_level)">
+                            <div class="score-value">{{ currentAlertDetails.cri ? currentAlertDetails.cri.toFixed(2) : 'N/A' }}</div>
+                            <div class="score-label">CRI指数</div>
+                        </div>
+                        
+                        <div class="detail-grid">
+                            <div class="detail-item">
+                                <span class="label">风险等级:</span>
+                                <span class="value" :class="getRiskClass(currentAlertDetails.risk_level)">{{ formatLevel(currentAlertDetails.risk_level || '未知') }}</span>
+                            </div>
+                            <div class="detail-item">
+                                <span class="label">预警阈值:</span>
+                                <span class="value">{{ currentAlertDetails.threshold ? currentAlertDetails.threshold.toFixed(2) : '0.45' }}</span>
+                            </div>
+                            <div class="detail-item full-width" v-if="currentAlertDetails.metrics">
+                                <span class="label">核心指标:</span>
+                                <div class="metrics-tags">
+                                    <el-tag size="small" type="danger">负面指数: {{ currentAlertDetails.metrics.sentiment_score ? currentAlertDetails.metrics.sentiment_score.toFixed(2) : '0.0' }}</el-tag>
+                                    <el-tag size="small" type="warning">评论占比: {{ currentAlertDetails.metrics.negative_ratio ? currentAlertDetails.metrics.negative_ratio.toFixed(2) : '0.0' }}</el-tag>
+                                    <el-tag size="small" type="info">爆发系数: {{ currentAlertDetails.metrics.burst_coefficient ? currentAlertDetails.metrics.burst_coefficient.toFixed(2) : '0.0' }}</el-tag>
+                                </div>
+                            </div>
+                            
+                            <!-- Fallback for non-CRI alerts (like Article Burst) -->
+                            <div class="detail-item full-width" v-else>
+                                <span class="label">统计信息:</span>
+                                <div class="metrics-tags">
+                                    <el-tag size="small" type="info">总评论: {{ currentAlertDetails.total_comments || 0 }}</el-tag>
+                                    <el-tag size="small" type="danger">负面评论: {{ currentAlertDetails.negative_comments_count || currentAlertDetails.neg_comments || 0 }}</el-tag>
+                                </div>
+                            </div>
+
+                            <div class="detail-item full-width" v-if="currentAlertDetails.article_title">
+                                <span class="label">关联文章:</span>
+                                <span class="value article-link" @click="articleDialogVisible=true; currentArticle={title: currentAlertDetails.article_title, content: currentAlertDetails.article_content, comments: currentAlertDetails.top_negative_comments}">{{ currentAlertDetails.article_title }}</span>
+                            </div>
+                        </div>
+                    </div>
                 </el-dialog>
             </div>
         </div>
     </div>
 
     <script>
-        const { createApp, ref, onMounted, reactive, watch, nextTick } = Vue;
+        const { createApp, ref, onMounted, nextTick } = Vue;
+        const { ElMessage } = ElementPlus;
         // Fix: Use global variable provided by the locale script, with fallback
         const ElementPlusLocaleZhCn = window.ElementPlusLocaleZhCn || {};
 
@@ -238,9 +859,19 @@
                 const activeMenu = ref('warning');
                 const warningActiveTab = ref('history');
                 const ruleDialogVisible = ref(false);
+                const detailsDialogVisible = ref(false);
+                const currentAlertDetails = ref(null);
                 
                 const allAlerts = ref([]);
                 const alertRules = ref([]);
+                const timeRange = ref('1'); // Default 24h
+                const customDateRange = ref([]);
+                
+                // Pagination
+                const currentPage = ref(1);
+                const pageSize = ref(10);
+                const totalAlerts = ref(0);
+
                 const alertReport = ref({
                     level_dist: [],
                     trend: [],
@@ -257,6 +888,24 @@
                     notify_methods: 'system',
                     is_active: 1
                 });
+
+                const handleTimeRangeChange = async () => {
+                    console.log('Time range changed to:', timeRange.value);
+                    currentPage.value = 1; // Reset to page 1 on filter change
+                    if (timeRange.value !== 'custom') {
+                        customDateRange.value = [];
+                        await fetchAlerts();
+                        await fetchAlertReport();
+                    }
+                };
+
+                const handleCustomDateChange = () => {
+                    if (customDateRange.value && customDateRange.value.length === 2) {
+                        currentPage.value = 1; // Reset to page 1 on filter change
+                        fetchAlerts();
+                        fetchAlertReport();
+                    }
+                };
 
                 const handleMenuSelect = (index) => {
                     if (index === 'warning') return;
@@ -277,12 +926,55 @@
                 };
 
                 const fetchAlerts = async () => {
+                    console.log('Fetching alerts with timeRange:', timeRange.value, 'customDateRange:', customDateRange.value);
                     try {
-                        const res = await axios.get('/api/alerts/list');
-                        allAlerts.value = res.data;
+                        let params = {};
+                        if (timeRange.value === 'custom' && customDateRange.value && customDateRange.value.length === 2) {
+                            params.start_date = customDateRange.value[0];
+                            params.end_date = customDateRange.value[1];
+                        } else if (timeRange.value !== 'custom') {
+                            params.days = timeRange.value;
+                        }
+
+                        // Add level filter
+                        if (currentLevelFilter.value && currentLevelFilter.value !== 'all') {
+                            params.level = currentLevelFilter.value;
+                        }
+
+                        // Pagination
+                        params.page = currentPage.value;
+                        params.page_size = pageSize.value;
+
+                        console.log('Sending request to /api/alerts/list with params:', params);
+                        const res = await axios.get('/api/alerts/list', { params });
+                        console.log('Received response:', res.data);
+                        
+                        if (res.data.data && Array.isArray(res.data.data)) {
+                            allAlerts.value = res.data.data;
+                            totalAlerts.value = res.data.total;
+                        } else if (Array.isArray(res.data)) {
+                            // Fallback for old API structure
+                            allAlerts.value = res.data;
+                            totalAlerts.value = res.data.length;
+                        } else {
+                            allAlerts.value = [];
+                            totalAlerts.value = 0;
+                        }
                     } catch (e) {
                         console.error('Failed to fetch alerts', e);
+                        ElMessage.error('获取预警列表失败');
                     }
+                };
+
+                const handleSizeChange = (val) => {
+                    pageSize.value = val;
+                    currentPage.value = 1; // Reset to first page
+                    fetchAlerts();
+                };
+
+                const handleCurrentChange = (val) => {
+                    currentPage.value = val;
+                    fetchAlerts();
                 };
 
                 const fetchRules = async () => {
@@ -296,7 +988,16 @@
 
                 const fetchAlertReport = async () => {
                     try {
-                        const res = await axios.get('/api/alerts/report');
+                        let params = {};
+                        if (timeRange.value === 'custom' && customDateRange.value && customDateRange.value.length === 2) {
+                            params.start_date = customDateRange.value[0];
+                            params.end_date = customDateRange.value[1];
+                        } else if (timeRange.value !== 'custom') {
+                            params.days = timeRange.value;
+                        }
+
+                        console.log('Fetching alert report with params:', params);
+                        const res = await axios.get('/api/alerts/report', { params });
                         alertReport.value = res.data;
                         nextTick(() => {
                             initAlertCharts();
@@ -311,19 +1012,120 @@
                     const levelDom = document.getElementById('alertLevelChart');
                     if (levelDom) {
                         const levelChart = echarts.init(levelDom);
-                        const data = alertReport.value.level_dist.map(item => ({
-                            name: item.level === 'high' ? '高' : (item.level === 'medium' ? '中' : '低'),
-                            value: item.count
-                        }));
+                        
+                        // Map colors and names
+                        const levelMap = {
+                            'red': { name: '严重风险', color: '#F56C6C' },
+                            'high': { name: '严重风险', color: '#F56C6C' },
+                            'orange': { name: '高风险', color: '#E6A23C' },
+                            'yellow': { name: '中风险', color: '#FFD700' }, // Gold/Yellow
+                            'medium': { name: '中风险', color: '#E6A23C' },
+                            'green': { name: '低风险', color: '#67C23A' },
+                            'low': { name: '低风险', color: '#409EFF' }, // Blue for low/tech
+                            'normal': { name: '正常', color: '#409EFF' }
+                        };
+
+                        const data = alertReport.value.level_dist.map(item => {
+                            const config = levelMap[item.level] || { name: item.level, color: '#909399' };
+                            return {
+                                name: config.name,
+                                value: item.count,
+                                itemStyle: {
+                                    color: config.color,
+                                    shadowBlur: 10,
+                                    shadowColor: config.color
+                                }
+                            };
+                        });
+
                         levelChart.setOption({
-                            title: { text: '预警级别分布', textStyle: { color: '#fff' }, left: 'center' },
-                            tooltip: { trigger: 'item' },
-                            series: [{
-                                type: 'pie',
-                                radius: ['35%', '60%'],
-                                data: data,
-                                label: { color: '#fff' }
-                            }]
+                            backgroundColor: 'transparent',
+                            title: { 
+                                text: '预警级别分布', 
+                                left: 'left',
+                                top: 10,
+                                textStyle: {
+                                    color: '#00f0ff',
+                                    fontSize: 18,
+                                    fontWeight: 'bold',
+                                    fontFamily: 'Orbitron',
+                                    textShadowColor: 'rgba(0, 240, 255, 0.5)',
+                                    textShadowBlur: 10
+                                }
+                            },
+                            tooltip: {
+                                trigger: 'item',
+                                formatter: '{b} <br/>{c}条 ({d}%)',
+                                backgroundColor: 'rgba(10, 14, 23, 0.9)',
+                                borderColor: '#00f0ff',
+                                borderWidth: 1,
+                                textStyle: { color: '#fff' },
+                                padding: 10
+                            },
+                            legend: {
+                                bottom: '0%',
+                                left: 'center',
+                                textStyle: { color: '#94a3b8', fontSize: 12 },
+                                icon: 'circle',
+                                itemGap: 15
+                            },
+                            series: [
+                                {
+                                    name: '预警级别',
+                                    type: 'pie',
+                                    radius: ['35%', '65%'],
+                                    center: ['50%', '50%'],
+                                    roseType: 'radius',
+                                    itemStyle: {
+                                        borderRadius: 8,
+                                        borderColor: '#0a0e17',
+                                        borderWidth: 2,
+                                        shadowBlur: 15,
+                                        shadowOffsetX: 0,
+                                        shadowOffsetY: 0
+                                    },
+                                    label: {
+                                        show: true,
+                                        formatter: '{name|{b}}\n{value|{c}} {percent|{d}%}',
+                                        minMargin: 5,
+                                        edgeDistance: 10,
+                                        lineHeight: 15,
+                                        rich: {
+                                            name: {
+                                                color: '#94a3b8',
+                                                fontSize: 12,
+                                                align: 'center',
+                                                padding: [0, 0, 5, 0]
+                                            },
+                                            value: {
+                                                color: '#fff',
+                                                fontSize: 14,
+                                                fontWeight: 'bold',
+                                                align: 'center'
+                                            },
+                                            percent: {
+                                                color: '#00f0ff',
+                                                fontSize: 14,
+                                                fontWeight: 'bold',
+                                                fontFamily: 'Orbitron',
+                                                align: 'center',
+                                                padding: [0, 0, 0, 5]
+                                            }
+                                        }
+                                    },
+                                    labelLine: {
+                                        length: 15,
+                                        length2: 0,
+                                        maxSurfaceAngle: 80,
+                                        lineStyle: {
+                                            color: '#409EFF',
+                                            width: 1,
+                                            type: 'dashed'
+                                        }
+                                    },
+                                    data: data
+                                }
+                            ]
                         });
                         window.addEventListener('resize', () => levelChart.resize());
                     }
@@ -335,19 +1137,329 @@
                         const dates = alertReport.value.trend.map(item => item.date);
                         const counts = alertReport.value.trend.map(item => item.count);
                         trendChart.setOption({
-                            title: { text: '预警趋势', textStyle: { color: '#fff' }, left: 'center' },
-                            tooltip: { trigger: 'axis' },
-                            xAxis: { type: 'category', data: dates, axisLabel: { color: '#fff' } },
-                            yAxis: { type: 'value', axisLabel: { color: '#fff' } },
+                            backgroundColor: 'transparent',
+                            title: { 
+                                text: '预警趋势', 
+                                left: 'center', 
+                                top: 10,
+                                textStyle: { 
+                                    color: '#00f0ff', 
+                                    fontSize: 18, 
+                                    fontWeight: 'bold', 
+                                    fontFamily: 'Orbitron',
+                                    textShadowColor: 'rgba(0, 240, 255, 0.5)',
+                                    textShadowBlur: 10
+                                } 
+                            },
+                            tooltip: { 
+                                trigger: 'axis',
+                                backgroundColor: 'rgba(10, 14, 23, 0.9)',
+                                borderColor: '#00f0ff',
+                                borderWidth: 1,
+                                textStyle: { color: '#fff' },
+                                padding: 10,
+                                axisPointer: {
+                                    type: 'line',
+                                    lineStyle: {
+                                        color: '#00f0ff',
+                                        type: 'dashed'
+                                    }
+                                }
+                            },
+                            grid: {
+                                top: '20%',
+                                left: '8%',
+                                right: '8%',
+                                bottom: '15%',
+                                containLabel: true
+                            },
+                            dataZoom: [
+                                {
+                                    type: 'inside',
+                                    start: 80,
+                                    end: 100
+                                },
+                                {
+                                    show: true,
+                                    type: 'slider',
+                                    bottom: '5%',
+                                    left: '8%',  // Align with grid to prevent label cutoff
+                                    right: '8%', // Align with grid to prevent label cutoff
+                                    start: 80,
+                                    end: 100,
+                                    height: 20,
+                                    borderColor: 'transparent',
+                                    backgroundColor: 'rgba(0, 240, 255, 0.1)',
+                                    fillerColor: 'rgba(0, 240, 255, 0.3)',
+                                    handleStyle: {
+                                        color: '#00f0ff',
+                                        shadowBlur: 3,
+                                        shadowColor: 'rgba(0, 0, 0, 0.6)',
+                                        shadowOffsetX: 2,
+                                        shadowOffsetY: 2
+                                    },
+                                    textStyle: {
+                                        color: '#00f0ff', // Brighter color for visibility
+                                        fontFamily: 'Fira Code'
+                                    },
+                                    labelFormatter: function (value) {
+                                        // Ensure we show the full date-time or a readable format
+                                        // value is the index for category axis
+                                        const dateStr = dates[value];
+                                        if (dateStr && typeof dateStr === 'string' && dateStr.length >= 10) {
+                                            return dateStr.substring(5, 10);
+                                        }
+                                        return dateStr || value;
+                                    }
+                                }
+                            ],
+                            xAxis: { 
+                                type: 'category', 
+                                boundaryGap: false,
+                                data: dates, 
+                                axisLabel: { 
+                                    color: '#94a3b8', 
+                                    fontFamily: 'Fira Code',
+                                    margin: 15,
+                                    formatter: function (value) {
+                                        // Break date and time into two lines for better fit
+                                        if (value.indexOf(' ') > -1) {
+                                            return value.replace(' ', '\n');
+                                        }
+                                        return value;
+                                    }
+                                },
+                                axisLine: {
+                                    lineStyle: {
+                                        color: '#1e293b'
+                                    }
+                                },
+                                axisTick: { show: false }
+                            },
+                            yAxis: { 
+                                type: 'value', 
+                                axisLabel: { 
+                                    color: '#94a3b8', 
+                                    fontFamily: 'Fira Code' 
+                                },
+                                splitLine: {
+                                    lineStyle: {
+                                        color: 'rgba(255, 255, 255, 0.05)',
+                                        type: 'dashed'
+                                    }
+                                }
+                            },
                             series: [{
+                                name: '预警数量',
                                 data: counts,
                                 type: 'line',
                                 smooth: true,
-                                areaStyle: { opacity: 0.3 }
+                                symbol: 'circle',
+                                symbolSize: 8,
+                                showSymbol: false,
+                                itemStyle: {
+                                    color: '#00f0ff',
+                                    borderColor: '#fff',
+                                    borderWidth: 2,
+                                    shadowColor: 'rgba(0, 240, 255, 0.5)',
+                                    shadowBlur: 10
+                                },
+                                lineStyle: {
+                                    color: '#00f0ff',
+                                    width: 3,
+                                    shadowColor: 'rgba(0, 240, 255, 0.3)',
+                                    shadowBlur: 10
+                                },
+                                areaStyle: {
+                                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{
+                                        offset: 0,
+                                        color: 'rgba(0, 240, 255, 0.3)'
+                                    }, {
+                                        offset: 1,
+                                        color: 'rgba(0, 240, 255, 0)'
+                                    }])
+                                }
                             }]
                         });
                         window.addEventListener('resize', () => trendChart.resize());
                     }
+                };
+
+                const formatLevel = (level) => {
+                    if (level === 'high' || level === 'red') return '高危';
+                    if (level === 'orange') return '高风险';
+                    if (level === 'medium' || level === 'yellow') return '关注';
+                    if (level === 'low' || level === 'green') return '正常';
+                    return level;
+                };
+
+                const currentLevelFilter = ref('all');
+
+                const levelFilters = [
+                    { text: '高危', value: 'high' },
+                    { text: '高风险', value: 'orange' },
+                    { text: '关注', value: 'medium' },
+                    { text: '正常', value: 'low' }
+                ];
+
+                const handleFilterChange = (filters) => {
+                    console.log('Filter change:', filters);
+                    const values = filters.level || [];
+                    if (values.length > 0) {
+                        currentLevelFilter.value = values[0];
+                    } else {
+                        currentLevelFilter.value = 'all';
+                    }
+                    currentPage.value = 1; // Reset page
+                    fetchAlerts();
+                };
+
+                const articleDialogVisible = ref(false);
+                const currentArticle = ref({});
+
+                const viewAlertDetails = async (row) => {
+                    // Try to extract meta_data
+                    let meta = {};
+                    try {
+                        if (row.meta_data) {
+                            meta = typeof row.meta_data === 'string' ? JSON.parse(row.meta_data) : row.meta_data;
+                        }
+                    } catch (e) {
+                        console.error("Parse meta error", e);
+                    }
+                    
+                    // Always set currentAlertDetails for the dialog
+                    currentAlertDetails.value = meta || {};
+                    // Ensure risk_level is set (fallback to row.level if missing in meta)
+                    if (!currentAlertDetails.value.risk_level) {
+                        currentAlertDetails.value.risk_level = row.level;
+                    }
+                    detailsDialogVisible.value = true;
+
+                    // Fetch fresh data from API if reference_id exists
+                    // This ensures historical alerts show current comment counts instead of 0
+                    if (row.reference_id) {
+                        try {
+                            const res = await axios.get(`/api/alerts/details/${row.reference_id}`);
+                            if (res.data) {
+                                // Merge fresh data into currentAlertDetails
+                                currentAlertDetails.value = {
+                                    ...currentAlertDetails.value,
+                                    total_comments: res.data.total_comments,
+                                    negative_comments_count: res.data.negative_count,
+                                    // Update content/title if available
+                                    article_title: res.data.title || currentAlertDetails.value.article_title,
+                                    article_content: res.data.content || currentAlertDetails.value.article_content,
+                                    top_negative_comments: res.data.comments || currentAlertDetails.value.top_negative_comments,
+                                    // Update CRI and risk level if available
+                                    cri: res.data.cri || currentAlertDetails.value.cri,
+                                    risk_level: res.data.risk_level || currentAlertDetails.value.risk_level
+                                };
+                            }
+                        } catch (e) {
+                            console.error("Failed to fetch fresh alert details", e);
+                        }
+                    }
+                };
+                
+                const viewArticleContent = async (row) => {
+                    if (!row.reference_id) return;
+                    
+                    // Show loading state (could add a loading spinner to dialog content)
+                    articleDialogVisible.value = true;
+                    currentArticle.value = {
+                        title: row.title || '加载中...',
+                        content: '正在加载完整内容...',
+                        id: row.reference_id,
+                        comments: []
+                    };
+                    
+                    try {
+                        // Fetch full details from API (which queries Transformers/processed_ids.db)
+                        const response = await axios.get(`/api/alerts/details/${row.reference_id}`);
+                        const data = response.data;
+                        
+                        currentArticle.value = {
+                            title: data.title || row.title,
+                            content: data.content || '暂无文章内容',
+                            id: row.reference_id,
+                            comments: data.comments || []
+                        };
+                    } catch (error) {
+                        console.error("Failed to fetch full details:", error);
+                        // Fallback to meta_data if API fails
+                        let content = '';
+                        let title = row.title;
+                        let comments = [];
+                        let meta = {};
+
+                        if (row.meta_data) {
+                            try {
+                                meta = typeof row.meta_data === 'string' ? JSON.parse(row.meta_data) : row.meta_data;
+                            } catch (e) {
+                                // Silently fail parsing
+                                meta = {};
+                            }
+
+                            if (meta.article_content) content = meta.article_content;
+                            if (meta.article_title) title = meta.article_title;
+                            
+                            // Extract comments: prioritize top_negative_comments
+                            if (meta.top_negative_comments && meta.top_negative_comments.length > 0) {
+                                comments = meta.top_negative_comments;
+                            } else if (meta.comments && meta.comments.length > 0) {
+                                comments = meta.comments;
+                            }
+                        } 
+                        
+                        if (!content && row.content) {
+                             // Fallback to row.content if no meta_data content
+                             content = row.content;
+                        }
+                        
+                        // If no title from meta, use row title
+                        if (!title || title === '无标题') title = row.title;
+
+                        currentArticle.value = {
+                            title: title,
+                            content: content || '暂无文章内容 (加载失败，显示摘要)',
+                            id: row.reference_id,
+                            comments: comments
+                        };
+                    }
+                };
+
+                const viewArticle = (row) => {
+                    // If it has meta_data, it's a full alert row -> Show full details
+                    if (row.meta_data) {
+                        viewArticleContent(row);
+                    } 
+                    // If it has content/title directly (e.g. from threshold list), show article content
+                    else if (row.content || row.title) {
+                        currentArticle.value = {
+                            title: row.title || '无标题',
+                            content: row.content || '暂无内容',
+                            id: row.note_id || row.reference_id,
+                            comments: []
+                        };
+                        articleDialogVisible.value = true;
+                    }
+                    else {
+                        ElMessage.warning('无法查看详情');
+                    }
+                };
+                
+                const getRiskClass = (cri) => {
+                    if (cri >= 0.8) return 'score-red';
+                    if (cri >= 0.6) return 'score-orange';
+                    if (cri >= 0.4) return 'score-yellow';
+                    return 'score-green';
+                };
+                
+                const getProgressColor = (percentage) => {
+                    if (percentage >= 80) return '#F56C6C';
+                    if (percentage >= 60) return '#E6A23C';
+                    return '#67C23A';
                 };
 
                 const openRuleDialog = () => {
@@ -364,14 +1476,35 @@
                     ruleDialogVisible.value = true;
                 };
 
-                const handleCreateRule = async () => {
+                const handleEditRule = (row) => {
+                    ruleForm.value = { ...row };
+                    ruleDialogVisible.value = true;
+                };
+
+                const handleSaveRule = async () => {
                     try {
-                        await axios.post('/api/alerts/rules', ruleForm.value);
+                        if (ruleForm.value.id) {
+                            await axios.put(`/api/alerts/rules/${ruleForm.value.id}`, ruleForm.value);
+                            ElementPlus.ElMessage.success('规则更新成功');
+                        } else {
+                            await axios.post('/api/alerts/rules', ruleForm.value);
+                            ElementPlus.ElMessage.success('规则创建成功');
+                        }
                         ruleDialogVisible.value = false;
                         fetchRules();
-                        ElementPlus.ElMessage.success('规则创建成功');
                     } catch (e) {
-                        ElementPlus.ElMessage.error('规则创建失败');
+                        ElementPlus.ElMessage.error('操作失败');
+                    }
+                };
+
+                const handleStatusChange = async (row) => {
+                    try {
+                        await axios.put(`/api/alerts/rules/${row.id}`, row);
+                        ElementPlus.ElMessage.success('状态更新成功');
+                    } catch (e) {
+                        row.is_active = row.is_active === 1 ? 0 : 1; // Revert change on error
+                        ElementPlus.ElMessage.error('状态更新失败');
+                        console.error(e);
                     }
                 };
 
@@ -401,21 +1534,60 @@
                     fetchAlertReport();
                 });
 
-                return {
-                    isCollapse,
-                    activeMenu,
-                    warningActiveTab,
-                    ruleDialogVisible,
-                    allAlerts,
-                    alertRules,
-                    alertReport,
-                    ruleForm,
-                    handleMenuSelect,
-                    openRuleDialog,
-                    handleCreateRule,
-                    handleDeleteRule,
-                    handleReadAlert
+                const formatKeywords = (keywordString) => {
+                    if (!keywordString) return [];
+                    // Split by | and &, filter empty, trim, and unique
+                    const parts = keywordString.split(/[|&]/);
+                    const uniqueKeywords = new Set();
+                    parts.forEach(part => {
+                        const trimmed = part.trim();
+                        if (trimmed) {
+                            uniqueKeywords.add(trimmed);
+                        }
+                    });
+                    return Array.from(uniqueKeywords);
                 };
+
+                return {
+                        isCollapse,
+                        activeMenu,
+                        warningActiveTab,
+                        ruleDialogVisible,
+                        detailsDialogVisible,
+                        articleDialogVisible,
+                        currentAlertDetails,
+                        currentArticle,
+                        allAlerts,
+                        alertRules,
+                        alertReport,
+                        ruleForm,
+                        timeRange,
+                        customDateRange,
+                        handleTimeRangeChange,
+                        handleCustomDateChange,
+                        handleMenuSelect,
+                        openRuleDialog,
+                        handleSaveRule,
+                        handleStatusChange,
+                        handleEditRule,
+                        handleDeleteRule,
+                        handleReadAlert,
+                        viewAlertDetails,
+                        viewArticle,
+                        viewArticleContent,
+                        formatLevel,
+                        levelFilters,
+                        handleFilterChange,
+                        getRiskClass,
+                        getProgressColor,
+                        // Pagination
+                        totalAlerts,
+                        pageSize,
+                        currentPage,
+                        handleSizeChange,
+                        handleCurrentChange,
+                        formatKeywords
+                    };
             }
         });
 

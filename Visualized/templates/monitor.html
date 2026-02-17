@@ -474,40 +474,7 @@
             align-items: center !important;
         }
 
-        /* 鼠标悬停行样式优化 - 强制覆盖所有可能的白色背景 */
-        .el-table__body tr:hover > td,
-        .el-table__body tr.hover-row > td,
-        .el-table--enable-row-hover .el-table__body tr:hover > td.el-table__cell {
-            background-color: transparent !important; /* 让 tr 的渐变背景透出来 */
-            box-shadow: none !important; /* 移除单元格独立的阴影 */
-            border-right: none !important; /* 移除竖线 */
-            --el-table-row-hover-bg-color: transparent !important;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        /* 在 TR 上应用渐变背景 */
-        .el-table__body tr:hover {
-            background: linear-gradient(90deg, rgba(0, 240, 255, 0.05) 0%, rgba(0, 240, 255, 0.15) 50%, rgba(0, 240, 255, 0.05) 100%) !important;
-            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.1);
-        }
 
-        /* 移除表格竖线 */
-        .el-table td.el-table__cell,
-        .el-table th.el-table__cell.is-leaf {
-            border-right: none !important;
-        }
-        .el-table--border::after,
-        .el-table--group::after,
-        .el-table::before {
-            display: none !important;
-        }
-        
-        /* 悬停时文字颜色统一高亮 */
-        .el-table__body tr:hover .cell {
-            color: var(--primary-color) !important; /* 统一使用主题色高亮 */
-            text-shadow: 0 0 5px rgba(0, 240, 255, 0.3);
-        }
 
         /* 评论列表悬停效果 */
         .comment-item {
@@ -547,39 +514,7 @@
             color: var(--primary-color) !important;
         }
         
-        /* 修复固定列在悬停时的样式统一 */
-        .el-table__body tr:hover > td.el-table-fixed-column--right,
-        .el-table__body tr:hover > td.el-table-fixed-column--left {
-            background-color: #0e1621 !important; /* 给固定列一个深色底色防止透视 */
-            box-shadow: inset 0 0 15px rgba(0, 240, 255, 0.1) !important;
-        }
-        /* 针对右侧固定列，移除左侧边框和阴影 */
-        .el-table__body td.el-table-fixed-column--right,
-        .el-table__header th.el-table-fixed-column--right {
-            border-left: none !important;
-            box-shadow: none !important; /* 移除 Element Plus 默认的阴影线 */
-        }
-        /* 移除滚动时的阴影遮罩 */
-        .el-table.is-scrolling-right .el-table-fixed-column--right::before,
-        .el-table.is-scrolling-middle .el-table-fixed-column--right::before,
-        .el-table.is-scrolling-left .el-table-fixed-column--right::before {
-            box-shadow: none !important;
-            display: none !important;
-        }
 
-        /* 在悬停时使用伪元素模拟渐变覆盖 */
-        .el-table__body tr:hover > td.el-table-fixed-column--right::before,
-        .el-table__body tr:hover > td.el-table-fixed-column--left::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, rgba(0, 240, 255, 0.1), rgba(0, 240, 255, 0.05));
-            pointer-events: none;
-            z-index: 1;
-        }
 
         /* 训练结果表格 Cyber 风格优化 */
         .article-training-section {
