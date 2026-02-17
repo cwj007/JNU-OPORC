@@ -584,6 +584,13 @@ class Exporter:
         # 只有在检测到反讽时才在推理中体现相关说明
         irony_detected = analysis.get("irony_detected", False)
         reasoning = analysis.get("reasoning", "")
+        
+        # 确保 reasoning 是字符串，防止 AttributeError
+        if isinstance(reasoning, dict):
+             reasoning = json.dumps(reasoning, ensure_ascii=False)
+        elif not isinstance(reasoning, str):
+             reasoning = str(reasoning)
+
         if not irony_detected:
             # 如果没有反讽，清理推理过程中的反讽相关词汇，或者保持简洁
             reasoning = reasoning.split("，没有")[0].split(", no")[0]
