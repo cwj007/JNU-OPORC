@@ -16,7 +16,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Multi-modal Sentiment Analysis Pipeline")
     parser.add_argument("--date", type=str, help="Specify data date (YYYY-MM-DD)")
     parser.add_argument("--platform", type=str, default="weibo", choices=["weibo", "zhihu"], help="Platform (weibo or zhihu)")
-    parser.add_argument("--source_type", type=str, default="csv", choices=["csv", "sqlite"], help="Data source type (csv or sqlite)")
+    parser.add_argument("--source_type", type=str, default="csv", choices=["csv", "sqlite", "json"], help="Data source type (csv, sqlite or json)")
     parser.add_argument("--output_format", type=str, default="json", help="Output format (json, csv, sqlite). Multiple formats separated by comma.")
     parser.add_argument("--weibo_posts", type=str)
     parser.add_argument("--weibo_comments", type=str)
@@ -27,6 +27,7 @@ if __name__ == "__main__":
     parser.add_argument("--process_index", type=int, default=0, help="Index of current process (0 to process_count-1)")
     parser.add_argument("--stream", action="store_true", help="Enable streaming mode to process data continuously as it is crawled (SQLite only)")
     parser.add_argument("--stream_interval", type=int, default=60, help="Interval in seconds to check for new data in streaming mode")
+    parser.add_argument("--dry_run", action="store_true", help="Load data only, skip VLM processing")
     
     args = parser.parse_args()
     
@@ -73,17 +74,33 @@ if __name__ == "__main__":
                 weibo_data = data_manager.load_weibo_data(source_type="sqlite", date=args.date, existing_ids=existing_ids)
                 all_data.extend(weibo_data)
 
+            elif args.source_type == "json":
+                if not args.json_file:
+                     utils.logger.error("Weibo JSON source requires --json_file argument (file or directory).")
+                     sys.exit(1)
+                utils.logger.info(f"[main.main] 正在从 JSON 读取微博数据: {args.json_file}...")
+                weibo_data = data_manager.load_weibo_data(json_file=args.json_file, source_type="json", existing_ids=existing_ids)
+                all_data.extend(weibo_data)
+
         elif args.platform == "zhihu":
             if args.source_type == "sqlite":
                  utils.logger.info(f"[main.main] 正在从 SQLite 读取知乎数据 (date={args.date or 'ALL'})...")
-                 zhihu_data = data_manager.load_zhihu_data(date=args.date, existing_ids=existing_ids)
+                 zhihu_data = data_manager.load_zhihu_data(date=args.date, source_type="sqlite", existing_ids=existing_ids)
+                 all_data.extend(zhihu_data)
+            elif args.source_type == "json":
+                 if not args.json_file:
+                     utils.logger.error("Zhihu JSON source requires --json_file argument.")
+                     sys.exit(1)
+                 utils.logger.info(f"[main.main] 正在从 JSON 读取知乎数据: {Path(args.json_file).name}...")
+                 zhihu_data = data_manager.load_zhihu_data(json_file=args.json_file, source_type="json", existing_ids=existing_ids)
                  all_data.extend(zhihu_data)
             else:
-                 utils.logger.error("Zhihu only supports sqlite source type currently.")
+                 utils.logger.error(f"Unsupported source_type for Zhihu: {args.source_type}")
                  sys.exit(1)
 
-        if args.json_file:
-            utils.logger.info(f"[main.main] 正在读取 JSON 数据: {Path(args.json_file).name} ...")
+        # Only load generic JSON if not already handled by platform specific loader
+        if args.json_file and args.source_type != "json":
+            utils.logger.info(f"[main.main] 正在读取通用 JSON 数据: {Path(args.json_file).name} ...")
             json_data = data_manager.load_json_data(args.json_file, existing_ids=existing_ids)
             all_data.extend(json_data)
 
@@ -119,6 +136,9 @@ if __name__ == "__main__":
         # Process and Analyze
         utils.logger.info("="*50)
         utils.logger.info(f"[main.main] 🚀 开始执行多模态分析流水线")
+        if args.dry_run:
+            utils.logger.info("[main.main] ⚠️ Dry run enabled. Skipping VLM analysis.")
+
         if args.process_count > 1:
             utils.logger.info(f"[main.main] 当前进程  : {args.process_index + 1} / {args.process_count}")
         utils.logger.info(f"[main.main] 待处理总量: {len(all_data)} (文章: {len(posts)}, 评论: {len(comments)})")
@@ -126,7 +146,7 @@ if __name__ == "__main__":
         utils.logger.info("="*50)
         
         # 核心策略：先处理文章，为评论提供更丰富的视觉背景
-        if posts:
+        if posts and not args.dry_run:
             utils.logger.info(f"[main.main] [阶段 1/2] 正在优先处理文章数据 (共 {len(posts)} 条)...")
             analyzer.process_batch(
                 posts, 
@@ -137,7 +157,7 @@ if __name__ == "__main__":
         
         # 阶段 2：处理评论和其他数据
         remaining_data = comments + other_data
-        if remaining_data:
+        if remaining_data and not args.dry_run:
             utils.logger.info(f"[main.main] \n>>> [阶段 2/2] 正在处理评论数据 (共 {len(remaining_data)} 条)...")
             analyzer.process_batch(
                 remaining_data, 

@@ -9,16 +9,19 @@ from typing import List, Dict, Any, Optional
 from concurrent.futures import ThreadPoolExecutor
 from ..config import MEDIA_CRAWLER_DATA_DIR, IMAGE_EXTENSIONS, CACHE_DIR
 from Transformers import utils
-from Transformers.processors.data_loader import WeiboCSVLoader, WeiboSQLiteLoader, ZhihuSQLiteLoader
+from Transformers.processors.data_loader import WeiboCSVLoader, WeiboSQLiteLoader, ZhihuSQLiteLoader, ZhihuJSONLoader, WeiboJSONLoader, ZhihuCSVLoader
 
 class DataManager:
     def __init__(self):
         self.data_dir = MEDIA_CRAWLER_DATA_DIR
         
         # Loaders
-        self.csv_loader = WeiboCSVLoader()
-        self.sqlite_loader = WeiboSQLiteLoader()
+        self.weibo_csv_loader = WeiboCSVLoader()
+        self.weibo_sqlite_loader = WeiboSQLiteLoader()
         self.zhihu_loader = ZhihuSQLiteLoader()
+        self.zhihu_json_loader = ZhihuJSONLoader()
+        self.zhihu_csv_loader = ZhihuCSVLoader()
+        self.weibo_json_loader = WeiboJSONLoader()
 
     def detect_platform(self, file_path: str) -> str:
         """Identify platform (weibo/zhihu) based on file path."""
@@ -74,10 +77,11 @@ class DataManager:
 
     def load_weibo_data(self, posts_file: str = None, comments_file: str = None, 
                        source_type: str = "csv", date: str = None, 
+                       json_file: str = None,
                        existing_ids: set = None) -> List[Dict[str, Any]]:
         """
         加载微博数据并返回扁平化的项目列表。
-        支持 CSV (默认) 和 SQLite 数据源。
+        支持 CSV (默认), SQLite 和 JSON 数据源。
         """
         posts_data = []
         comments_data = []
@@ -89,12 +93,22 @@ class DataManager:
                 raise ValueError("CSV source requires posts_file and comments_file")
             
             date_str = Path(posts_file).stem.split('_')[-1]
-            posts_data, comments_data = self.csv_loader.load_data(posts_file, comments_file)
+            posts_data, comments_data = self.weibo_csv_loader.load_data(posts_file, comments_file)
             
         elif source_type == "sqlite":
             if date:
                 date_str = date
-            posts_data, comments_data = self.sqlite_loader.load_data(date=date)
+            posts_data, comments_data = self.weibo_sqlite_loader.load_data(date=date)
+            
+        elif source_type == "json":
+            if not json_file:
+                 raise ValueError("JSON source requires json_file path (can be file or directory)")
+            posts_data, comments_data = self.weibo_json_loader.load_data(json_file)
+            if not date:
+                try:
+                    date_str = Path(json_file).stem
+                except:
+                    pass
             
         else:
             raise ValueError(f"Unsupported source_type: {source_type}")
@@ -332,24 +346,105 @@ class DataManager:
         utils.logger.info(f"[DataManager.load_weibo_data] 加载完成: 过滤后剩余 {len(final_list)} 条新数据待处理 (已跳过 {len(comments_data) + len(posts_data) - len(final_list)} 条重复或无效数据)")
         return final_list
 
-    def load_zhihu_data(self, date: str = None, existing_ids: set = None) -> List[Dict[str, Any]]:
+    def load_zhihu_data(self, posts_file: str = None, comments_file: str = None, 
+                       source_type: str = "csv", date: str = None, 
+                       json_file: str = None,
+                       existing_ids: set = None) -> List[Dict[str, Any]]:
         """
         加载知乎数据并返回扁平化的项目列表。
-        仅支持 SQLite 数据源。
+        支持 CSV, SQLite 和 JSON 数据源。
         """
         posts_data = []
         comments_data = []
         date_str = date if date else datetime.now().strftime("%Y-%m-%d")
         
         # 1. Load Data
-        posts_data, comments_data = self.zhihu_loader.load_data(date=date)
+        if source_type == "csv":
+            if not posts_file:
+                 raise ValueError("CSV source requires posts_file")
             
-        # --- 核心优化：上下文缓存到磁盘 ---
-        # Note: In dicts, keys are strings
-        context_cache = {str(r['note_id']): r.get('content') for r in posts_data if r.get('content')}
+            try:
+                date_str = Path(posts_file).stem.split('_')[-1]
+            except:
+                pass
+                
+            posts_data, comments_data = self.zhihu_csv_loader.load_data(posts_file, comments_file)
+            
+            # Map CSV fields to standard internal structure
+            new_posts = []
+            for p in posts_data:
+                # Handle timestamp conversion if needed
+                create_time = p.get('created_time', '')
+                if isinstance(create_time, (int, float)):
+                    try:
+                        create_time = datetime.fromtimestamp(create_time).strftime("%Y-%m-%d %H:%M:%S")
+                    except: pass
+                
+                new_p = {
+                    "note_id": str(p.get('content_id', p.get('id', ''))),
+                    "user_id": str(p.get('user_id', '')),
+                    "nickname": p.get('user_nickname', ''),
+                    "avatar": p.get('user_avatar', ''),
+                    "title": p.get('title', ''),
+                    "content": p.get('content_text', ''),
+                    "desc": p.get('desc', ''),
+                    "note_url": p.get('content_url', ''),
+                    "create_date_time": str(create_time),
+                    "liked_count": p.get('voteup_count', 0),
+                    "comments_count": p.get('comment_count', 0),
+                    "question_id": p.get('question_id', ''),
+                    "type": p.get('content_type', 'article'),
+                    "ip_location": None # Not in article struct provided
+                }
+                new_posts.append(new_p)
+            posts_data = new_posts
+            
+            new_comments = []
+            for c in comments_data:
+                # Handle timestamp conversion
+                publish_time = c.get('publish_time', '')
+                if isinstance(publish_time, (int, float)):
+                    try:
+                        publish_time = datetime.fromtimestamp(publish_time).strftime("%Y-%m-%d %H:%M:%S")
+                    except: pass
+
+                new_c = {
+                    "comment_id": str(c.get('comment_id', c.get('id', ''))),
+                    "note_id": str(c.get('content_id', '')),
+                    "parent_comment_id": str(c.get('parent_comment_id', '')),
+                    "content": c.get('content', ''),
+                    "nickname": c.get('user_nickname', ''),
+                    "avatar": c.get('user_avatar', ''),
+                    "create_date_time": str(publish_time),
+                    "liked_count": c.get('like_count', 0),
+                    "sub_comment_count": c.get('sub_comment_count', 0),
+                    "ip_location": c.get('ip_location', '')
+                }
+                new_comments.append(new_c)
+            comments_data = new_comments
+
+        elif source_type == "sqlite":
+             if date:
+                 date_str = date
+             posts_data, comments_data = self.zhihu_loader.load_data(date=date)
+             
+        elif source_type == "json":
+             if not json_file:
+                 raise ValueError("JSON source requires json_file path")
+             posts_data, comments_data = self.zhihu_json_loader.load_data(json_file)
+             if not date:
+                 try:
+                     date_str = Path(json_file).stem
+                 except:
+                     pass
+                     
+        else:
+             raise ValueError(f"Unsupported source_type: {source_type}")
+
+        # --- Context Caching ---
+        context_cache = {str(r.get('note_id', '')): r.get('content', '') for r in posts_data if r.get('content')}
         cache_file = CACHE_DIR / "zhihu_context_cache.json"
         
-        # 合并旧缓存（如果有）
         if cache_file.exists():
             try:
                 with open(cache_file, 'r', encoding='utf-8') as f:
@@ -360,10 +455,10 @@ class DataManager:
             
         with open(cache_file, 'w', encoding='utf-8') as f:
             json.dump(context_cache, f, ensure_ascii=False, indent=2)
-        utils.logger.info(f"[DataManager.load_zhihu_data] 已同步 {len(context_cache)} 条文章上下文到磁盘缓存: {cache_file.name}")
+        utils.logger.info(f"[DataManager.load_zhihu_data] Synced {len(context_cache)} articles context to cache: {cache_file.name}")
 
-        # 1. 处理文章数据 (CPU 并行)
-        utils.logger.info(f"[DataManager.load_zhihu_data] 正在读取文章数据 (已处理过的 ID 将被自动跳过)...")
+        # 1. Process Posts
+        utils.logger.info(f"[DataManager.load_zhihu_data] Processing posts...")
         
         post_processed_count = 0
         def process_post(row_tuple):
@@ -371,41 +466,36 @@ class DataManager:
             idx, row = row_tuple
             note_id = str(row['note_id'])
             
-            # --- 逻辑去重 (根据已存在文件) ---
             if existing_ids and f"{note_id}_0" in existing_ids:
                 post_processed_count += 1
                 return None
                 
             content = row.get('content')
             title = row.get('title', '')
-            # 确保内容不只是空白字符
             clean_content = str(content).strip() if content else ""
             
-            # 知乎内容通常较长，结合标题
+            # Combine title and content
             full_content = f"{title}\n{clean_content}".strip()
             
             if not full_content:
                 return None
             
-            # 知乎目前暂不处理图片
-            images = []
-            
             return {
                 "note_id": note_id,
                 "comment_id": "0",
                 "top_id": None,
-                "url": row.get('note_url') or f"https://www.zhihu.com/question/{row.get('question_id')}/answer/{note_id}",
+                "url": row.get('note_url') or "",
                 "content": full_content,
                 "author": row.get('nickname'),
                 "created_at": row.get('create_date_time'),
                 "source": "zhihu",
                 "type": "post",
-                "images": images,
+                "images": [],
                 "data_date": date_str,
                 "liked_count": row.get('liked_count', 0),
                 "comments_count": row.get('comments_count', 0),
                 "shared_count": 0,
-                "ip_location": None
+                "ip_location": row.get('ip_location', '')
             }
 
         posts_list = [None] * len(posts_data)
@@ -416,19 +506,17 @@ class DataManager:
                 res = future.result()
                 posts_list[idx] = res
         
-        # 过滤掉 None
         posts_list = [p for p in posts_list if p is not None]
 
         if post_processed_count > 0:
-            utils.logger.info(f"[DataManager.load_zhihu_data] 文章表已跳过 {post_processed_count} 条已处理记录。")
+            utils.logger.info(f"[DataManager.load_zhihu_data] Skipped {post_processed_count} processed posts.")
 
-        # 2. 处理评论数据 (CPU 并行)
-        total_raw_comments = len(comments_data)
-        utils.logger.info(f"[DataManager.load_zhihu_data] 正在读取 {total_raw_comments} 条评论数据...")
+        # 2. Process Comments
+        utils.logger.info(f"[DataManager.load_zhihu_data] Processing {len(comments_data)} comments...")
         
         comment_processed_count = 0
         
-        # 构建文章内容缓存
+        # Build context caches
         full_posts_content_cache = {}
         for r in posts_data:
             nid = str(r['note_id'])
@@ -437,20 +525,17 @@ class DataManager:
             clean_c = f"{t}\n{c}".strip()
             full_posts_content_cache[nid] = clean_c
 
-        # 构建当前批次所有评论的内容映射
         full_comments_content_cache = {str(row['comment_id']): row.get('content') for row in comments_data}
         
-        # 垃圾评论关键词过滤 (沿用微博的，可能需要针对知乎调整)
         spam_keywords = ["扫码", "加群", "无门槛", "网页链接", "投票", "点击链接", "免费领取", "私聊", "看我主页"]
         nonsense_pattern = re.compile(r'(.)\1{10,}') 
 
-        def process_row(row_tuple):
+        def process_comment(row_tuple):
             nonlocal comment_processed_count
             idx, row = row_tuple
             note_id = str(row['note_id'])
             comment_id = str(row['comment_id'])
             
-            # --- 逻辑去重 (根据已存在文件) ---
             if existing_ids and f"{note_id}_{comment_id}" in existing_ids:
                 comment_processed_count += 1
                 return None
@@ -468,16 +553,15 @@ class DataManager:
             else:
                 return None
             
-            # 知乎暂无评论图片
-            comment_images = []
-            
             parent_content = full_posts_content_cache.get(note_id, "")
             
             raw_parent_id = row.get('parent_comment_id')
-            parent_comment_id = str(raw_parent_id) if raw_parent_id else comment_id
-            
-            sub_comment_count = int(row.get('sub_comment_count') or 0)
-            
+            # Handle empty or '0' parent id
+            if raw_parent_id in [None, '', '0', 0]:
+                parent_comment_id = comment_id
+            else:
+                parent_comment_id = str(raw_parent_id)
+
             reply_to_content = ""
             if parent_comment_id != comment_id:
                 reply_to_content = full_comments_content_cache.get(parent_comment_id, "")
@@ -486,26 +570,26 @@ class DataManager:
                 "note_id": note_id,
                 "comment_id": comment_id,
                 "top_id": None,
-                "url": "", # 知乎评论链接较难构造，暂空
+                "url": "",
                 "content": clean_content,
                 "author": row.get('nickname'),
                 "created_at": row.get('create_date_time'),
                 "source": "zhihu",
                 "type": "comment",
-                "images": comment_images,
+                "images": [],
                 "data_date": date_str,
                 "parent_content": parent_content,
                 "reply_to_content": reply_to_content,
-                "comment_like_count": row.get('comment_like_count', 0),
-                "sub_comment_count": sub_comment_count,
+                "comment_like_count": row.get('liked_count', 0),
+                "sub_comment_count": row.get('sub_comment_count', 0),
                 "ip_location": row.get('ip_location', ''),
-                "gender": row.get('gender', ''),
+                "gender": "", # Zhihu struct doesn't have gender in comment
                 "parent_comment_id": parent_comment_id
             }
 
         comments_list = [None] * len(comments_data)
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(process_row, (idx, row)): idx for idx, row in enumerate(comments_data)}
+            futures = {executor.submit(process_comment, (idx, row)): idx for idx, row in enumerate(comments_data)}
             for future in futures:
                 idx = futures[future]
                 res = future.result()
@@ -513,18 +597,57 @@ class DataManager:
         
         final_list = posts_list + [c for c in comments_list if c is not None]
         
-        if final_list:
-            sample_count = min(3, len(final_list))
-            utils.logger.info(f"[DataManager.load_zhihu_data] DEBUG: 成功加载 {len(final_list)} 条数据。前 {sample_count} 条样本:")
-            for i in range(sample_count):
-                item = final_list[i]
-                utils.logger.info(f"[DataManager.load_zhihu_data] 样本: [{item.get('type')}] ID: {item.get('note_id')}_{item.get('comment_id')} | Content: {item.get('content')[:50]}...")
-        
         if comment_processed_count > 0:
-            utils.logger.info(f"[DataManager.load_zhihu_data] 评论表已跳过 {comment_processed_count} 条已处理记录。")
+            utils.logger.info(f"[DataManager.load_zhihu_data] Skipped {comment_processed_count} processed comments.")
             
-        utils.logger.info(f"[DataManager.load_zhihu_data] 加载完成: 过滤后剩余 {len(final_list)} 条新数据待处理 (已跳过 {len(comments_data) + len(posts_data) - len(final_list)} 条重复或无效数据)")
+        utils.logger.info(f"[DataManager.load_zhihu_data] Loaded {len(final_list)} items.")
         return final_list
+
+
+
+    def load_data(self, platform: str = None, source_type: str = "sqlite", **kwargs) -> List[Dict[str, Any]]:
+        """
+        Unified data loading method.
+        If platform is specified ('weibo' or 'zhihu'), loads data for that platform.
+        If platform is None, loads data for BOTH platforms and combines them.
+        Default source_type is 'sqlite'.
+        """
+        all_data = []
+        
+        # Auto-detect platform from file path if not specified
+        if not platform and source_type in ['json', 'csv']:
+            file_path = kwargs.get('json_file') or kwargs.get('posts_file')
+            if file_path:
+                detected = self.detect_platform(file_path)
+                if detected != 'unknown':
+                    platform = detected
+                    utils.logger.info(f"[DataManager.load_data] Auto-detected platform '{platform}' from file path.")
+
+        platforms_to_load = []
+        if platform:
+            if platform.lower() == 'weibo':
+                platforms_to_load.append('weibo')
+            elif platform.lower() == 'zhihu':
+                platforms_to_load.append('zhihu')
+            else:
+                utils.logger.warning(f"[DataManager.load_data] Unknown platform '{platform}', defaulting to ALL.")
+                platforms_to_load = ['weibo', 'zhihu']
+        else:
+            platforms_to_load = ['weibo', 'zhihu']
+            
+        for p in platforms_to_load:
+            utils.logger.info(f"[DataManager.load_data] Loading data for platform: {p} (source={source_type})")
+            try:
+                if p == 'weibo':
+                    data = self.load_weibo_data(source_type=source_type, **kwargs)
+                    all_data.extend(data)
+                elif p == 'zhihu':
+                    data = self.load_zhihu_data(source_type=source_type, **kwargs)
+                    all_data.extend(data)
+            except Exception as e:
+                utils.logger.error(f"[DataManager.load_data] Error loading {p} data: {e}")
+                
+        return all_data
 
     def compare_data(self, old_data: List[Dict[str, Any]], new_data: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
         """对比两份数据，检测新增、修改、删除。"""

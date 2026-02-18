@@ -260,9 +260,18 @@ class MultimodalAnalyzer:
             else:
                 multimodal_data.append(item)
 
+        # 纯文本可以使用更大的 Batch Size (通常 LLM 处理纯文本的吞吐量远高于多模态)
+        # 但为了避免 OOM，我们强制设定上限为 32
+        # 如果用户设置的 batch_size 超过 32，则自动限制为 32
+        text_batch_size = min(batch_size, 32)
+        if batch_size > 32:
+            utils.logger.warning(f"[MultimodalAnalyzer] 用户设置的 batch_size ({batch_size}) 超过安全上限 32，已限制为 32 以防止 OOM。")
+        
         utils.logger.info(f"[MultimodalAnalyzer.process_batch] 📊 数据分流报告")
-        utils.logger.info(f"[MultimodalAnalyzer.process_batch] • 纯文本流: {len(text_only_data)} 条 -> [策略: 跳过视觉编码, 稳定 Batch=32]")
-        utils.logger.info(f"[MultimodalAnalyzer.process_batch] • 多模态流: {len(multimodal_data)} 条 -> [策略: 开启视觉编码, 标准 Batch={self.adaptive_batch_size}]")
+        utils.logger.info(f"[MultimodalAnalyzer.process_batch] • 纯文本流: {len(text_only_data)} 条 -> [策略: 跳过视觉编码, Batch={text_batch_size}]")
+        # 多模态流同样应用 32 的上限限制
+        multimodal_batch_size = min(batch_size, 32)
+        utils.logger.info(f"[MultimodalAnalyzer.process_batch] • 多模态流: {len(multimodal_data)} 条 -> [策略: 开启视觉编码, Batch={multimodal_batch_size}]")
         utils.logger.info("-" * 60)
         
         analyzed_data = []
@@ -610,12 +619,12 @@ class MultimodalAnalyzer:
         # 1. 先处理纯文本数据 (使用稳定批次: 32)
         if text_only_data:
             utils.logger.info(f"[MultimodalAnalyzer.process_batch] 🚀 启动阶段 1: 纯文本并行推理流 (稳定模式)")
-            run_pipeline(text_only_data, current_bs=32, mode_name="纯文本")
+            run_pipeline(text_only_data, current_bs=text_batch_size, mode_name="纯文本")
 
         # 2. 再处理多模态数据 (使用原批次)
         if multimodal_data:
             utils.logger.info(f"[MultimodalAnalyzer.process_batch] 🚀 启动阶段 2: 多模态图文推理流 (精准模式)")
-            run_pipeline(multimodal_data, current_bs=self.adaptive_batch_size, mode_name="多模态")
+            run_pipeline(multimodal_data, current_bs=multimodal_batch_size, mode_name="多模态")
 
         utils.logger.info(f"[MultimodalAnalyzer.process_batch] 完成: 总耗时: {(time.time() - overall_start_time)/60:.1f}min")
         return analyzed_data
