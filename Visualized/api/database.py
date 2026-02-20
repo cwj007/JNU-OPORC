@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import json
 from pathlib import Path
 
 # 定义 Visualized 模块自己的缓存目录
@@ -152,7 +153,6 @@ def init_db():
         # Check for CRI rule
         cur.execute("SELECT COUNT(*) FROM alert_rules WHERE rule_type = 'cri_trend'")
         if cur.fetchone()[0] == 0:
-            import json
             default_config = {
                 "weights": {
                     "w1": 0.2, "w2": 0.3, "w3": 0.1, "w4": 0.3, "w5": 0.1

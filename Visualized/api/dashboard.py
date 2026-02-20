@@ -7,6 +7,95 @@ from .utils import is_junk_label
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
+@router.get("/comments")
+async def get_dashboard_comments(limit: int = 50):
+    """获取最新评论流"""
+    try:
+        # Query processed_items for comments (where comment_id != '0')
+        # We select specific columns to minimize data transfer
+        sql = """
+            SELECT 
+                comment_id, content, author, created_at, source, 
+                sentiment, fine_grained_sentiment 
+            FROM processed_items 
+            WHERE comment_id != '0' AND source IS NOT NULL AND source != ''
+            ORDER BY created_at DESC 
+            LIMIT ?
+        """
+        comments = query_db(sql, (limit,))
+        
+        results = []
+        if comments:
+            for c in comments:
+                # Map sentiment to type for frontend styling
+                s_type = "neutral"
+                if c['sentiment'] == '正面':
+                    s_type = "positive"
+                elif c['sentiment'] == '负面':
+                    s_type = "negative"
+                
+                # Platform mapping
+                # The frontend expects platform codes like 'weibo', 'zhihu', etc.
+                platform_map = {
+                    "微博": "weibo",
+                    "知乎": "zhihu",
+                    "抖音": "douyin",
+                    "快手": "kuaishou",
+                    "B站": "bilibili",
+                    "哔哩哔哩": "bilibili",
+                    "小红书": "xhs",
+                    "今日头条": "toutiao",
+                    "百度": "baidu",
+                    "网易": "netease",
+                    "网易新闻": "netease",
+                    "网易云音乐": "netease_music",
+                    "36氪": "36kr",
+                    "AcFun": "acfun",
+                    "CSDN": "csdn",
+                    "豆瓣": "douban",
+                    "果壳": "guokr",
+                    "虎扑": "hupu",
+                    "虎嗅": "huxiu",
+                    "凤凰": "ifeng",
+                    "凤凰新闻": "ifeng",
+                    "爱奇艺": "iqiyi",
+                    "简书": "jianshu",
+                    "掘金": "juejin",
+                    "NGA": "nga",
+                    "QQ音乐": "qqmusic",
+                    "腾讯新闻": "qqnews",
+                    "少数派": "sspai",
+                    "Steam": "steam",
+                    "澎湃": "thepaper",
+                    "澎湃新闻": "thepaper",
+                    "V2EX": "v2ex",
+                    "腾讯视频": "v_qq",
+                    "微信读书": "weread",
+                    "GitHub": "github",
+                    "原神": "genshin",
+                    "崩坏3": "honkai3",
+                    "星穹铁道": "starrail",
+                    "英雄联盟": "lol",
+                    "地震预警": "earthquake"
+                }
+                # Default to lowercase source if not in map, or keep as is if no match
+                platform_code = platform_map.get(c['source'], c['source'].lower() if c['source'] else "other")
+                
+                results.append({
+                    "id": c['comment_id'],
+                    "author": c['author'] or "匿名用户",
+                    "content": c['content'],
+                    "platform": platform_code,
+                    "sentiment": c['sentiment'],
+                    "sentiment_type": s_type,
+                    "time": c['created_at']
+                })
+        
+        return {"comments": results, "status": "success"}
+    except Exception as e:
+        print(f"Error in get_dashboard_comments: {e}")
+        return {"comments": [], "status": "error", "message": str(e)}
+
 @router.get("/stats")
 async def get_dashboard_stats(days: int = 7):
     """获取核心指标卡片数据，支持日期范围"""

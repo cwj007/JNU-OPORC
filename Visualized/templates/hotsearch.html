@@ -76,10 +76,7 @@
                     <el-icon><share></share></el-icon>
                     <template #title>爬虫管理</template>
                 </el-menu-item>
-                <el-menu-item index="settings">
-                    <el-icon><setting></setting></el-icon>
-                    <template #title>系统配置</template>
-                </el-menu-item>
+
             </el-menu>
         </div>
 
@@ -883,8 +880,6 @@
                     const externalPages = ['hotsearch', 'volume_rank', 'crawler', 'monitor', 'warning'];
                     if (externalPages.includes(index)) {
                         window.location.href = `/${index}`;
-                    } else if (index === 'settings') {
-                        window.location.href = '/?menu=settings';
                     } else if (index === 'dashboard') {
                         window.location.href = '/';
                     }

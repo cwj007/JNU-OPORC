@@ -60,10 +60,7 @@
                     <el-icon><share /></el-icon>
                     <template #title>爬虫管理</template>
                 </el-menu-item>
-                <el-menu-item index="settings">
-                    <el-icon><setting></setting></el-icon>
-                    <template #title>系统配置</template>
-                </el-menu-item>
+
             </el-menu>
         </div>
 
@@ -358,44 +355,7 @@
 
                 <!-- Alerts Module has been moved to /warning -->
 
-                <!-- Config Module -->
-                <div v-if="activeMenu === 'settings'">
-                    <el-tabs type="border-card">
-                        <el-tab-pane label="监测源管理">
-                            <el-table :data="configSources" style="width: 100%">
-                                <el-table-column prop="name" label="监测源名称"></el-table-column>
-                                <el-table-column prop="type" label="平台类型"></el-table-column>
-                                <el-table-column label="状态">
-                                    <template #default="scope">
-                                        <el-switch v-model="scope.row.status" active-value="active" inactive-value="inactive"></el-switch>
-                                    </template>
-                                </el-table-column>
-                                <el-table-column prop="last_sync" label="最后同步时间"></el-table-column>
-                                <el-table-column label="操作">
-                                    <template #default="scope">
-                                        <el-button link type="primary" @click="handleSyncSource(scope.row)">立即同步</el-button>
-                                        <el-button link type="danger">删除</el-button>
-                                    </template>
-                                </el-table-column>
-                            </el-table>
-                        </el-tab-pane>
-                        <el-tab-pane label="关键词配置">
-                            <div style="margin-bottom: 20px;">
-                                <el-input v-model="newKeyword" placeholder="添加新关键词" style="width: 300px; margin-right: 10px;" @keyup.enter="handleAddKeyword"></el-input>
-                                <el-button type="primary" @click="handleAddKeyword">添加</el-button>
-                            </div>
-                            <el-tag 
-                                v-for="tag in monitorKeywords" 
-                                :key="tag" 
-                                closable 
-                                style="margin-right: 10px; margin-bottom: 10px;"
-                                @close="handleDeleteKeyword(tag)"
-                            >
-                                {{ tag }}
-                            </el-tag>
-                        </el-tab-pane>
-                    </el-tabs>
-                </div>
+
             </div>
         </div>
 
@@ -416,7 +376,6 @@
                         dashboard: '舆情仪表盘',
                         monitor: '舆情检测',
                         warning: '预警中心',
-                        settings: '系统配置',
                         volume_rank: '声量热榜',
                         crawler: '爬虫管理'
                     };
@@ -474,14 +433,6 @@
                     requestAnimationFrame(scroll);
                 };
 
-                // 模拟实时评论数据
-                const mockComments = [
-                    { id: 1, author: '用户A', content: '华为Mate60性能确实不错，遥遥领先！', platform: 'weibo', sentiment: '正面', sentiment_type: 'positive', time: new Date() },
-                    { id: 2, author: '科技博主', content: '这次更新修复了几个关键Bug，体验更好了。', platform: 'zhihu', sentiment: '正面', sentiment_type: 'positive', time: new Date(Date.now() - 500000) },
-                    { id: 3, author: '路人甲', content: '感觉价格还是稍微贵了一点点。', platform: 'douyin', sentiment: '负面', sentiment_type: 'negative', time: new Date(Date.now() - 1000000) },
-                    { id: 4, author: '张三', content: '期待明年的新产品。', platform: 'baidu', sentiment: '中性', sentiment_type: 'neutral', time: new Date(Date.now() - 2000000) }
-                ];
-
                 const getLogoById = (id) => {
                     const logos = {
                         'weibo': '/logos/weibo.png',
@@ -491,7 +442,35 @@
                         'bilibili': '/logos/bilibili.jpg',
                         'toutiao': '/logos/toutiao.jpg',
                         'kuaishou': '/logos/kuaishou.png',
-                        'hupu': '/logos/hupu.png'
+                        'hupu': '/logos/hupu.png',
+                        'netease': '/logos/163.png',
+                        '36kr': '/logos/36kr.png',
+                        'acfun': '/logos/acfun.png',
+                        'csdn': '/logos/csdn.png',
+                        'douban': '/logos/douban.png',
+                        'earthquake': '/logos/earthquake.png',
+                        'genshin': '/logos/genshin.jpg',
+                        'github': '/logos/github.png',
+                        'guokr': '/logos/guokr.png',
+                        'history': '/logos/history.png',
+                        'honkai3': '/logos/honkai3.jpg',
+                        'huxiu': '/logos/huxiu.png',
+                        'ifeng': '/logos/ifeng.jpg',
+                        'iqiyi': '/logos/iqiyi.png',
+                        'jianshu': '/logos/jianshu.png',
+                        'juejin': '/logos/juejin.png',
+                        'lol': '/logos/lol.png',
+                        'netease_music': '/logos/netease_music.png',
+                        'nga': '/logos/nga.png',
+                        'qqmusic': '/logos/qqmusic.jpg',
+                        'qqnews': '/logos/qqnews.jpg',
+                        'sspai': '/logos/sspai.png',
+                        'starrail': '/logos/starrail.png',
+                        'steam': '/logos/steam.png',
+                        'thepaper': '/logos/thepaper.jpg',
+                        'v2ex': '/logos/v2ex.png',
+                        'v_qq': '/logos/v_qq.png',
+                        'weread': '/logos/weread.png'
                     };
                     const path = logos[id] || 'https://cube.elemecdn.com/e/fd/0fc7d20532fdaf769a25683617711png.png';
                     if (path.startsWith('/logos/')) {
@@ -515,9 +494,7 @@
                 
                 const recentAlerts = ref([]);
                 const topWords = ref([]);
-                const configSources = ref([]);
-                const monitorKeywords = ref([]);
-                const newKeyword = ref('');
+
                 const selectedItems = ref([]);
                 
                 // List Data - Removed as monitor is separate now
@@ -544,15 +521,13 @@
                     }
 
                     // 处理内部 SPA 模块的 activeMenu
-                    const spaModules = ['dashboard', 'settings'];
+                    const spaModules = ['dashboard'];
                     if (spaModules.includes(index)) {
                         activeMenu.value = index;
                     }
                     
                     if (index === 'dashboard') {
                         fetchDashboardData();
-                    } else if (index === 'settings') {
-                        fetchConfig();
                     }
                 };
 
@@ -761,47 +736,7 @@
                     }
                 };
 
-                const fetchConfig = async () => {
-                    try {
-                        const [sourcesRes, keywordsRes] = await Promise.all([
-                            axios.get('/api/config/sources'),
-                            axios.get('/api/config/keywords')
-                        ]);
-                        configSources.value = sourcesRes.data;
-                        monitorKeywords.value = keywordsRes.data;
-                    } catch (e) {
-                        console.error('Failed to fetch config', e);
-                    }
-                };
 
-                const handleAddKeyword = async () => {
-                    if (!newKeyword.value) return;
-                    try {
-                        await axios.post(`/api/config/keywords?tag=${newKeyword.value}`);
-                        newKeyword.value = '';
-                        fetchConfig();
-                        ElementPlus.ElMessage.success('添加成功');
-                    } catch (e) {
-                        ElementPlus.ElMessage.error('添加失败');
-                    }
-                };
-
-                const handleDeleteKeyword = async (tag) => {
-                    try {
-                        await axios.delete(`/api/config/keywords/${tag}`);
-                        fetchConfig();
-                        ElementPlus.ElMessage.success('删除成功');
-                    } catch (e) {
-                        ElementPlus.ElMessage.error('删除失败');
-                    }
-                };
-
-                const handleSyncSource = async (source) => {
-                    ElementPlus.ElMessage.info(`正在同步 ${source.name}...`);
-                    setTimeout(() => {
-                        ElementPlus.ElMessage.success(`${source.name} 同步完成`);
-                    }, 1500);
-                };
 
                 const exportData = () => {
                     ElementPlus.ElMessage.success('正在导出数据...');
@@ -1357,43 +1292,40 @@
                     }
                 };
 
+                const fetchRealtimeComments = async () => {
+                    try {
+                        const res = await axios.get('/api/dashboard/comments?limit=50');
+                        if (res.data && res.data.status === 'success') {
+                            if (res.data.comments && res.data.comments.length > 0) {
+                                // Update comments.
+                                // Note: The scrolling logic expects older items at the top if we push new ones?
+                                // Actually startScroll just scrolls down.
+                                // If we just replace the list, it's fine.
+                                realtimeComments.value = res.data.comments;
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Failed to fetch realtime comments', e);
+                    }
+                };
+
                 onMounted(() => {
                     if (activeMenu.value === 'dashboard') fetchDashboardData();
-                    if (activeMenu.value === 'settings') fetchConfig();
                     
-                    if (activeMenu.value !== 'dashboard' && activeMenu.value !== 'settings') {
+                    if (activeMenu.value !== 'dashboard') {
                          fetchDashboardData(); // Default fallback
                     }
 
-                    // 实时评论流
-
-                    // 初始数据反转，按时间旧->新排序，符合向上滚动的逻辑（旧的滚走，新的在底部出现）
-                    realtimeComments.value = [...mockComments].reverse();
+                    // 实时评论流 - 从后端获取
+                    fetchRealtimeComments();
                     
                     // 启动滚动
                     startScroll();
 
+                    // 定时刷新评论流 (每10秒)
                     setInterval(() => {
-                        const newComment = {
-                            id: Date.now(),
-                            author: '用户' + Math.floor(Math.random() * 1000),
-                            content: [
-                                '遥遥领先！这性能真的没话说',
-                                '期待下一次系统更新，希望更流畅',
-                                '刚入手，感觉手感不错，颜值在线',
-                                '这个价格对比配置，性价比还可以',
-                                '有一说一，拍照效果确实惊艳到我了'
-                            ][Math.floor(Math.random() * 5)],
-                            platform: ['weibo', 'zhihu', 'douyin', 'baidu'][Math.floor(Math.random() * 4)],
-                            sentiment: ['正面', '负面', '中性'][Math.floor(Math.random() * 3)],
-                            sentiment_type: ['positive', 'negative', 'neutral'][Math.floor(Math.random() * 3)],
-                            time: new Date()
-                        };
-                        realtimeComments.value.push(newComment);
-                        if (realtimeComments.value.length > 50) {
-                            realtimeComments.value.shift();
-                        }
-                    }, 2000);
+                        fetchRealtimeComments();
+                    }, 10000);
 
                     // 初始化数据流粒子动画
                     const container = document.getElementById('dataStream');
@@ -1416,7 +1348,7 @@
                     stats, negativePercentage, positiveNeutralPercentage, topWords,
                     topRegions, fineSentimentData, intentData, regionColors,
                     getSentimentType, formatImageUrl, 
-                    configSources, monitorKeywords, newKeyword, handleAddKeyword, handleDeleteKeyword, handleSyncSource, selectedItems,
+                    selectedItems,
                     exportData,
                     realtimeComments, getLogoById, timeAgo,
                     scrollRef, isHover, displayComments

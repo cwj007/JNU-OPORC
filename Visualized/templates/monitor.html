@@ -1234,10 +1234,7 @@
                     <el-icon><share /></el-icon>
                     <template #title>爬虫管理</template>
                 </el-menu-item>
-                <el-menu-item index="settings">
-                    <el-icon><setting /></el-icon>
-                    <template #title>系统配置</template>
-                </el-menu-item>
+
             </el-menu>
         </div>
 
@@ -2890,8 +2887,8 @@
                 const handleMenuSelect = (index) => {
                     if (index === 'monitor') return;
                     
-                    // 处理 SPA 模块 (dashboard, settings)
-                    const spaModules = ['dashboard', 'settings'];
+                    // 处理 SPA 模块 (dashboard)
+                    const spaModules = ['dashboard'];
                     if (spaModules.includes(index)) {
                         const path = index === 'dashboard' ? '/' : `/?menu=${index}`;
                         window.location.href = path;

@@ -1,5 +1,7 @@
 import os
 import sys
+import json
+import subprocess
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
@@ -15,10 +17,107 @@ sys.path.append(str(BASE_DIR))
 try:
     from MediaCrawler.api.routers.crawler import router as mc_crawler_router
     from MediaCrawler.api.routers.websocket import router as mc_ws_router
+    from MediaCrawler.api.routers.data import router as mc_data_router
     HAS_MEDIA_CRAWLER = True
+    print("MediaCrawler module loaded successfully")
 except ImportError as e:
+    import traceback
+    traceback.print_exc()
     print(f"Warning: MediaCrawler module not found for integration: {e}")
     HAS_MEDIA_CRAWLER = False
+
+# --- MediaCrawler 额外配置路由 (Config/Env/Health) ---
+# 这些路由在 MediaCrawler 的 api/main.py 中直接定义，没有包含在 routers 中
+# 我们在这里重新定义它们以确保 Visualized 系统能够提供这些接口
+
+from fastapi import APIRouter
+mc_extra_router = APIRouter()
+
+@mc_extra_router.get("/config/platforms")
+async def get_mc_platforms():
+    """Get list of supported platforms (MediaCrawler)"""
+    return {
+        "platforms": [
+            {"value": "xhs", "label": "Xiaohongshu", "icon": "book-open"},
+            {"value": "dy", "label": "Douyin", "icon": "music"},
+            {"value": "ks", "label": "Kuaishou", "icon": "video"},
+            {"value": "bili", "label": "Bilibili", "icon": "tv"},
+            {"value": "wb", "label": "Weibo", "icon": "message-circle"},
+            {"value": "tieba", "label": "Baidu Tieba", "icon": "messages-square"},
+            {"value": "zhihu", "label": "Zhihu", "icon": "help-circle"},
+        ]
+    }
+
+@mc_extra_router.get("/config/options")
+async def get_mc_config_options():
+    """Get all configuration options (MediaCrawler)"""
+    return {
+        "login_types": [
+            {"value": "qrcode", "label": "QR Code Login"},
+            {"value": "cookie", "label": "Cookie Login"},
+        ],
+        "crawler_types": [
+            {"value": "search", "label": "Search Mode"},
+            {"value": "detail", "label": "Detail Mode"},
+            {"value": "creator", "label": "Creator Mode"},
+        ],
+        "save_options": [
+            {"value": "json", "label": "JSON File"},
+            {"value": "csv", "label": "CSV File"},
+            {"value": "excel", "label": "Excel File"},
+            {"value": "sqlite", "label": "SQLite Database"},
+            {"value": "db", "label": "MySQL Database"},
+            {"value": "mongodb", "label": "MongoDB Database"},
+        ],
+    }
+
+@mc_extra_router.get("/env/check")
+async def check_mc_environment():
+    """Check if MediaCrawler environment is configured correctly"""
+    try:
+        # Run uv run main.py --help command to check environment
+        # IMPORTANT: Run in MediaCrawler directory
+        mc_dir = BASE_DIR / "MediaCrawler"
+        process = await asyncio.create_subprocess_exec(
+            "uv", "run", "main.py", "--help",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=str(mc_dir)  # Run in MediaCrawler directory
+        )
+        stdout, stderr = await asyncio.wait_for(
+            process.communicate(),
+            timeout=30.0  # 30 seconds timeout
+        )
+
+        if process.returncode == 0:
+            return {
+                "success": True,
+                "message": "MediaCrawler environment configured correctly",
+                "output": stdout.decode("utf-8", errors="ignore")[:500]  # Truncate to first 500 characters
+            }
+        else:
+            error_msg = stderr.decode("utf-8", errors="ignore") or stdout.decode("utf-8", errors="ignore")
+            return {
+                "success": False,
+                "message": "Environment check failed",
+                "error": error_msg[:500]
+            }
+    except asyncio.TimeoutError:
+        return {
+            "success": False,
+            "message": "Environment check timeout",
+            "error": "Command execution exceeded 30 seconds"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": "Environment check error",
+            "error": str(e)
+        }
+
+@mc_extra_router.get("/health")
+async def mc_health_check():
+    return {"status": "ok"}
 
 from Transformers.config import (
     MEDIA_CRAWLER_DATA_DIR
@@ -41,6 +140,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    print(f"Request: {request.method} {request.url}")
+    response = await call_next(request)
+    print(f"Response: {response.status_code}")
+    return response
 
 # Mount static files for images
 if MEDIA_CRAWLER_DATA_DIR.exists():
@@ -81,10 +187,81 @@ app.include_router(config_router, prefix="/api")
 app.include_router(hotsearch_router, prefix="/api")
 app.include_router(rank_router, prefix="/api")
 
+# --- 挂载 MediaCrawler 静态资源 ---
+MC_WEBUI_DIR = BASE_DIR / "MediaCrawler" / "api" / "webui"
+if MC_WEBUI_DIR.exists():
+    # Mount assets for MediaCrawler UI
+    assets_dir = MC_WEBUI_DIR / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="mc_assets")
+
+    # Route for serving the MediaCrawler index.html
+    @app.get("/mc_ui")
+    async def mc_ui():
+        index_path = MC_WEBUI_DIR / "index.html"
+        if index_path.exists():
+            try:
+                with open(index_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                
+                # Inject script to ensure API requests go to /api prefix
+                # This fixes issues where frontend might request /crawler directly or use hardcoded localhost:8080
+                injection = """
+                <script>
+                (function() {
+                    console.log("MediaCrawler API Patcher Loaded");
+                    const originalFetch = window.fetch;
+                    window.fetch = function(url, options) {
+                        // Redirect /crawler, /data, /ws requests to /api prefix
+                        if (typeof url === 'string') {
+                            if (url.startsWith('/crawler') || url.startsWith('/data') || url.startsWith('/ws')) {
+                                console.log('Redirecting URL to /api:', url);
+                                url = '/api' + url;
+                            } else if (url.includes('localhost:8080/crawler') || url.includes('localhost:8080/data')) {
+                                // Handle full URLs if present
+                                url = url.replace('localhost:8080/', 'localhost:8080/api/');
+                                console.log('Rewriting full URL:', url);
+                            }
+                        }
+                        return originalFetch(url, options);
+                    };
+                })();
+                </script>
+                """
+                content = content.replace("</head>", injection + "</head>")
+                return HTMLResponse(content=content)
+            except Exception as e:
+                print(f"Error serving MediaCrawler UI: {e}")
+                return FileResponse(str(index_path))
+                
+        return JSONResponse(content={"error": "MediaCrawler WebUI not found"}, status_code=404)
+
+    # Route for vite.svg
+    @app.get("/vite.svg")
+    async def vite_svg():
+        svg_path = MC_WEBUI_DIR / "vite.svg"
+        if svg_path.exists():
+            return FileResponse(str(svg_path))
+        return JSONResponse(content={"error": "vite.svg not found"}, status_code=404)
+
 # --- 挂载爬虫路由 ---
 if HAS_MEDIA_CRAWLER:
+    # Mount at /api prefix (original behavior)
     app.include_router(mc_crawler_router, prefix="/api")
     app.include_router(mc_ws_router, prefix="/api")
+    app.include_router(mc_data_router, prefix="/api")
+
+    # Also mount at root level to handle requests that omit /api prefix
+    # This ensures frontend calls to /crawler/..., /data/..., /ws/... work correctly
+    app.include_router(mc_crawler_router)
+    app.include_router(mc_ws_router)
+    app.include_router(mc_data_router)
+
+# Mount extra MediaCrawler routers (Config/Env/Health)
+# These are safe to mount even if MediaCrawler module import fails, 
+# as they don't depend on the module itself, but on the file structure.
+app.include_router(mc_extra_router, prefix="/api")
+app.include_router(mc_extra_router)
 
 # --- 路由补丁 (修复 IDE 预览产生的 404) ---
 @app.get("/@vite/client")
@@ -126,4 +303,5 @@ async def volume_rank_page():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8001)
+    # Use port 8080 to match MediaCrawler's default configuration
+    uvicorn.run(app, host="127.0.0.1", port=8080)
