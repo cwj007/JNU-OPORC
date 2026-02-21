@@ -1,6 +1,7 @@
 import sqlite3
 import concurrent.futures
 import requests
+import json
 import urllib3
 import re
 import sys
@@ -212,6 +213,50 @@ def sync_platform_data_live(p_id, now_str, preferred_source=None):
     return False
 
 def save_to_db(p_id, items, now_str):
+    # 导出微博数据到指定目录
+    if p_id == "weibo":
+        try:
+            # 解析时间
+            dt = datetime.strptime(now_str, "%Y-%m-%d %H:%M:%S")
+            date_str = dt.strftime("%Y%m%d")
+            # 避免在 strftime 中使用中文，防止 Windows 下编码错误
+            time_str = f"{dt.hour:02d}时{dt.minute:02d}分"
+            
+            # 构建保存路径: E:\JNU-OPORC\MediaCrawler\source\weibo\top\YYYYMMDD\HH时mm分.txt
+            # 使用相对路径定位到 MediaCrawler 目录
+            project_root = Path(__file__).resolve().parents[2]
+            save_dir = project_root / "MediaCrawler" / "source" / "weibo" / "top" / date_str
+            
+            # 确保目录存在
+            if not save_dir.exists():
+                save_dir.mkdir(parents=True, exist_ok=True)
+            
+            file_path = save_dir / f"{time_str}.json"
+            
+            data = {
+                "type": "weibo",
+                "update_time": now_str,
+                "list": []
+            }
+            
+            for index, item in enumerate(items, 1):
+                url = item.get("url")
+                if url:
+                    data["list"].append({
+                        "index": index,
+                        "title": item.get("title", ""),
+                        "url": url,
+                        "hot_value": item.get("hot", ""),
+                        "extra": {}
+                    })
+            
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            
+            print(f"Exported Weibo data to {file_path}")
+        except Exception as e:
+            print(f"Error exporting Weibo data: {e}")
+
     # 增加 timeout 以处理并发写入时的 database locked 问题
     conn = sqlite3.connect(DB_PATH, timeout=30)
     cur = conn.cursor()

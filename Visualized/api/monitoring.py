@@ -787,8 +787,15 @@ async def get_monitoring_list(
         params = []
 
         if sentiment:
-            where_clauses.append("sentiment = ?")
-            params.append(sentiment)
+            # Support multiple sentiment values (comma separated)
+            s_list = sentiment.split(',')
+            if len(s_list) == 1:
+                where_clauses.append("sentiment = ?")
+                params.append(s_list[0])
+            else:
+                placeholders = ','.join(['?'] * len(s_list))
+                where_clauses.append(f"sentiment IN ({placeholders})")
+                params.extend(s_list)
         
         if platforms:
             platform_list = platforms.split(",")
@@ -860,7 +867,10 @@ async def get_monitoring_list(
             # 优化：不再使用 processed_items，从而自动过滤掉只有评论无文章的话题
             base_query = f"""
                 SELECT c.top_id, 
-                       t.top_name,
+                       CASE 
+                           WHEN c.source IN ('知乎', 'zhihu') THEN (SELECT title FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1)
+                           ELSE t.top_name 
+                       END as top_name,
                        COUNT(*) as merge_count, 
                        MAX(c.{date_col}) as latest_time,
                        'merged' as type,
@@ -883,8 +893,14 @@ async def get_monitoring_list(
                 c_where_clauses = []
                 c_params = []
                 if sentiment:
-                    c_where_clauses.append("c.sentiment = ?")
-                    c_params.append(sentiment)
+                    s_list = sentiment.split(',')
+                    if len(s_list) == 1:
+                        c_where_clauses.append("c.sentiment = ?")
+                        c_params.append(s_list[0])
+                    else:
+                        placeholders = ','.join(['?'] * len(s_list))
+                        c_where_clauses.append(f"c.sentiment IN ({placeholders})")
+                        c_params.extend(s_list)
 
                 if platforms:
                     platform_list = platforms.split(",")
@@ -930,7 +946,8 @@ async def get_monitoring_list(
                     for ew in excludes:
                         if not ew.strip(): continue
                         ew_wild = f"%{ew.strip()}%"
-                        c_where_clauses.append("NOT (c.title LIKE ? OR c.content LIKE ? OR t.top_name LIKE ?)")
+                        # Fix: Handle NULL top_name (Zhihu items have no top_topics entry)
+                        c_where_clauses.append("NOT (c.title LIKE ? OR c.content LIKE ? OR IFNULL(t.top_name, '') LIKE ?)")
                         c_params.append(ew_wild)
                         c_params.append(ew_wild)
                         c_params.append(ew_wild)
@@ -1012,7 +1029,10 @@ async def get_monitoring_list(
                        sentiment, fine_grained_sentiment, intent, keywords, visual_objects, ocr_text, 
                        liked_count, comments_count, shared_count, 'article' as type,
                        top_id,
-                       (SELECT top_name FROM top_topics WHERE top_id = content.top_id) as top_name,
+                       CASE 
+                           WHEN source IN ('知乎', 'zhihu') THEN title 
+                           ELSE (SELECT top_name FROM top_topics WHERE top_id = content.top_id) 
+                       END as top_name,
                        {matched_comment_expr} as matched_comment_id,
                        {matched_comment_content_expr} as matched_comment_content,
                        (SELECT group_concat(content, ' ') FROM (SELECT content FROM comments WHERE note_id = content.note_id ORDER BY created_at DESC LIMIT 5)) as comment_sample
@@ -1123,12 +1143,17 @@ async def get_monitoring_list(
                     }
                     item["trained_keywords"] = item["keywords"]
 
-                    # --- 新增：解码 top_name ---
+                    # --- 新增：解码 top_name 并适配前端显示 ---
                     if item.get("top_name"):
                         try:
                             # 尝试解码，如果是URL编码的
                             decoded = unquote(item["top_name"])
                             item["top_name"] = decoded
+                            
+                            # Fix: 将 top_id 替换为 top_name (Title/Topic) 用于前端显示
+                            # 前端列使用的是 top_id 字段，所以这里需要覆盖
+                            item["original_top_id"] = item["top_id"]
+                            item["top_id"] = decoded
                         except:
                             pass
 

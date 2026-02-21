@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "mode": "time",
+  "target_time": "00:00",
+  "interval_minutes": 60,
+  "last_run": 1771684998.396745,
+  "script_path": "MediaCrawler/media_platform/weibo/get_specified_ids.py"
+}

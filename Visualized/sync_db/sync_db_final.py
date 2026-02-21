@@ -167,6 +167,8 @@ def sync(target_date=None):
     db_entries = []
     content_entries = []
     comment_entries = []
+    referenced_parents = {} # Track note_id -> source for placeholder creation
+
     # 获取待处理文件列表
     labeled_files = []
     aggregated_files = []
@@ -287,7 +289,18 @@ def sync(target_date=None):
                         sync_time = file_sync_time
                         
                         # 尝试从记录中恢复更具体的时间点
-                        created_at = item.get("created_at", "")
+                        created_at = str(item.get("created_at", ""))
+                        
+                        # Fix: Ensure created_at is in YYYY-MM-DD HH:MM:SS format if it's a timestamp
+                        try:
+                            if created_at.isdigit():
+                                ts_int = int(created_at)
+                                if ts_int > 1000000000000: ts_int = ts_int / 1000
+                                dt = datetime.fromtimestamp(ts_int)
+                                created_at = dt.strftime("%Y-%m-%d %H:%M:%S")
+                        except:
+                            pass
+
                         if created_at and ' ' in created_at:
                             try:
                                 sync_time = created_at.split(' ')[1]
@@ -315,6 +328,9 @@ def sync(target_date=None):
                         keywords = json.dumps(item.get("keywords", []), ensure_ascii=False)
                         ip_location = str(item.get("ip_location", ""))
                         top_id = str(item.get("top_id", ""))
+                        # Fix: Ensure Zhihu items have a valid top_id (use note_id)
+                        if source == '知乎' and (not top_id or top_id == 'None' or top_id == 'null'):
+                            top_id = str(item.get('note_id', ''))
                         visual_objects = json.dumps(item.get("visual_objects", []), ensure_ascii=False)
                         ocr_text = str(item.get("ocr_text", ""))
                         author = str(item.get("author", ""))
@@ -351,6 +367,10 @@ def sync(target_date=None):
                             ))
                         else:
                             # 评论
+                            # Track parent note_id and source for potential placeholder creation
+                            if note_id and source:
+                                referenced_parents[note_id] = source
+                                
                             comment_entries.append((
                                 comment_id, note_id, content, author, source, url, created_at, ip_location,
                                 gender, parent_comment_id, liked_count, comments_count,
@@ -363,6 +383,23 @@ def sync(target_date=None):
                             cursor.executemany('INSERT OR REPLACE INTO processed_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', db_entries)
                             if content_entries:
                                 cursor.executemany('INSERT OR REPLACE INTO content VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', content_entries)
+                            
+                            # Insert placeholders for missing parents before inserting comments
+                            if referenced_parents:
+                                placeholder_entries = []
+                                for nid, src in referenced_parents.items():
+                                    placeholder_entries.append((
+                                        nid, "Unknown Title (Zhihu/Weibo)", "Parent article content missing", "Unknown Author", src, "", sync_date, "",
+                                        "[]", "", 0, 0, 0, 0,
+                                        "Neutral", "None", "None", False, "",
+                                        "[]", "[]", "", sync_date, sync_time, ""
+                                    ))
+                                try:
+                                    cursor.executemany('INSERT OR IGNORE INTO content VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', placeholder_entries)
+                                except Exception as e:
+                                    print(f"  Warning: Failed to insert placeholders: {e}")
+                                referenced_parents = {}
+
                             if comment_entries:
                                 cursor.executemany('INSERT OR REPLACE INTO comments VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', comment_entries)
                             conn.commit()
@@ -463,6 +500,22 @@ def sync(target_date=None):
             cursor.executemany('INSERT OR REPLACE INTO processed_items VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', db_entries)
         if content_entries:
             cursor.executemany('INSERT OR REPLACE INTO content VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', content_entries)
+        
+        # Insert placeholders for missing parents (finally block)
+        if referenced_parents:
+            placeholder_entries = []
+            for nid, src in referenced_parents.items():
+                placeholder_entries.append((
+                    nid, "Unknown Title (Zhihu/Weibo)", "Parent article content missing", "Unknown Author", src, "", sync_date, "",
+                    "[]", "", 0, 0, 0, 0,
+                    "Neutral", "None", "None", False, "",
+                    "[]", "[]", "", sync_date, sync_time, ""
+                ))
+            try:
+                cursor.executemany('INSERT OR IGNORE INTO content VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', placeholder_entries)
+            except Exception as e:
+                print(f"  Warning: Failed to insert placeholders in finally block: {e}")
+
         if comment_entries:
             cursor.executemany('INSERT OR REPLACE INTO comments VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)', comment_entries)
         

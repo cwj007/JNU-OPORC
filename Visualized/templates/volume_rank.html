@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <meta name="referrer" content="no-referrer">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>声量热榜 - JNU-OPORC 舆情哨兵</title>
     <!-- Element Plus CSS -->
@@ -74,11 +75,10 @@
                 <el-card class="rank-card" shadow="never">
                     <template #header>
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <span style="font-size: 18px; font-weight: 800; font-family: 'Orbitron', sans-serif; color: var(--primary-color);">INFLUENCE RANKING</span>
+                            <span style="font-size: 18px; font-weight: 800; font-family: 'Orbitron', sans-serif; color: var(--primary-color);">影响力排行榜</span>
                             <el-radio-group v-model="platformFilter" size="small">
                                 <el-radio-button label="all">全部</el-radio-button>
                                 <el-radio-button label="weibo">微博</el-radio-button>
-                                <el-radio-button label="douyin">抖音</el-radio-button>
                                 <el-radio-button label="zhihu">知乎</el-radio-button>
                             </el-radio-group>
                         </div>
@@ -87,7 +87,7 @@
                     <div v-loading="loading" element-loading-background="rgba(0,0,0,0.5)">
                         <div v-for="(item, index) in filteredRankData" :key="item.id" class="rank-item">
                             <div class="rank-number">{{ index + 1 }}</div>
-                            <el-avatar :src="item.avatar" class="author-avatar"></el-avatar>
+                            <img :src="processAvatarUrl(item.avatar)" class="author-avatar" referrerpolicy="no-referrer" @error="handleImageError" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; margin-right: 12px; border: 1px solid #EBEEF5; display: block;">
                             <div class="author-info">
                                 <div class="author-name">
                                     {{ item.name }}
@@ -107,12 +107,6 @@
                                 <div class="stat-item">
                                     <span class="stat-label">影响力指数</span>
                                     <span class="stat-value">{{ item.influence }}</span>
-                                </div>
-                                <div class="stat-item">
-                                    <span class="stat-label">情感倾向</span>
-                                    <el-tag :type="item.sentiment > 0.6 ? 'success' : (item.sentiment < 0.4 ? 'danger' : 'warning')" size="small" effect="dark">
-                                        {{ item.sentiment > 0.6 ? '正面' : (item.sentiment < 0.4 ? '负面' : '中性') }}
-                                    </el-tag>
                                 </div>
                             </div>
                         </div>
@@ -183,6 +177,19 @@
                     return num;
                 };
 
+                const handleImageError = (e) => {
+                    e.target.src = "https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png";
+                };
+
+                const processAvatarUrl = (url) => {
+                    if (!url) return "https://cube.elemecdn.com/3/7c/3ea6beec64369c2642b92c6726f1epng.png";
+                    // 如果是微博图片，使用后端代理
+                    if (url.includes('sinaimg.cn') || url.includes('weibo.com')) {
+                        return `/api/rank/proxy-image?url=${encodeURIComponent(url)}`;
+                    }
+                    return url;
+                };
+
                 onMounted(() => {
                     fetchRankData();
                     const container = document.getElementById('dataStream');
@@ -196,7 +203,7 @@
                     }
                 });
 
-                return { isCollapse, platformFilter, filteredRankData, formatNumber, handleMenuSelect };
+                return { isCollapse, platformFilter, filteredRankData, formatNumber, handleMenuSelect, handleImageError, processAvatarUrl };
             }
         });
         for (const [key, component] of Object.entries(ElementPlusIconsVue)) {

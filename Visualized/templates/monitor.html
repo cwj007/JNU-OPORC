@@ -1453,7 +1453,7 @@
                 <!-- 列表展示 -->
                 <el-card shadow="never" class="tech-card hide-scrollbar" v-loading="loading" element-loading-background="rgba(0, 0, 0, 0.7)">
                     <div class="hide-scrollbar">
-                        <el-table :data="tableData" style="width: 100%" @sort-change="handleSortChange" @selection-change="handleSelectionChange" class="hide-scrollbar">
+                        <el-table :data="tableData" style="width: 100%" @sort-change="handleSortChange" @selection-change="handleSelectionChange" @filter-change="handleFilterChange" class="hide-scrollbar">
                         <el-table-column type="selection" width="55"></el-table-column>
                         <el-table-column prop="top_id" label="内容摘要" min-width="300">
                             <template #default="scope">
@@ -1506,13 +1506,13 @@
                             label="情感分析" 
                             width="160" 
                             sortable
+                            column-key="sentiment"
                             :sort-method="sortSentiment"
                             :filters="[
                                 { text: '正面', value: '正面' },
                                 { text: '中性', value: '中性' },
                                 { text: '负面', value: '负面' }
                             ]"
-                            :filter-method="filterSentiment"
                             filter-placement="bottom-end"
                         >
                             <template #default="scope">
@@ -2807,11 +2807,12 @@
                 const filter = reactive({
                     timeRange: '24h',
                     customTime: [],
-                    platforms: ['weibo'],
+                    platforms: [],
                     matchMode: 'full',
                     sortBy: 'time_desc',
                     mergeQuery: false,
                     warningFilter: false, // 只看预警
+                    selectedSentiment: [], // Server-side sentiment filter
                     keywords: '' // 用户手动输入的关键词
                 });
 
@@ -2997,6 +2998,8 @@
 
                 const switchTask = (task) => {
                     currentTaskId.value = task.id;
+                    // Reset platform filter when switching tasks to avoid confusion
+                    filter.platforms = []; 
                     fetchData();
                 };
 
@@ -3122,16 +3125,15 @@
                     }
                 };
 
-                const handleFilterChange = () => {
+                const handleFilterChange = (val) => {
+                    // Handle table filters (argument is object like { sentiment: [...] })
+                    if (val && typeof val === 'object' && val.sentiment !== undefined) {
+                        filter.selectedSentiment = val.sentiment;
+                    }
+
                     // Check warning filter restriction
                     if (filter.warningFilter) {
                         const currentTask = tasks.value.find(t => t.id === currentTaskId.value);
-                        // currentTask might be undefined if loading or all? assuming currentTaskId is valid.
-                        // If currentTaskId is 'all' or specific id.
-                        // If 'all', warningEnabled might not be applicable or we check if ANY task has it? 
-                        // Usually 'all' doesn't have warningEnabled property directly unless we aggregate.
-                        // Assuming task-specific context. If task is 'all', maybe we shouldn't allow warning filter or check logic.
-                        // But usually users select a specific task.
                         
                         if (currentTask && !currentTask.warningEnabled) {
                             ElMessage.warning('当前任务未开启预警功能，无法查看预警内容');
@@ -3193,7 +3195,11 @@
                         if (filter.keywords) mainKeyword = filter.keywords;
 
                         // 准备平台参数
-                        const platformParam = (task.platforms || []).join(',');
+                        let platformParam = (task.platforms || []).join(',');
+                        // 如果用户在筛选器中选择了特定平台，优先使用筛选器的值
+                        if (filter.platforms && filter.platforms.length > 0) {
+                            platformParam = filter.platforms.join(',');
+                        }
                         
                         // 准备预警词参数 (只有当勾选"只看预警"时才生效，或者是必须生效？)
                         // 用户需求："如果用户开启检测...预警词是必须的...返回的文章内容必须结合关键词的配置，然后必须组合预警词"
@@ -3213,7 +3219,8 @@
                             date_start: dateStart,
                             date_end: dateEnd,
                             merge_query: filter.mergeQuery,
-                            sort_by: filter.sortBy
+                            sort_by: filter.sortBy,
+                            sentiment: (filter.selectedSentiment && filter.selectedSentiment.length > 0) ? filter.selectedSentiment.join(',') : undefined
                         };
 
                         const response = await axios.get('/api/monitoring/list', { params });
@@ -3667,10 +3674,6 @@
                     fetchData();
                 };
 
-                const filterSentiment = (value, row) => {
-                    return row.sentiment === value;
-                };
-
                 const sortSentiment = (a, b) => {
                     return (a.sentiment_score || 0) - (b.sentiment_score || 0);
                 };
@@ -3839,7 +3842,7 @@
                     handleMenuSelect, handleFilterChange, handleSortChange,
                     showDetail, deleteContent, exportData, toggleEditSentiment, saveSentiment,
                     selectedRows, handleSelectionChange, exportComments,
-                    getSentimentClass, getTaskClass, getSentimentColor, handleSizeChange, handleCurrentChange, customColors, filterSentiment, sortSentiment, highlightKeyword, toggleExpand,
+                    getSentimentClass, getTaskClass, getSentimentColor, handleSizeChange, handleCurrentChange, customColors, sortSentiment, highlightKeyword, toggleExpand,
                     loadMoreMergedItems, loadMoreComments, expandAllImages,
                     previewImageRef, openPreview, getThumbnailUrl, previewImagesList, previewKey,
                     warningConfigVisible, warningRuleForm, openWarningConfig, saveWarningConfig,

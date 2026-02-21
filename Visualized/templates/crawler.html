@@ -98,6 +98,153 @@
         .el-form-item__label {
             color: var(--text-secondary) !important;
         }
+
+        /* --- Tech Style Customizations --- */
+        
+        /* 1. Tech Switch */
+        .tech-switch {
+            --el-switch-on-color: #00f3ff !important;
+            --el-switch-off-color: rgba(255, 255, 255, 0.1) !important;
+        }
+        .tech-switch .el-switch__core {
+            border: 1px solid rgba(0, 243, 255, 0.3) !important;
+            background-color: rgba(0, 0, 0, 0.5) !important;
+            box-shadow: 0 0 5px rgba(0, 243, 255, 0.1);
+        }
+        .tech-switch.is-checked .el-switch__core {
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.6), inset 0 0 5px rgba(0, 243, 255, 0.4);
+            border-color: #00f3ff !important;
+        }
+        .tech-switch .el-switch__action {
+            background-color: #fff !important;
+            box-shadow: 0 0 5px #00f3ff;
+        }
+
+        /* 2. Tech Button */
+        .tech-button {
+            background: rgba(0, 243, 255, 0.05) !important;
+            border: 1px solid rgba(0, 243, 255, 0.5) !important;
+            color: #00f3ff !important;
+            font-family: 'Fira Code', 'Consolas', monospace !important;
+            letter-spacing: 1px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(4px);
+        }
+        .tech-button:hover {
+            background: rgba(0, 243, 255, 0.2) !important;
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.4), inset 0 0 10px rgba(0, 243, 255, 0.2) !important;
+            text-shadow: 0 0 8px rgba(0, 243, 255, 0.8);
+            border-color: #00f3ff !important;
+            transform: translateY(-1px);
+        }
+        .tech-button:active {
+            transform: translateY(1px);
+        }
+        /* Optional: Scanline effect on hover */
+        .tech-button::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(to bottom, transparent, rgba(0, 243, 255, 0.1), transparent);
+            transform: rotate(45deg);
+            transition: 0.5s;
+            opacity: 0;
+        }
+        .tech-button:hover::after {
+            opacity: 1;
+            transform: rotate(45deg) translateY(100%);
+            transition: 0.5s;
+        }
+
+        /* 3. Tech Dialog */
+        .tech-dialog {
+            background: rgba(10, 15, 25, 0.95) !important;
+            border: 1px solid rgba(0, 243, 255, 0.3) !important;
+            box-shadow: 0 0 30px rgba(0, 243, 255, 0.15), inset 0 0 20px rgba(0, 0, 0, 0.8) !important;
+            backdrop-filter: blur(20px) !important;
+            border-radius: 4px !important;
+        }
+        .tech-dialog .el-dialog__header {
+            border-bottom: 1px solid rgba(0, 243, 255, 0.2);
+            padding-bottom: 15px;
+            margin-right: 0 !important;
+            background: linear-gradient(90deg, rgba(0, 243, 255, 0.05) 0%, transparent 100%);
+        }
+        .tech-dialog .el-dialog__title {
+            color: #00f3ff !important;
+            font-family: 'Orbitron', sans-serif !important;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-size: 1.1rem !important;
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5);
+            display: flex;
+            align-items: center;
+        }
+        .tech-dialog .el-dialog__title::before {
+            content: '>';
+            margin-right: 10px;
+            color: #fff;
+            animation: blink 1s infinite;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+        
+        .tech-dialog .el-dialog__headerbtn .el-dialog__close {
+            color: rgba(0, 243, 255, 0.7) !important;
+            transition: 0.3s;
+        }
+        .tech-dialog .el-dialog__headerbtn .el-dialog__close:hover {
+            color: #fff !important;
+            text-shadow: 0 0 5px #fff;
+            transform: rotate(90deg);
+        }
+        .tech-dialog .el-dialog__body {
+            padding: 20px !important;
+            color: #a0a0a0;
+        }
+        .tech-dialog .el-dialog__footer {
+            border-top: 1px solid rgba(0, 243, 255, 0.1);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        /* 4. Tech Log Box */
+        .tech-log-box {
+            background: #050505 !important;
+            border: 1px solid #333 !important;
+            border-left: 2px solid #00f3ff !important;
+            color: #0f0 !important; /* Matrix Green */
+            font-family: 'Fira Code', 'Consolas', monospace !important;
+            padding: 15px !important;
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.9) !important;
+            position: relative;
+        }
+        /* Grid background for log box */
+        .tech-log-box::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: 
+                linear-gradient(rgba(0, 255, 0, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 0, 0.03) 1px, transparent 1px);
+            background-size: 20px 20px;
+            pointer-events: none;
+        }
+        .tech-log-box .log-entry {
+            border-bottom: 1px solid rgba(0, 255, 0, 0.1) !important;
+            padding: 4px 0 !important;
+            font-size: 12px;
+            line-height: 1.4;
+            opacity: 0.9;
+        }
+        .tech-log-box .log-entry:hover {
+            background: rgba(0, 255, 0, 0.1);
+            color: #fff !important;
+            text-shadow: 0 0 5px #0f0;
+        }
         
         .el-input__wrapper, .el-textarea__wrapper, .el-select__wrapper, .el-textarea__inner {
             background-color: rgba(255, 255, 255, 0.05) !important;
@@ -496,7 +643,9 @@
 
                                         <div style="margin-top: auto;">
                                             <div class="column-title" style="margin-top: 20px;"><el-icon><timer /></el-icon> 任务定时</div>
-                                            <el-form-item label="定时执行">
+                                            
+                                            <!-- Existing Frontend Scheduler -->
+                                            <el-form-item label="当前配置定时">
                                                 <el-row :gutter="10">
                                                     <el-col :span="6">
                                                         <el-switch v-model="scheduler.enabled" active-text="启用"></el-switch>
@@ -509,6 +658,54 @@
                                                     <el-icon><warning /></el-icon> 需保持页面打开
                                                 </div>
                                             </el-form-item>
+
+                                            <!-- Backend Independent Scheduler -->
+                                            <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); margin-top: 15px; padding-top: 15px;">
+                                                <div style="font-size: 13px; color: var(--primary-color); margin-bottom: 10px; font-weight: bold;">
+                                                    <el-icon><cpu /></el-icon> 独立任务 (ID获取 -> 详情爬取)
+                                                </div>
+                                                
+                                                <el-form-item label="自动运行">
+                                                <el-switch v-model="backendScheduler.enabled" active-text="启用" @change="saveSchedulerConfig" class="tech-switch"></el-switch>
+                                            </el-form-item>
+                                                
+                                                <div v-if="backendScheduler.enabled">
+                                                    <el-form-item label="调度模式">
+                                                        <el-radio-group v-model="backendScheduler.mode" @change="saveSchedulerConfig">
+                                                            <el-radio label="time">指定时间</el-radio>
+                                                            <el-radio label="interval">间隔循环</el-radio>
+                                                        </el-radio-group>
+                                                    </el-form-item>
+
+                                                    <el-form-item v-if="backendScheduler.mode === 'time'" label="执行时间">
+                                                        <el-time-picker 
+                                                            v-model="backendScheduler.target_time" 
+                                                            format="HH:mm" 
+                                                            value-format="HH:mm" 
+                                                            placeholder="选择时间"
+                                                            @change="saveSchedulerConfig"
+                                                            style="width: 100%"
+                                                        ></el-time-picker>
+                                                    </el-form-item>
+
+                                                    <el-form-item v-if="backendScheduler.mode === 'interval'" label="间隔时间">
+                                                        <el-input-number 
+                                                            v-model="backendScheduler.interval_minutes" 
+                                                            :min="1" 
+                                                            label="分钟"
+                                                            @change="saveSchedulerConfig"
+                                                            style="width: 100%"
+                                                        ></el-input-number>
+                                                    </el-form-item>
+                                                    
+                                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px;">
+                                                        <el-button size="small" type="primary" link @click="openSchedulerDialog" class="tech-button">查看日志</el-button>
+                                                        <span style="font-size: 12px; color: #666;">
+                                                            {{ backendScheduler.last_run > 0 ? '上次: ' + new Date(backendScheduler.last_run * 1000).toLocaleTimeString() : '从未运行' }}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -550,6 +747,28 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Scheduler Dialog -->
+                <el-dialog v-model="schedulerDialogVisible" title="独立任务日志 (ID获取 -> 详情爬取)" width="600px" append-to-body class="tech-dialog">
+                    <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 10px;">
+                        <div style="margin-bottom: 10px; font-weight: bold; display: flex; justify-content: space-between; align-items: center;">
+                            <span style="color: #00f3ff; text-shadow: 0 0 5px rgba(0,243,255,0.5);">任务日志 (最近 50 行)</span>
+                            <el-button size="small" @click="fetchSchedulerLogs" :loading="logsLoading" class="tech-button">刷新日志</el-button>
+                        </div>
+                        <div class="tech-log-box" style="height: 300px; overflow-y: auto;">
+                            <div v-if="schedulerLogs.length === 0" style="text-align: center; color: #00f3ff; padding: 20px; opacity: 0.7;">暂无日志</div>
+                            <div v-for="(log, index) in schedulerLogs" :key="index" class="log-entry">
+                                {{ log }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <template #footer>
+                        <span class="dialog-footer">
+                            <el-button @click="schedulerDialogVisible = false" class="tech-button">关闭</el-button>
+                        </span>
+                    </template>
+                </el-dialog>
             </div>
         </div>
     </div>
@@ -589,12 +808,65 @@
                     }
                 });
 
-                // Scheduler Config
+                // Scheduler Config (Frontend)
                 const scheduler = ref({
                     enabled: false,
                     interval: 60, // minutes
                     lastRun: 0
                 });
+
+                // Backend Scheduler Config (Independent Task)
+                const schedulerDialogVisible = ref(false);
+                const logsLoading = ref(false);
+                const schedulerLogs = ref([]);
+                const backendScheduler = ref({
+                    enabled: false,
+                    mode: 'interval',
+                    target_time: '00:00',
+                    interval_minutes: 60,
+                    script_path: 'Workflow: get_specified_ids -> main.py',
+                    last_run: 0
+                });
+
+                const fetchSchedulerConfig = async () => {
+                    try {
+                        const res = await axios.get('/api/scheduler/config');
+                        if (res.data) {
+                            backendScheduler.value = res.data;
+                        }
+                    } catch (e) {
+                        console.error("Failed to fetch scheduler config", e);
+                    }
+                };
+
+                const saveSchedulerConfig = async () => {
+                    try {
+                        await axios.post('/api/scheduler/config', backendScheduler.value);
+                        ElementPlus.ElMessage.success('任务配置已保存');
+                        schedulerDialogVisible.value = false;
+                    } catch (e) {
+                        ElementPlus.ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message));
+                    }
+                };
+
+                const fetchSchedulerLogs = async () => {
+                    logsLoading.value = true;
+                    try {
+                        const res = await axios.get('/api/scheduler/logs');
+                        if (res.data && res.data.logs) {
+                            schedulerLogs.value = res.data.logs;
+                        }
+                    } catch (e) {
+                        console.error("Failed to fetch scheduler logs", e);
+                    } finally {
+                        logsLoading.value = false;
+                    }
+                };
+
+                const openSchedulerDialog = () => {
+                    fetchSchedulerLogs();
+                    schedulerDialogVisible.value = true;
+                };
 
                 // ID Extraction Logic
                 const raw_specified_ids = ref('');
@@ -857,6 +1129,7 @@
                     // Initial fetch
                     fetchStatus();
                     fetchLogs();
+                    fetchSchedulerConfig();
 
                     // Polling
                     timer.value = setInterval(() => {
@@ -896,7 +1169,14 @@
                     raw_specified_ids, raw_creator_ids,
                     parsed_specified_count, parsed_creator_count,
                     parsed_specified_ids, parsed_creator_ids,
-                    removeId
+                    removeId,
+                    schedulerDialogVisible,
+                    backendScheduler,
+                    schedulerLogs,
+                    logsLoading,
+                    openSchedulerDialog,
+                    saveSchedulerConfig,
+                    fetchSchedulerLogs
                 };
             }
         });

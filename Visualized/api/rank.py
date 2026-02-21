@@ -1,94 +1,239 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Response
+from fastapi.responses import StreamingResponse
+import urllib.request
+import urllib.error
 from .database import query_db
 from datetime import datetime, timedelta
 import json
+import math
+import hashlib
+import re
+
+def parse_chinese_number(num_str):
+    """
+    解析包含中文单位的数字字符串
+    例如: "1.4亿" -> 140000000, "103.6万" -> 1036000, "2,270,719,205" -> 2270719205
+    """
+    if num_str is None:
+        return 0
+    if isinstance(num_str, (int, float)):
+        return int(num_str)
+        
+    s = str(num_str).strip().replace(',', '')
+    if not s:
+        return 0
+        
+    try:
+        if '亿' in s:
+            return int(float(s.replace('亿', '')) * 100000000)
+        elif '万' in s:
+            return int(float(s.replace('万', '')) * 10000)
+        else:
+            return int(float(s))
+    except ValueError:
+        return 0
 
 router = APIRouter(prefix="/rank", tags=["rank"])
+
+@router.get("/proxy-image")
+async def proxy_image(url: str):
+    """
+    代理获取微博图片，绕过防盗链
+    """
+    if not url:
+        return Response(status_code=404)
+        
+    try:
+        # 验证 URL 安全性
+        if not url.startswith(('http://', 'https://')):
+            return Response(status_code=400)
+            
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Referer": "https://weibo.com/"  # 设置 Referer 为 weibo.com
+        }
+        
+        req = urllib.request.Request(url, headers=headers)
+        
+        # 使用 yield generator 来流式传输
+        def iterfile(req):
+            try:
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    while True:
+                        chunk = response.read(8192)
+                        if not chunk:
+                            break
+                        yield chunk
+            except Exception as e:
+                print(f"Error reading stream: {e}")
+                return
+
+        # 预先请求一次以获取 headers 和 status
+        content_type = "image/jpeg"
+        try:
+            with urllib.request.urlopen(req, timeout=10) as response:
+                content_type = response.info().get_content_type()
+        except urllib.error.HTTPError as e:
+            return Response(status_code=e.code)
+        except urllib.error.URLError as e:
+            return Response(status_code=500)
+
+        return StreamingResponse(
+            iterfile(req), 
+            media_type=content_type
+        )
+            
+    except Exception as e:
+        print(f"Proxy image error: {e}")
+        return Response(status_code=500)
 
 @router.get("/influencers")
 async def get_influencer_rank(platform: str = "all", days: int = 7):
     """获取博主/媒体影响力排名"""
-    try:
-        start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-        
-        # 基础 SQL
-        sql = """
-            SELECT 
-                author,
-                source as platform,
-                COUNT(*) as post_count,
-                SUM(liked_count) as total_likes,
-                SUM(comments_count) as total_comments,
-                SUM(shared_count) as total_shares,
-                SUM(collected_count) as total_collects,
-                AVG(CASE 
-                    WHEN sentiment = '正面' THEN 1.0 
-                    WHEN sentiment = '负面' THEN 0.0 
-                    ELSE 0.5 
-                END) as avg_sentiment
-            FROM content
-            WHERE substr(created_at, 1, 10) >= ?
-        """
-        params = [start_date]
-        
-        if platform != "all":
-            # 映射前端平台标识到数据库中的 source
-            platform_map = {
-                "weibo": "weibo",
-                "douyin": "douyin",
-                "xhs": "xhs",
-                "zhihu": "zhihu"
-            }
-            db_platform = platform_map.get(platform, platform)
-            sql += " AND source = ?"
-            params.append(db_platform)
-            
-        sql += " GROUP BY author, source ORDER BY (SUM(liked_count) + SUM(comments_count) * 2 + SUM(shared_count) * 3) DESC LIMIT 20"
-        
-        results = query_db(sql, tuple(params))
-        
-        rank_data = []
-        if results:
-            for idx, row in enumerate(results):
-                # 计算互动总量
-                engagement = (row['total_likes'] or 0) + (row['total_comments'] or 0) + (row['total_shares'] or 0) + (row['total_collects'] or 0)
+    rank_data = []
+    
+    # --- 1. Weibo (weibo_creator) ---
+    if platform in ["all", "weibo"]:
+        try:
+            # Get all creators and sort in Python because SQLite might not handle '1.4亿' correctly
+            sql = "SELECT * FROM weibo_creator"
+            rows = query_db(sql)
+            if rows:
+                print(f"DEBUG: Found {len(rows)} rows in weibo_creator")
                 
-                # 计算影响力指数 (0-100)
-                # 简单公式：log10(engagement + 1) * 10 + post_count * 2
-                import math
-                influence = min(99.9, round(math.log10(engagement + 1) * 15 + (row['post_count'] or 0) * 2, 1))
+                # First pass: Parse all data and find max values for normalization
+                parsed_rows = []
+                max_fans = 0
+                max_engagement = 0
+                max_log_val = 0
                 
-                # 模拟粉丝数 (因为 DB 中没有)
-                # 使用 author 名字的 hash 生成一个相对固定的模拟值
-                import hashlib
-                name_hash = int(hashlib.md5(row['author'].encode()).hexdigest(), 16)
-                followers = (name_hash % 9000000) + 1000000 # 100万 - 1000万之间
-                
-                # 平台名称映射回前端
-                platform_display_map = {
-                    "weibo": "微博",
-                    "douyin": "抖音",
-                    "xhs": "小红书",
-                    "zhihu": "知乎",
-                    "bilibili": "B站"
-                }
-                
-                rank_data.append({
-                    "id": idx + 1,
-                    "name": row['author'],
-                    "platform": platform_display_map.get(row['platform'], row['platform']),
-                    "followers": followers,
-                    "engagement": engagement,
-                    "influence": influence,
-                    "sentiment": round(row['avg_sentiment'], 2),
-                    "avatar": f"https://api.dicebear.com/7.x/avataaars/svg?seed={row['author']}", # 随机头像
-                    "description": f"活跃于{platform_display_map.get(row['platform'], row['platform'])}的自媒体作者"
-                })
-        
-        return {
-            "status": "success",
-            "data": rank_data
-        }
-    except Exception as e:
-        print(f"Error in get_influencer_rank: {e}")
-        return {"status": "error", "message": str(e), "data": []}
+                for row in rows:
+                    try:
+                        likes = parse_chinese_number(row['likes_count'])
+                        comments = parse_chinese_number(row['comments_count'])
+                        reposts = parse_chinese_number(row['reposts_count'])
+                        fans = parse_chinese_number(row['fans'])
+                        
+                        engagement = likes + comments + reposts
+                        raw_val = fans + engagement
+                        
+                        if fans > max_fans: max_fans = fans
+                        if engagement > max_engagement: max_engagement = engagement
+                        
+                        log_val = math.log10(raw_val + 1)
+                        if log_val > max_log_val: max_log_val = log_val
+                        
+                        parsed_rows.append({
+                            "row": row,
+                            "fans": fans,
+                            "engagement": engagement,
+                            "log_val": log_val
+                        })
+                    except Exception as parse_e:
+                        print(f"Error parsing weibo row: {parse_e}")
+
+                # Second pass: Calculate normalized scores
+                for item in parsed_rows:
+                    try:
+                        row = item["row"]
+                        fans = item["fans"]
+                        engagement = item["engagement"]
+                        log_val = item["log_val"]
+                        
+                        # Hybrid Score Algorithm:
+                        # 1. Logarithmic Part (80% weight): Ensures valid scores for all tiers
+                        # 2. Linear Part (20% weight): Rewards top performers significantly
+                        
+                        norm_log = log_val / max_log_val if max_log_val > 0 else 0
+                        norm_linear = (fans + engagement) / (max_fans + max_engagement) if (max_fans + max_engagement) > 0 else 0
+                        
+                        final_score = (norm_log * 80) + (norm_linear * 20)
+                        influence = min(99.9, round(final_score, 1))
+                        
+                        rank_data.append({
+                            "id": f"weibo_{row['user_id']}",
+                            "name": row['nickname'],
+                            "platform": "微博",
+                            "followers": fans,
+                            "engagement": engagement,
+                            "influence": influence,
+                            "sentiment": 0.5, 
+                            "avatar": row['avatar'] or f"https://api.dicebear.com/7.x/avataaars/svg?seed={row['nickname']}",
+                            "description": row['desc'] or "活跃于微博的自媒体作者"
+                        })
+                    except Exception as row_e:
+                        print(f"Error processing weibo row: {row_e}")
+            else:
+                print("DEBUG: No rows found in weibo_creator")
+        except Exception as e:
+            print(f"Error fetching weibo_creator: {e}")
+
+    # --- 2. Zhihu (zhihu_creator) ---
+    if platform in ["all", "zhihu"]:
+        try:
+            sql = "SELECT * FROM zhihu_creator"
+            rows = query_db(sql)
+            if rows:
+                parsed_rows = []
+                max_fans = 0
+                max_engagement = 0
+                max_log_val = 0
+
+                for row in rows:
+                    try:
+                        voteup = parse_chinese_number(row['get_voteup_count'])
+                        answer = parse_chinese_number(row['anwser_count'])
+                        article = parse_chinese_number(row['article_count'])
+                        fans = parse_chinese_number(row['fans'])
+                        
+                        engagement = voteup + answer + article
+                        raw_val = fans + engagement
+                        
+                        if fans > max_fans: max_fans = fans
+                        if engagement > max_engagement: max_engagement = engagement
+                        
+                        log_val = math.log10(raw_val + 1)
+                        if log_val > max_log_val: max_log_val = log_val
+                        
+                        parsed_rows.append({
+                            "row": row,
+                            "fans": fans,
+                            "engagement": engagement,
+                            "log_val": log_val
+                        })
+                    except Exception as e:
+                        print(f"Error parsing zhihu row: {e}")
+
+                for item in parsed_rows:
+                    row = item["row"]
+                    fans = item["fans"]
+                    engagement = item["engagement"]
+                    log_val = item["log_val"]
+                    
+                    norm_log = log_val / max_log_val if max_log_val > 0 else 0
+                    norm_linear = (fans + engagement) / (max_fans + max_engagement) if (max_fans + max_engagement) > 0 else 0
+                    
+                    final_score = (norm_log * 80) + (norm_linear * 20)
+                    influence = min(99.9, round(final_score, 1))
+                    
+                    rank_data.append({
+                        "id": f"zhihu_{row['user_id']}",
+                        "name": row['user_nickname'],
+                        "platform": "知乎",
+                        "followers": fans,
+                        "engagement": engagement,
+                        "influence": influence,
+                        "sentiment": 0.5, # Neutral
+                        "avatar": row['user_avatar'] or f"https://api.dicebear.com/7.x/avataaars/svg?seed={row['user_nickname']}",
+                        "description": f"回答:{row['anwser_count']} 文章:{row['article_count']}"
+                    })
+        except Exception as e:
+             print(f"Error fetching zhihu_creator: {e}")
+
+    # Sort by influence descending
+    rank_data.sort(key=lambda x: x['influence'], reverse=True)
+    
+    return {
+        "status": "success",
+        "data": rank_data
+    }

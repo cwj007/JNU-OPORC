@@ -25,6 +25,9 @@ except ImportError:
     # 回退：硬编码路径
     TRANSFORMERS_DB_PATH = Path(__file__).parent.parent.parent / "Transformers" / "cache" / "processed_ids.db"
 
+# MediaCrawler 数据库路径
+MEDIA_CRAWLER_DB_PATH = Path(__file__).parent.parent.parent / "MediaCrawler" / "database" / "sqlite_tables.db"
+
 # 为了向后兼容，保留 DB_PATH，默认指向热搜数据库
 DB_PATH = HOTSEARCH_DB_PATH
 
@@ -198,14 +201,26 @@ def query_db(query: str, args: tuple = (), one: bool = False):
     query_lower = query.lower()
     # Transformers 数据库中的表
     tr_tables = ["content", "comments", "top_topics", "processed_items"]
+    # MediaCrawler 数据库中的表
+    mc_tables = ["weibo_creator", "zhihu_creator"]
     
     target_db = HOTSEARCH_DB_PATH
-    for table in tr_tables:
-        # 使用正则表达式或者更精确的边界检查，避免 "content" 作为列名时被误判
-        import re
-        if re.search(rf'\b{table}\b', query_lower):
-            target_db = TRANSFORMERS_DB_PATH
+    
+    # 检查是否为 MediaCrawler 表
+    for table in mc_tables:
+        if table in query_lower:
+            target_db = MEDIA_CRAWLER_DB_PATH
+            # print(f"DEBUG: Routing query to MediaCrawler DB: {query}")
             break
+            
+    # 检查是否为 Transformers 表 (如果不匹配 MediaCrawler)
+    if target_db == HOTSEARCH_DB_PATH:
+        for table in tr_tables:
+            # 使用正则表达式或者更精确的边界检查，避免 "content" 作为列名时被误判
+            import re
+            if re.search(rf'\b{table}\b', query_lower):
+                target_db = TRANSFORMERS_DB_PATH
+                break
 
     try:
         conn = sqlite3.connect(target_db, timeout=30)

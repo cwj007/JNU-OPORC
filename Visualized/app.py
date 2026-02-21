@@ -129,6 +129,7 @@ from Visualized.api.alerts import router as alerts_router
 from Visualized.api.config import router as config_router
 from Visualized.api.hotsearch import router as hotsearch_router, check_and_sync_missing_data, start_periodic_sync
 from Visualized.api.rank import router as rank_router
+from Visualized.api.scheduler import router as scheduler_router, start_scheduler
 import asyncio
 
 app = FastAPI(title="JNU-OPORC 舆情监测系统 API")
@@ -178,6 +179,9 @@ async def startup_event():
     
     # 2. 启动后台定时同步任务
     asyncio.create_task(start_periodic_sync())
+    
+    # 3. 启动自定义任务调度器 (微博 ID 提取等)
+    start_scheduler()
 
 # --- 挂载 API 路由 ---
 app.include_router(dashboard_router, prefix="/api")
@@ -186,6 +190,7 @@ app.include_router(alerts_router, prefix="/api")
 app.include_router(config_router, prefix="/api")
 app.include_router(hotsearch_router, prefix="/api")
 app.include_router(rank_router, prefix="/api")
+app.include_router(scheduler_router, prefix="/api")
 
 # --- 挂载 MediaCrawler 静态资源 ---
 MC_WEBUI_DIR = BASE_DIR / "MediaCrawler" / "api" / "webui"
