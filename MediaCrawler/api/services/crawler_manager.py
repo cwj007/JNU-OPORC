@@ -204,7 +204,8 @@ class CrawlerManager:
 
     def _build_command(self, config: CrawlerStartRequest) -> list:
         """Build main.py command line arguments"""
-        cmd = ["uv", "run", "python", "main.py"]
+        # Use --frozen to ensure the environment matches the lockfile exactly, consistent with local manual execution
+        cmd = ["uv", "run", "--frozen", "main.py"]
 
         cmd.extend(["--platform", config.platform.value])
         cmd.extend(["--lt", config.login_type.value])

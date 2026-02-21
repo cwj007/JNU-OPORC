@@ -277,6 +277,9 @@ async def save_creator(user_id: str, user_info: Dict):
         'ip_location': user_info.get("source", "").replace("来自", ""),
         'follows': user_info.get('follow_count', ''),
         'fans': user_info.get('followers_count', ''),
+        'reposts_count': user_info.get('reposts_count', '0'),
+        'comments_count': user_info.get('comments_count', '0'),
+        'likes_count': user_info.get('likes_count', '0'),
         'tag_list': '',
         "last_modify_ts": utils.get_current_timestamp(),
     }

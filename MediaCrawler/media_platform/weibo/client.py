@@ -78,6 +78,9 @@ class WeiboClient(ProxyRefreshMixin):
         if not config.WEIBO_COOKIES_LIST:
             return False
 
+        if len(config.WEIBO_COOKIES_LIST) == 1 and self._cookie_index != -1:
+            utils.logger.error("[WeiboClient.switch_cookie] Only one cookie configured and it failed. Please update your COOKIES in config.")
+        
         self._cookie_index = (self._cookie_index + 1) % len(config.WEIBO_COOKIES_LIST)
         new_cookie_item = config.WEIBO_COOKIES_LIST[self._cookie_index]
         new_cookie_value = new_cookie_item.get("value")
@@ -127,7 +130,9 @@ class WeiboClient(ProxyRefreshMixin):
         except json.decoder.JSONDecodeError:
             # 处理搜索接口返回 432 错误等异常情况，重试并更新 H5 Cookie
             utils.logger.error(f"[WeiboClient.request] request {method}:{url} err code: {response.status_code} res:{response.text}")
-            if response.status_code in [403, 418]: # 常见的封禁状态码
+            if response.status_code in [403, 418, 302]: # 常见的封禁状态码
+                if response.status_code == 302:
+                    utils.logger.error("[WeiboClient.request] 302 Redirect detected (to login page). Your cookie is expired or invalid. Please update it in config.")
                 utils.logger.warning(f"[WeiboClient.request] Possible IP block or Cookie invalid, status code: {response.status_code}")
                 # 尝试切换 Cookie
                 if await self.switch_cookie():
@@ -139,6 +144,30 @@ class WeiboClient(ProxyRefreshMixin):
             raise DataFetchError(f"get response code error: {response.status_code}")
 
         ok_code = data.get("ok")  # 微博 API 通常使用 ok 字段表示状态
+        if ok_code == -100 and "captcha" in data.get("url", ""):
+             utils.logger.warning(f"[WeiboClient.request] Captcha detected, opening browser to solve...")
+             captcha_url = data.get("url")
+             if self.playwright_page:
+                 await self.playwright_page.goto(captcha_url)
+                 utils.logger.info("[WeiboClient.request] Please solve the captcha in the browser window within 60 seconds...")
+                 try:
+                     # Wait for the user to solve the captcha and be redirected back
+                     # The backUrl usually leads to the API response which is JSON text in browser
+                     # So we just wait for the URL to change from the captcha URL
+                     await self.playwright_page.wait_for_url(lambda u: "captcha" not in u, timeout=60000)
+                     utils.logger.info("[WeiboClient.request] Captcha seems solved. Updating cookies and retrying...")
+                     
+                     # Sync cookies from browser to client
+                     await self.update_cookies(browser_context=self.playwright_page.context)
+                     
+                     # Retry the request immediately
+                     return await self.request(method, url, **kwargs)
+                     
+                 except Exception as e:
+                     utils.logger.error(f"[WeiboClient.request] Failed to solve captcha or timeout: {e}")
+             else:
+                 utils.logger.error("[WeiboClient.request] Captcha detected but no browser page available to solve it.")
+
         if ok_code == 0:  # 响应错误
             msg = data.get("msg", "")
             if "登录" in msg or "login" in msg.lower() or "未登录" in msg:

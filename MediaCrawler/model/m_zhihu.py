@@ -35,6 +35,7 @@ class ZhihuContent(BaseModel):
     question_id: str = Field(default="", description="Question ID, has value when type is answer")
     title: str = Field(default="", description="Content title")
     desc: str = Field(default="", description="Content description")
+    top_id: str = Field(default="", description="Top ID (Topic ID), populated from title")
     created_time: int = Field(default=0, description="Create time")
     updated_time: int = Field(default=0, description="Update time")
     voteup_count: int = Field(default=0, description="Upvote count")

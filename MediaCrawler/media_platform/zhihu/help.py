@@ -112,6 +112,7 @@ class ZhihuExtractor:
         res.question_id = answer.get("question").get("id")
         res.content_url = f"{zhihu_constant.ZHIHU_URL}/question/{res.question_id}/answer/{res.content_id}"
         res.title = extract_text_from_html(answer.get("title", ""))
+        res.top_id = res.title
         res.desc = extract_text_from_html(answer.get("description", "") or answer.get("excerpt", ""))
         res.created_time = answer.get("created_time")
         res.updated_time = answer.get("updated_time")
@@ -142,6 +143,7 @@ class ZhihuExtractor:
         res.content_text = extract_text_from_html(article.get("content"))
         res.content_url = f"{zhihu_constant.ZHIHU_ZHUANLAN_URL}/p/{res.content_id}"
         res.title = extract_text_from_html(article.get("title"))
+        res.top_id = res.title
         res.desc = extract_text_from_html(article.get("excerpt"))
         res.created_time = article.get("created_time", 0) or article.get("created", 0)
         res.updated_time = article.get("updated_time", 0) or article.get("updated", 0)
@@ -178,6 +180,7 @@ class ZhihuExtractor:
         res.content_id = zvideo.get("id")
         res.content_type = zvideo.get("type")
         res.title = extract_text_from_html(zvideo.get("title"))
+        res.top_id = res.title
         res.desc = extract_text_from_html(zvideo.get("description"))
         res.voteup_count = zvideo.get("voteup_count")
         res.comment_count = zvideo.get("comment_count")

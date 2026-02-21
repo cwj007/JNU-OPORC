@@ -21,6 +21,7 @@
 # 微博平台配置
 
 # 搜索类型，具体的枚举值在media_platform/weibo/field.py中
+# 根据配置设置微博搜索类型（默认、实时、热门、视频等）
 WEIBO_SEARCH_TYPE = "default"
 
 # 指定微博ID列表
@@ -31,7 +32,7 @@ WEIBO_SPECIFIED_ID_LIST = [
 
 # 指定微博用户ID列表
 WEIBO_CREATOR_ID_LIST = [
-    "5756404150",
+    # "5756404150",
     # ........................
 ]
 

@@ -730,12 +730,52 @@ class WeiboCrawler(AbstractCrawler):
         """
         utils.logger.info("[WeiboCrawler.get_creators_and_notes] Begin get weibo creators")  # 记录日志：开始获取创作者
         for user_id in config.WEIBO_CREATOR_ID_LIST:  # 遍历配置的创作者 ID 列表
-            createor_info_res: Dict = await self.wb_client.get_creator_info_by_id(creator_id=user_id)  # 获取创作者详情
+            try:
+                createor_info_res: Dict = await self.wb_client.get_creator_info_by_id(creator_id=user_id)  # 获取创作者详情
+            except DataFetchError as e:
+                utils.logger.error(f"[WeiboCrawler.get_creators_and_notes] Get creator info error: {e}, creator_id:{user_id}")
+                continue
+
             if createor_info_res:
                 createor_info: Dict = createor_info_res.get("userInfo", {})  # 提取用户信息
                 utils.logger.info(f"[WeiboCrawler.get_creators_and_notes] creator info: {createor_info}")  # 记录日志
                 if not createor_info:  # 如果获取用户信息失败
                     raise DataFetchError("Get creator info error")
+                
+                # Add logic to get cumulative counts by hovering
+                try:
+                    utils.logger.info(f"[WeiboCrawler.get_creators_and_notes] Navigating to creator profile for extra data: {user_id}")
+                    profile_url = f"https://weibo.com/u/{user_id}"
+                    await self.context_page.goto(profile_url)
+                    await self.context_page.wait_for_load_state("networkidle")
+                    
+                    hover_xpath = '//*[@id="app"]/div[1]/div[2]/div[2]/main/div/div/div[2]/div[2]/div[2]/div[2]/a[3]'
+                    try:
+                        # Check if element exists and is visible
+                        if await self.context_page.locator(hover_xpath).count() > 0:
+                            await self.context_page.hover(hover_xpath)
+                            await asyncio.sleep(1.5)  # Wait for tooltip
+                            
+                            reposts_xpath = '//*[@id="app"]/div[1]/div[2]/div[2]/main/div/div/div[2]/div[2]/div[2]/div[2]/a[3]/div/div[3]/span[2]'
+                            comments_xpath = '//*[@id="app"]/div[1]/div[2]/div[2]/main/div/div/div[2]/div[2]/div[2]/div[2]/a[3]/div/div[4]/span[2]'
+                            likes_xpath = '//*[@id="app"]/div[1]/div[2]/div[2]/main/div/div/div[2]/div[2]/div[2]/div[2]/a[3]/div/div[5]/span[2]'
+                            
+                            r_count = await self.context_page.locator(reposts_xpath).text_content()
+                            c_count = await self.context_page.locator(comments_xpath).text_content()
+                            l_count = await self.context_page.locator(likes_xpath).text_content()
+                            
+                            if r_count: createor_info['reposts_count'] = r_count.strip()
+                            if c_count: createor_info['comments_count'] = c_count.strip()
+                            if l_count: createor_info['likes_count'] = l_count.strip()
+                            
+                            utils.logger.info(f"[WeiboCrawler.get_creators_and_notes] Got extra counts: {r_count}, {c_count}, {l_count}")
+                        else:
+                            utils.logger.warning(f"[WeiboCrawler.get_creators_and_notes] Hover element not found for {user_id}")
+                    except Exception as e:
+                        utils.logger.warning(f"[WeiboCrawler.get_creators_and_notes] Error extracting extra counts: {e}")
+                except Exception as e:
+                    utils.logger.error(f"[WeiboCrawler.get_creators_and_notes] Failed to navigate for extra counts: {e}")
+
                 await weibo_store.save_creator(user_id, user_info=createor_info)  # 保存创作者信息
 
                 # 创建一个包装回调函数，在保存数据前先获取全文和图片
@@ -755,12 +795,16 @@ class WeiboCrawler(AbstractCrawler):
                                 await self.get_note_images(mblog)  # 保存图片
 
                 # 获取该创作者的所有微博信息
-                all_notes_list = await self.wb_client.get_all_notes_by_creator_id(
-                    creator_id=user_id,
-                    container_id=f"107603{user_id}",  # 微博固定的个人主页容器 ID 前缀
-                    crawl_interval=0,  # 内部会处理休眠
-                    callback=save_notes_with_full_text,  # 分页抓取的回调
-                )
+                try:
+                    all_notes_list = await self.wb_client.get_all_notes_by_creator_id(
+                        creator_id=user_id,
+                        container_id=f"107603{user_id}",  # 微博固定的个人主页容器 ID 前缀
+                        crawl_interval=0,  # 内部会处理休眠
+                        callback=save_notes_with_full_text,  # 分页抓取的回调
+                    )
+                except DataFetchError as e:
+                    utils.logger.error(f"[WeiboCrawler.get_creators_and_notes] Get all notes error: {e}, creator_id:{user_id}")
+                    all_notes_list = []
 
                 note_ids = [note_item.get("mblog", {}).get("bid") or note_item.get("mblog", {}).get("id") for note_item in all_notes_list if note_item.get("mblog", {}).get("id")]  # 提取所有帖子 ID
                 await self.batch_get_notes_comments(note_ids)  # 批量抓取这些帖子的评论

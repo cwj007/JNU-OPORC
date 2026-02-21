@@ -24,6 +24,7 @@ import os
 # import random  # Removed as we now use fixed config.CRAWLER_MAX_SLEEP_SEC intervals
 from asyncio import Task
 from typing import Dict, List, Optional, Tuple, cast
+from urllib.parse import urlparse
 
 from playwright.async_api import (
     BrowserContext,
@@ -251,13 +252,31 @@ class ZhihuCrawler(AbstractCrawler):
 
         """
         utils.logger.info(
-            "[ZhihuCrawler.get_creators_and_notes] Begin get xiaohongshu creators"
+            "[ZhihuCrawler.get_creators_and_notes] Begin get zhihu creators"
         )
         for user_link in config.ZHIHU_CREATOR_URL_LIST:
             utils.logger.info(
                 f"[ZhihuCrawler.get_creators_and_notes] Begin get creator {user_link}"
             )
-            user_url_token = user_link.split("/")[-1]
+            if "zhihu.com" in user_link:
+                path = urlparse(user_link).path
+                parts = path.strip("/").split("/")
+                if "people" in parts:
+                    try:
+                        people_index = parts.index("people")
+                        user_url_token = parts[people_index + 1]
+                    except IndexError:
+                        user_url_token = parts[-1]
+                elif "org" in parts:
+                    try:
+                        org_index = parts.index("org")
+                        user_url_token = parts[org_index + 1]
+                    except IndexError:
+                        user_url_token = parts[-1]
+                else:
+                    user_url_token = parts[-1]
+            else:
+                user_url_token = user_link
             # get creator detail info from web html content
             createor_info: ZhihuCreator = await self.zhihu_client.get_creator_info(
                 url_token=user_url_token
@@ -276,25 +295,27 @@ class ZhihuCrawler(AbstractCrawler):
             # By default, only answer information is extracted, uncomment below if articles and videos are needed
 
             # Get all anwser information of the creator
-            all_content_list = await self.zhihu_client.get_all_anwser_by_creator(
+            answer_list = await self.zhihu_client.get_all_anwser_by_creator(
                 creator=createor_info,
                 crawl_interval=config.CRAWLER_MAX_SLEEP_SEC,
                 callback=zhihu_store.batch_update_zhihu_contents,
             )
 
             # Get all articles of the creator's contents
-            # all_content_list = await self.zhihu_client.get_all_articles_by_creator(
-            #     creator=createor_info,
-            #     crawl_interval=config.CRAWLER_MAX_SLEEP_SEC,
-            #     callback=zhihu_store.batch_update_zhihu_contents
-            # )
+            article_list = await self.zhihu_client.get_all_articles_by_creator(
+                creator=createor_info,
+                crawl_interval=config.CRAWLER_MAX_SLEEP_SEC,
+                callback=zhihu_store.batch_update_zhihu_contents
+            )
 
             # Get all videos of the creator's contents
-            # all_content_list = await self.zhihu_client.get_all_videos_by_creator(
-            #     creator=createor_info,
-            #     crawl_interval=config.CRAWLER_MAX_SLEEP_SEC,
-            #     callback=zhihu_store.batch_update_zhihu_contents
-            # )
+            video_list = await self.zhihu_client.get_all_videos_by_creator(
+                creator=createor_info,
+                crawl_interval=config.CRAWLER_MAX_SLEEP_SEC,
+                callback=zhihu_store.batch_update_zhihu_contents
+            )
+            
+            all_content_list = answer_list + article_list + video_list
 
             # Get all comments of the creator's contents
             await self.batch_get_content_comments(all_content_list)
@@ -403,7 +424,7 @@ class ZhihuCrawler(AbstractCrawler):
                 "accept-language": "zh-CN,zh;q=0.9",
                 "cookie": cookie_str,
                 "priority": "u=1, i",
-                "referer": "https://www.zhihu.com/search?q=python&time_interval=a_year&type=content",
+                "referer": "https://www.zhihu.com/",
                 "user-agent": self.user_agent,
                 "x-api-version": "3.0.91",
                 "x-app-za": "OS=Web",

@@ -2,6 +2,7 @@
 import asyncio
 import os
 import re
+import json
 import pathlib
 import time
 from typing import List, Optional
@@ -38,10 +39,10 @@ class WeiboTopIDExtractor(WeiboCrawler):
         latest_date_dir = date_dirs[-1]
         full_date_path = os.path.join(self.base_source_dir, latest_date_dir)
         
-        # 2. 在该目录下查找最新的 .txt 文件 (HH时MM分.txt 格式)
-        time_files = [f for f in os.listdir(full_date_path) if f.endswith(".txt")]
+        # 2. 在该目录下查找最新的 .json 文件 (HH时MM分.json 格式)
+        time_files = [f for f in os.listdir(full_date_path) if f.endswith(".json")]
         if not time_files:
-            utils.logger.warning(f"[WeiboTopIDExtractor] 在 {full_date_path} 下未找到 .txt 文件")
+            utils.logger.warning(f"[WeiboTopIDExtractor] 在 {full_date_path} 下未找到 .json 文件")
             return None, None, None
             
         # 按文件名排序，取最新的
@@ -61,8 +62,17 @@ class WeiboTopIDExtractor(WeiboCrawler):
             return
 
         utils.logger.info(f"[WeiboTopIDExtractor] 正在从文件读取热门榜单 URL: {file_path}")
-        with open(file_path, "r", encoding="utf-8") as f:
-            urls = [line.strip() for line in f if line.strip()]
+        urls = []
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict) and "list" in data:
+                    for item in data["list"]:
+                        if isinstance(item, dict) and "url" in item:
+                            urls.append(item["url"])
+        except Exception as e:
+            utils.logger.error(f"[WeiboTopIDExtractor] 读取 JSON 文件失败: {e}")
+            return
 
         if not urls:
             utils.logger.error("[WeiboTopIDExtractor] 文件中没有 URL。")
@@ -214,7 +224,10 @@ class WeiboTopIDExtractor(WeiboCrawler):
             target_dir = os.path.join(self.target_base_dir, date_str)
             if not os.path.exists(target_dir):
                 os.makedirs(target_dir)
-            target_file = os.path.join(target_dir, time_file)
+            
+            # 确保输出文件为 .txt 后缀，因为后续 core.py 按文本格式读取
+            output_filename = time_file.replace(".json", ".txt")
+            target_file = os.path.join(target_dir, output_filename)
 
             for url in target_urls:
                 # 提取关键词用于日志显示，但保持 URL 编码以确保链接可点击
@@ -268,23 +281,6 @@ class WeiboTopIDExtractor(WeiboCrawler):
                         utils.logger.info(f"[WeiboTopIDExtractor] 已将板块 [{keyword}] 的结果追加到: {target_file}")
                     else:
                         utils.logger.warning(f"[WeiboTopIDExtractor] 未能从该榜单提取到任何 ID")
-                        
-                        # Debug: 保存 HTML 以便分析页面结构
-                        try:
-                            debug_dir = os.path.join(self.target_base_dir, "debug_html")
-                            if not os.path.exists(debug_dir):
-                                os.makedirs(debug_dir)
-                            
-                            safe_keyword = re.sub(r'[\\/:*?"<>|]', '_', keyword)
-                            timestamp = int(time.time())
-                            debug_file = os.path.join(debug_dir, f"failed_{safe_keyword}_{timestamp}.html")
-                            
-                            content = await self.context_page.content()
-                            with open(debug_file, "w", encoding="utf-8") as f:
-                                f.write(content)
-                            utils.logger.info(f"[WeiboTopIDExtractor] 已保存页面 HTML 用于调试: {debug_file}")
-                        except Exception as e:
-                            utils.logger.error(f"[WeiboTopIDExtractor] 保存调试 HTML 失败: {e}")
 
                 except Exception as e:
                     utils.logger.error(f"[WeiboTopIDExtractor] 处理 URL {url} 时出错: {e}")

@@ -120,7 +120,7 @@ class WeiboDbStoreImplement(AbstractStore):
         Returns:
 
         """
-        note_id = int(content_item.get("note_id"))
+        note_id = content_item.get("note_id")
         content_item["note_id"] = note_id
         async with get_session() as session:
             stmt = select(WeiboNote).where(WeiboNote.note_id == note_id)
@@ -145,7 +145,7 @@ class WeiboDbStoreImplement(AbstractStore):
         :return: True if exists, False otherwise
         """
         async with get_session() as session:
-            stmt = select(WeiboNote).where(WeiboNote.note_id == int(note_id))
+            stmt = select(WeiboNote).where(WeiboNote.note_id == note_id)
             res = await session.execute(stmt)
             return res.scalar_one_or_none() is not None
 
@@ -160,7 +160,7 @@ class WeiboDbStoreImplement(AbstractStore):
         """
         comment_id = int(comment_item.get("comment_id"))
         comment_item["comment_id"] = comment_id
-        comment_item["note_id"] = int(comment_item.get("note_id", 0) or 0)
+        comment_item["note_id"] = comment_item.get("note_id")
         comment_item["create_time"] = int(comment_item.get("create_time", 0) or 0)
         comment_item["comment_like_count"] = str(comment_item.get("comment_like_count", "0"))
         comment_item["sub_comment_count"] = str(comment_item.get("sub_comment_count", "0"))
