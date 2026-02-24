@@ -31,6 +31,8 @@ except ImportError as e:
 # 我们在这里重新定义它们以确保 Visualized 系统能够提供这些接口
 
 from fastapi import APIRouter
+from scheduler_manager import router as task_scheduler_router
+
 mc_extra_router = APIRouter()
 
 @mc_extra_router.get("/config/platforms")
@@ -129,7 +131,8 @@ from Visualized.api.alerts import router as alerts_router
 from Visualized.api.config import router as config_router
 from Visualized.api.hotsearch import router as hotsearch_router, check_and_sync_missing_data, start_periodic_sync
 from Visualized.api.rank import router as rank_router
-from Visualized.api.scheduler import router as scheduler_router, start_scheduler
+from Visualized.api.scheduler import router as workflow_scheduler_router, start_scheduler
+from Visualized.api.auth import router as auth_router
 import asyncio
 
 app = FastAPI(title="JNU-OPORC 舆情监测系统 API")
@@ -190,7 +193,8 @@ app.include_router(alerts_router, prefix="/api")
 app.include_router(config_router, prefix="/api")
 app.include_router(hotsearch_router, prefix="/api")
 app.include_router(rank_router, prefix="/api")
-app.include_router(scheduler_router, prefix="/api")
+app.include_router(workflow_scheduler_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")
 
 # --- 挂载 MediaCrawler 静态资源 ---
 MC_WEBUI_DIR = BASE_DIR / "MediaCrawler" / "api" / "webui"
@@ -268,6 +272,10 @@ if HAS_MEDIA_CRAWLER:
 app.include_router(mc_extra_router, prefix="/api")
 app.include_router(mc_extra_router)
 
+# --- 调度器路由 ---
+app.include_router(task_scheduler_router, prefix="/api")
+
+
 # --- 路由补丁 (修复 IDE 预览产生的 404) ---
 @app.get("/@vite/client")
 async def vite_client():
@@ -281,6 +289,10 @@ async def favicon():
 @app.get("/")
 async def index():
     return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "index.html"))
+
+@app.get("/login")
+async def login_page():
+    return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "login.html"))
 
 @app.get("/detail/{note_id}")
 async def detail_page(note_id: str):
@@ -305,6 +317,10 @@ async def warning_page():
 @app.get("/volume_rank")
 async def volume_rank_page():
     return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "volume_rank.html"))
+
+@app.get("/users")
+async def users_page():
+    return FileResponse(str(BASE_DIR / "Visualized" / "templates" / "users.html"))
 
 if __name__ == "__main__":
     import uvicorn

@@ -1,6 +1,7 @@
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from .database import query_db, execute_db, HOTSEARCH_DB_PATH
 from .alert_engine import AlertEngine
+from .auth import get_current_user, User
 from pydantic import BaseModel
 from typing import Optional, List
 import sqlite3
@@ -71,21 +72,22 @@ def sync_monitor_tasks_to_rules():
         for task in tasks:
             task_name = f"【监测任务】{task['name']}"
             is_active = task['warning_enabled']
+            user_id = task.get('user_id')
             
-            # 如果规则已存在，更新关键词和状态
+            # 如果规则已存在，更新关键词、状态和用户ID
             if task_name in existing_rules_map:
                 rule_id = existing_rules_map[task_name]
                 keyword = task['warning_keywords'] if task['warning_keywords'] else task['keywords']
-                update_sql = "UPDATE alert_rules SET keyword = ?, is_active = ? WHERE id = ?"
-                execute_db(update_sql, (keyword, is_active, rule_id))
+                update_sql = "UPDATE alert_rules SET keyword = ?, is_active = ?, user_id = ? WHERE id = ?"
+                execute_db(update_sql, (keyword, is_active, user_id, rule_id))
                 continue
                 
             # 插入新规则 (即使未开启预警也创建规则，但设为禁用)
             keyword = task['warning_keywords'] if task['warning_keywords'] else task['keywords']
             
             sql = """
-                INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             execute_db(sql, (
                 task_name, 
@@ -96,7 +98,8 @@ def sync_monitor_tasks_to_rules():
                 0, 
                 task['notify_methods'] or 'system', 
                 is_active, 
-                'threshold'
+                'threshold',
+                user_id
             ))
             print(f"[Sync] Created alert rule for task: {task['name']}")
 
@@ -143,7 +146,8 @@ async def get_alerts(
     end_date: Optional[str] = None,
     level: Optional[str] = None,
     page: int = 1,
-    page_size: int = 10
+    page_size: int = 10,
+    current_user: User = Depends(get_current_user)
 ):
     """
     获取预警列表 (分页支持)
@@ -170,6 +174,7 @@ async def get_alerts(
     # generate_auto_alerts(override_days=check_days) 
     
     # 简化逻辑：仅执行规则定义的默认周期检查（不进行强制历史扫描）
+    # 注意：自动生成预警时不区分用户，而是检查所有规则
     generate_auto_alerts(override_days=None) 
     
     # 构建时间查询条件
@@ -196,6 +201,13 @@ async def get_alerts(
             where_clause += " AND (level = 'low' OR level = 'green')"
         else:
             where_clause += f" AND level = '{level}'"
+
+    # --- 权限控制 ---
+    if current_user.role != 'admin':
+        # 普通用户：只能看到 (自己的预警) OR (全网负面内容监测)
+        # 假设 system alerts (user_id IS NULL) 且 type='全网负面内容监测' 是全局可见的
+        # 注意：这里直接拼接 SQL 字符串，因为 current_user.id 是可信的整数
+        where_clause += f" AND (user_id = {current_user.id} OR type = '全网负面内容监测')"
 
     # 计算总数
     count_sql = f"SELECT COUNT(*) as total FROM alerts WHERE {where_clause}"
@@ -356,20 +368,25 @@ async def get_alert_details(reference_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/rules", response_model=List[dict])
-async def get_rules():
+async def get_rules(current_user: User = Depends(get_current_user)):
     """获取预警规则列表"""
-    sql = "SELECT * FROM alert_rules ORDER BY created_at DESC"
-    results = query_db(sql)
+    if current_user.role == 'admin':
+        sql = "SELECT * FROM alert_rules ORDER BY created_at DESC"
+        results = query_db(sql)
+    else:
+        # Users see their own rules OR system rules (user_id IS NULL or specific name)
+        sql = "SELECT * FROM alert_rules WHERE user_id = ? OR name = '全网负面内容监测' ORDER BY created_at DESC"
+        results = query_db(sql, (current_user.id,))
     return [dict(row) for row in results] if results else []
 
 @router.post("/rules")
-async def create_rule(rule: AlertRuleSchema, background_tasks: BackgroundTasks):
+async def create_rule(rule: AlertRuleSchema, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
     """创建预警规则"""
     sql = """
-        INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, config)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, config, user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
-    if execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config)):
+    if execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, current_user.id)):
         # Trigger immediate check in background
         print(f"[Manual Create] Triggering immediate check for new rule {rule.name}")
         background_tasks.add_task(generate_auto_alerts, force=True)
@@ -377,9 +394,20 @@ async def create_rule(rule: AlertRuleSchema, background_tasks: BackgroundTasks):
     raise HTTPException(status_code=500, detail="Failed to create rule")
 
 @router.put("/rules/{rule_id}")
-async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: BackgroundTasks):
+async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
     """更新预警规则"""
     
+    # Check permission
+    existing = query_db("SELECT user_id FROM alert_rules WHERE id = ?", (rule_id,), one=True)
+    if existing:
+        # Allow if owner or admin, or if it's a system rule (user_id is None) and user is admin? 
+        # Actually normal users shouldn't edit system rules either.
+        is_owner = existing['user_id'] == current_user.id
+        is_admin = current_user.role == 'admin'
+        
+        if not is_owner and not is_admin:
+            raise HTTPException(status_code=403, detail="Not authorized to update this rule")
+            
     # Check if it's a synced rule (Monitoring Task)
     if rule.name.startswith("【监测任务】"):
         task_name = rule.name.replace("【监测任务】", "")
@@ -401,8 +429,17 @@ async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: Bac
     raise HTTPException(status_code=500, detail="Failed to update rule")
 
 @router.delete("/rules/{rule_id}")
-async def delete_rule(rule_id: int):
+async def delete_rule(rule_id: int, current_user: User = Depends(get_current_user)):
     """删除预警规则 (双向同步支持)"""
+    # Check permission
+    existing = query_db("SELECT user_id, name FROM alert_rules WHERE id = ?", (rule_id,), one=True)
+    if existing:
+        is_owner = existing['user_id'] == current_user.id
+        is_admin = current_user.role == 'admin'
+        
+        if not is_owner and not is_admin:
+             raise HTTPException(status_code=403, detail="Not authorized to delete this rule")
+
     # 1. Check if it's a synced rule
     rule_sql = "SELECT name FROM alert_rules WHERE id = ?"
     rule = query_db(rule_sql, (rule_id,), one=True)

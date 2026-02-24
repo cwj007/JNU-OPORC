@@ -4,9 +4,10 @@ from urllib.parse import unquote
 from collections import Counter
 import jieba
 import jieba.analyse
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends
 from typing import Optional
 from .database import query_db, execute_db
+from .auth import get_current_user, User
 
 # Try to import PLATFORM_MAP from Transformers.config
 try:
@@ -317,10 +318,14 @@ async def update_comment_training_result(
 # --- Task Management APIs ---
 
 @router.get("/tasks")
-async def get_tasks():
+async def get_tasks(current_user: User = Depends(get_current_user)):
     """获取所有监控任务，并附带预警统计信息"""
     try:
-        tasks = query_db("SELECT * FROM monitoring_tasks ORDER BY created_at DESC")
+        if current_user.role == 'admin':
+            tasks = query_db("SELECT * FROM monitoring_tasks ORDER BY created_at DESC")
+        else:
+            tasks = query_db("SELECT * FROM monitoring_tasks WHERE user_id = ? ORDER BY created_at DESC", (current_user.id,))
+            
         rules = query_db("SELECT * FROM alert_rules")
         
         # Build a map of rules by name for faster lookup
@@ -531,7 +536,7 @@ async def get_tasks():
         return []
 
 @router.post("/tasks")
-async def create_task(task: dict = Body(...)):
+async def create_task(task: dict = Body(...), current_user: User = Depends(get_current_user)):
     """创建或更新监控任务"""
     try:
         # Prepare data
@@ -552,6 +557,13 @@ async def create_task(task: dict = Body(...)):
         task_id = task.get("id")
 
         if task_id:
+            # Check permission
+            existing = query_db("SELECT user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
+            if existing:
+                # Allow if owner or admin
+                if existing['user_id'] != current_user.id and current_user.role != 'admin':
+                    raise HTTPException(status_code=403, detail="Not authorized to update this task")
+            
             # Update Task
             sql = """
                 UPDATE monitoring_tasks 
@@ -563,13 +575,13 @@ async def create_task(task: dict = Body(...)):
         else:
             # Create Task
             sql = """
-                INSERT INTO monitoring_tasks (name, group_name, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO monitoring_tasks (name, group_name, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
             # execute_db returns True/False, not ID directly with current impl, 
             # but we need ID for alert_rules.
             # We need to fetch the last inserted ID.
-            execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency))
+            execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, current_user.id))
             # Get the new ID
             last_task = query_db("SELECT id FROM monitoring_tasks ORDER BY id DESC LIMIT 1", one=True)
             if last_task:
@@ -579,7 +591,7 @@ async def create_task(task: dict = Body(...)):
         if task_id:
             rule_name = f"任务预警-{task_id}"
             # Check if rule exists
-            existing_rule = query_db("SELECT id FROM alert_rules WHERE name = ?", (rule_name,), one=True)
+            existing_rule = query_db("SELECT id, user_id FROM alert_rules WHERE name = ?", (rule_name,), one=True)
             
             if existing_rule:
                 execute_db("""
@@ -589,9 +601,9 @@ async def create_task(task: dict = Body(...)):
                 """, (threshold, is_crisis, notify_methods, warning_enabled, warning_keywords, existing_rule['id']))
             else:
                 execute_db("""
-                    INSERT INTO alert_rules (name, threshold, is_crisis, notify_methods, is_active, keyword)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (rule_name, threshold, is_crisis, notify_methods, warning_enabled, warning_keywords))
+                    INSERT INTO alert_rules (name, threshold, is_crisis, notify_methods, is_active, keyword, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (rule_name, threshold, is_crisis, notify_methods, warning_enabled, warning_keywords, current_user.id))
 
         return {"status": "success", "message": "Task saved", "id": task_id}
             
@@ -600,18 +612,29 @@ async def create_task(task: dict = Body(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/tasks/{task_id}")
-async def delete_task(task_id: int):
+async def delete_task(task_id: int, current_user: User = Depends(get_current_user)):
     """删除监控任务"""
     try:
+        # Check permission
+        existing = query_db("SELECT user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
+        if existing:
+            if existing['user_id'] != current_user.id and current_user.role != 'admin':
+                raise HTTPException(status_code=403, detail="Not authorized to delete this task")
+                
         execute_db("DELETE FROM monitoring_tasks WHERE id = ?", (task_id,))
         return {"status": "success", "message": "Task deleted"}
+    except HTTPException as he:
+        raise he
     except Exception as e:
         print(f"Error deleting task: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/content/{note_id}")
-async def delete_content(note_id: str):
+async def delete_content(note_id: str, current_user: User = Depends(get_current_user)):
     """删除指定的内容"""
+    if current_user.role != 'admin':
+        raise HTTPException(status_code=403, detail="Only admins can delete content")
+        
     try:
         # 删除 content 表中的记录
         execute_db("DELETE FROM content WHERE note_id = ?", (note_id,))
@@ -772,7 +795,8 @@ async def get_monitoring_list(
     date_end: str = None,
     use_sync_date: bool = False,
     merge_query: bool = False,
-    sort_by: str = "time_desc"
+    sort_by: str = "time_desc",
+    current_user: User = Depends(get_current_user)
 ):
     """从数据库分页、筛选获取舆情列表"""
     try:
@@ -785,6 +809,101 @@ async def get_monitoring_list(
         
         where_clauses = []
         params = []
+
+        # --- 权限控制：普通用户只能看到自己任务范围内的数据 ---
+        # (已移除：允许普通用户查看所有数据)
+        user_tasks = []
+        # if current_user.role != 'admin':
+        #     user_tasks = query_db("SELECT keywords, exclude_words, platforms FROM monitoring_tasks WHERE user_id = ?", (current_user.id,))
+        #     if not user_tasks:
+        #         # 如果没有任何任务，直接返回空
+        #         return {
+        #             "items": [],
+        #             "total": 0,
+        #             "page": page,
+        #             "size": size,
+        #             "pages": 0
+        #         }
+
+        def build_user_scope_filter(alias, tasks):
+            """构造用户任务范围的SQL过滤条件"""
+            if not tasks:
+                return "", []
+            
+            or_groups = []
+            all_params = []
+            
+            for t in tasks:
+                # 每个任务是一个 (Keywords AND Platforms AND Exclude) 组合
+                task_clauses = []
+                task_params = []
+                
+                # 1. Keywords
+                if t['keywords']:
+                    k_sql, k_params = parse_keyword_expr(t['keywords'], mode="full", table_alias=alias)
+                    if k_sql:
+                        task_clauses.append(k_sql)
+                        task_params.extend(k_params)
+                
+                # 2. Platforms
+                if t['platforms']:
+                    p_clauses = []
+                    p_list = t['platforms'].split(',')
+                    for p in p_list:
+                        if not p.strip(): continue
+                        p_str = p.strip()
+                        search_terms = [p_str]
+                        if p_str in PLATFORM_MAP:
+                            search_terms.append(PLATFORM_MAP[p_str])
+                        
+                        p_or = []
+                        for term in search_terms:
+                            p_or.append(f"{alias}.source LIKE ?")
+                            task_params.append(f"%{term}%")
+                        p_clauses.append(f"({' OR '.join(p_or)})")
+                    
+                    if p_clauses:
+                        task_clauses.append(f"({' OR '.join(p_clauses)})")
+                
+                # 3. Exclude
+                if t['exclude_words']:
+                    excludes = t['exclude_words'].replace(',', ' ').split()
+                    for ew in excludes:
+                        if not ew.strip(): continue
+                        ew_wild = f"%{ew.strip()}%"
+                        # Handle alias for top_name which might be null or different table
+                        if alias == 'c': # Merge query specific
+                            task_clauses.append(f"NOT ({alias}.title LIKE ? OR {alias}.content LIKE ? OR IFNULL(t.top_name, '') LIKE ?)")
+                        else:
+                            task_clauses.append(f"NOT ({alias}.title LIKE ? OR {alias}.content LIKE ? OR {alias}.top_name LIKE ?)")
+                        task_params.extend([ew_wild, ew_wild, ew_wild])
+
+                # 只有当任务有具体的约束条件时才加入（避免空任务匹配所有）
+                if task_clauses:
+                    or_groups.append(f"({' AND '.join(task_clauses)})")
+                    all_params.extend(task_params)
+            
+            if not or_groups:
+                return "1=0", [] # 如果没有有效任务规则，不显示任何内容
+                
+            final_sql = f"({' OR '.join(or_groups)})"
+            return final_sql, all_params
+
+        # 应用权限过滤到主查询 params (Alias T)
+        # (已移除：允许普通用户查看所有数据)
+        # if current_user.role != 'admin':
+        #     scope_sql, scope_params = build_user_scope_filter("T", user_tasks)
+        #     if scope_sql:
+        #         where_clauses.append(scope_sql)
+        #         params.extend(scope_params)
+        #     else:
+        #          # Should theoretically catch empty tasks case above, but double check
+        #          if not user_tasks:
+        #              pass # handled above
+        #          else:
+        #              # tasks exist but produced no SQL? (e.g. empty keywords)
+        #              # Treat as no access
+        #              where_clauses.append("1=0")
 
         if sentiment:
             # Support multiple sentiment values (comma separated)
@@ -892,6 +1011,17 @@ async def get_monitoring_list(
                 # 重新构建针对 content 的 where_clauses (别名 c)
                 c_where_clauses = []
                 c_params = []
+
+                # --- 权限控制：Merge Query ---
+                # (已移除：允许普通用户查看所有数据)
+                # if current_user.role != 'admin':
+                #     c_scope_sql, c_scope_params = build_user_scope_filter("c", user_tasks)
+                #     if c_scope_sql:
+                #         c_where_clauses.append(c_scope_sql)
+                #         c_params.extend(c_scope_params)
+                #     else:
+                #         c_where_clauses.append("1=0")
+
                 if sentiment:
                     s_list = sentiment.split(',')
                     if len(s_list) == 1:

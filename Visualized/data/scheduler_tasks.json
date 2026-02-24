@@ -1,0 +1,31 @@
+[
+  {
+    "id": "f9f827fc-9ec5-4188-b6ca-b596ada7d1da",
+    "name": "手机品牌数据抓取",
+    "owner": "cwj",
+    "created_at": 1771906094,
+    "schedule": {
+      "enabled": false,
+      "mode": "interval",
+      "interval_minutes": 60,
+      "target_time": "00:00"
+    },
+    "crawler_config": {
+      "platform": "wb",
+      "login_type": "cookie",
+      "crawler_type": "search",
+      "keywords": "小米,红米,苹果",
+      "specified_ids": "",
+      "creator_ids": "",
+      "start_page": 1,
+      "enable_comments": true,
+      "enable_sub_comments": true,
+      "save_option": "sqlite",
+      "cookies": "SUBP=0033WrSXqPxfM725Ws9jqgMF55529P9D9WhJ-gMsG1m.F1M-jaiaRRFO5JpX5KMhUgL.Fon0eKeRSKeEeKe2dJLoI0qLxK-L12-L1-qLxKqL1-BLBK-LxKqL1KnLB-qLxK.L1KnLB.qLxKBLB.qL122LxK-L1KeLBKqt;SCF=AvajAWthQJb6ier0NXqiwkpsFciR254Mj4AWuX8Om1jXLwfN4mc3-nAf1vyabYfE19nemZz6B5GB9hUYWJz8yik.;SUB=_2A25EmVL8DeRhGe5N6lEZ9S3Oyj-IHXVn1-o0rDV8PUJbkNAbLUb9kW1NdKIU_Ckixz3d4LazF63etIIHx7ET6q7I;ALF=1774497709;PC_TOKEN=1a1fed438f;WBPSESS=WlhgEt4BW1QswtR8aXl2QNXUpbO66ev5_02xmDJ3IFQfBvQvEh8dUuE2vpM9QqiSadRdVQ9U5ZdF0nJnj6PdgwfrbL3n0YmlJtpymtwLZrUdS4RtZ2b9ImMxS76V6JvsJBf5BhkmpbPYx3PK2IY53Q==;XSRF-TOKEN=-1_Fh-OK_BTP1bUiq-u9vGjM",
+      "headless": false
+    },
+    "last_run": 1771909708,
+    "next_run": 1771913308,
+    "status": "success"
+  }
+]

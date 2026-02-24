@@ -133,7 +133,8 @@ def init_db():
             ("alerts", "type", "TEXT"),
             ("alerts", "reference_id", "TEXT"),
             ("alerts", "meta_data", "TEXT"),
-            ("alerts", "alerts_time", "TEXT")
+            ("alerts", "alerts_time", "TEXT"),
+            ("alerts", "user_id", "INTEGER")
         ]
         
         for table, col, col_type in columns_to_add:
@@ -188,6 +189,81 @@ def init_db():
     except Exception as e:
         print(f"Alerts/Tasks database init error: {e}")
 
+    # 6. 初始化用户表 (Authentication)
+    try:
+        conn = sqlite3.connect(HOTSEARCH_DB_PATH, timeout=30)
+        cur = conn.cursor()
+        
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                salt TEXT NOT NULL,
+                role TEXT DEFAULT 'user', -- 'admin' or 'user'
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # 7. User Favorites for Hotsearch
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS user_platform_follows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                platform_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, platform_id)
+            )
+        ''')
+         
+        # Check if salt column exists (migration)
+        cur.execute("PRAGMA table_info(users)")
+        columns = [col[1] for col in cur.fetchall()]
+        if 'salt' not in columns:
+             try:
+                 cur.execute("ALTER TABLE users ADD COLUMN salt TEXT DEFAULT ''")
+             except sqlite3.OperationalError:
+                 pass
+                 
+        # Check if root admin exists, if not create default
+        cur.execute("SELECT COUNT(*) FROM users WHERE username = 'root'")
+        if cur.fetchone()[0] == 0:
+            import hashlib
+            import secrets
+            salt = secrets.token_hex(16)
+            # Default password: 123456
+            pwd_hash = hashlib.pbkdf2_hmac('sha256', '123456'.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+            cur.execute("INSERT INTO users (username, password_hash, salt, role) VALUES (?, ?, ?, ?)", ('root', pwd_hash, salt, 'admin'))
+            
+        # 7. 初始化会话表 (Sessions)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS sessions (
+                token TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        ''')
+
+        # 8. Add user_id to existing tables if needed (migration)
+        # monitoring_tasks
+        try:
+            cur.execute("ALTER TABLE monitoring_tasks ADD COLUMN user_id INTEGER")
+        except sqlite3.OperationalError:
+            pass
+            
+        # alert_rules
+        try:
+            cur.execute("ALTER TABLE alert_rules ADD COLUMN user_id INTEGER")
+        except sqlite3.OperationalError:
+            pass
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Auth database init error: {e}")
+
     # 2. 确保 Transformers 数据库存在（如果不存在则初始化，但通常由 Transformers 模块处理）
     # 这里我们只负责在 Visualized 启动时确保它能读取
     if not TRANSFORMERS_DB_PATH.exists():
@@ -224,12 +300,14 @@ def query_db(query: str, args: tuple = (), one: bool = False):
 
     try:
         conn = sqlite3.connect(target_db, timeout=30)
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        cur.execute(query, args)
-        rv = cur.fetchall()
-        conn.close()
-        return (rv[0] if rv else None) if one else rv
+        try:
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute(query, args)
+            rv = cur.fetchall()
+            return (rv[0] if rv else None) if one else rv
+        finally:
+            conn.close()
     except sqlite3.OperationalError as e:
         print(f"Database error on {target_db}: {e}")
         return None
@@ -257,11 +335,21 @@ def execute_db(query: str, args: tuple = ()):
 
     try:
         conn = sqlite3.connect(target_db, timeout=30)
-        cur = conn.cursor()
-        cur.execute(query, args)
-        conn.commit()
-        conn.close()
-        return True
+        try:
+            cur = conn.cursor()
+            cur.execute(query, args)
+            conn.commit()
+            return True
+        finally:
+            conn.close()
     except Exception as e:
-        print(f"Execute error on {target_db}: {e}")
+        error_msg = f"Execute error on {target_db}: {e}"
+        print(error_msg)
+        # Log to file for debugging
+        try:
+            with open(CACHE_DIR / "db_errors.log", "a") as f:
+                import datetime
+                f.write(f"{datetime.datetime.now()} - {error_msg}\n")
+        except:
+            pass
         return False

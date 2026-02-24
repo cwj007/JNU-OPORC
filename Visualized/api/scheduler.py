@@ -6,8 +6,9 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
 from pydantic import BaseModel
+from .auth import get_current_admin
 
 # Project Root
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -17,7 +18,7 @@ LOG_DIR = PROJECT_ROOT / "Visualized" / "logs"
 if not LOG_DIR.exists():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-router = APIRouter(prefix="/scheduler", tags=["scheduler"])
+router = APIRouter(prefix="/scheduler", tags=["scheduler"], dependencies=[Depends(get_current_admin)])
 
 class SchedulerConfig(BaseModel):
     enabled: bool = False

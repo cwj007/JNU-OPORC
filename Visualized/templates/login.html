@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JNU-OPORC Access</title>
+    <script>
+        // Auth Check - Only redirect if token exists AND is valid (optional check)
+        // For now, removing the auto-redirect to allow users to re-login if needed
+        // const token = localStorage.getItem('token');
+        // if (token) {
+        //    window.location.href = '/';
+        // }
+    </script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+    <style>
+        body {
+            background-color: #050505;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            background-image: 
+                linear-gradient(rgba(0, 255, 0, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 0, 0.03) 1px, transparent 1px);
+            background-size: 30px 30px;
+        }
+        
+        #app {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .login-card {
+            width: 420px;
+            padding: 40px;
+            background: rgba(16, 20, 24, 0.85);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(0, 243, 255, 0.3);
+            border-radius: 4px;
+            box-shadow: 0 0 50px rgba(0, 243, 255, 0.1), inset 0 0 20px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+
+        .login-card::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px;
+            background: linear-gradient(45deg, #00f3ff, transparent, #00f3ff);
+            z-index: -1;
+            opacity: 0.3;
+            filter: blur(10px);
+        }
+
+        .system-logo {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        .logo-text {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 32px;
+            font-weight: 900;
+            color: #00f3ff;
+            text-shadow: 0 0 15px rgba(0, 243, 255, 0.8);
+            letter-spacing: 4px;
+        }
+        
+        .logo-sub {
+            font-family: 'Inter', sans-serif;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 5px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .el-input {
+            --el-input-bg-color: rgba(255, 255, 255, 0.05);
+            --el-input-border-color: rgba(255, 255, 255, 0.1);
+            --el-input-hover-border-color: rgba(0, 243, 255, 0.5);
+            --el-input-focus-border-color: #00f3ff;
+            margin-bottom: 20px;
+        }
+        
+        .el-input__wrapper {
+            background-color: var(--el-input-bg-color) !important;
+            box-shadow: none !important;
+            border: 1px solid var(--el-input-border-color) !important;
+            border-radius: 2px;
+            padding: 10px 15px;
+            transition: all 0.3s;
+        }
+        
+        .el-input__wrapper:hover {
+            border-color: var(--el-input-hover-border-color) !important;
+            box-shadow: 0 0 10px rgba(0, 243, 255, 0.1) !important;
+        }
+        
+        .el-input__wrapper.is-focus {
+            border-color: var(--el-input-focus-border-color) !important;
+            box-shadow: 0 0 15px rgba(0, 243, 255, 0.2) !important;
+        }
+
+        .el-input__inner {
+            color: #fff !important;
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .el-input__prefix-inner {
+            color: rgba(0, 243, 255, 0.7);
+        }
+
+        .login-btn {
+            width: 100%;
+            height: 45px;
+            background: rgba(0, 243, 255, 0.1);
+            border: 1px solid rgba(0, 243, 255, 0.5);
+            color: #00f3ff;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        
+        .login-btn:hover {
+            background: rgba(0, 243, 255, 0.3);
+            box-shadow: 0 0 20px rgba(0, 243, 255, 0.4);
+            text-shadow: 0 0 8px #00f3ff;
+            transform: translateY(-2px);
+        }
+        
+        .login-btn:active {
+            transform: translateY(1px);
+        }
+        
+        .corner-deco {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border: 2px solid #00f3ff;
+            transition: all 0.5s;
+        }
+        
+        .top-left { top: -2px; left: -2px; border-right: none; border-bottom: none; }
+        .top-right { top: -2px; right: -2px; border-left: none; border-bottom: none; }
+        .bottom-left { bottom: -2px; left: -2px; border-right: none; border-top: none; }
+        .bottom-right { bottom: -2px; right: -2px; border-left: none; border-top: none; }
+
+        .login-card:hover .corner-deco {
+            width: 30px;
+            height: 30px;
+            box-shadow: 0 0 10px #00f3ff;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="login-card">
+            <div class="corner-deco top-left"></div>
+            <div class="corner-deco top-right"></div>
+            <div class="corner-deco bottom-left"></div>
+            <div class="corner-deco bottom-right"></div>
+            
+            <div class="system-logo">
+                <div class="logo-text">OPORC</div>
+                <div class="logo-sub">Access Control System</div>
+            </div>
+            
+            <el-form :model="form" @submit.prevent="handleLogin">
+                <el-form-item>
+                    <el-input 
+                        v-model="form.username" 
+                        placeholder="IDENTIFIER" 
+                        prefix-icon="User"
+                    ></el-input>
+                </el-form-item>
+                <el-form-item>
+                    <el-input 
+                        v-model="form.password" 
+                        type="password" 
+                        placeholder="PASSPHRASE" 
+                        prefix-icon="Lock" 
+                        show-password 
+                        @keyup.enter="handleLogin"
+                    ></el-input>
+                </el-form-item>
+                <el-form-item>
+                    <el-button 
+                        class="login-btn" 
+                        :loading="loading" 
+                        @click="handleLogin"
+                    >
+                        Initialize
+                    </el-button>
+                </el-form-item>
+            </el-form>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, reactive, ref } = Vue;
+        const app = createApp({
+            setup() {
+                const form = reactive({
+                    username: '',
+                    password: ''
+                });
+                const loading = ref(false);
+
+                const handleLogin = async () => {
+                    if (!form.username || !form.password) {
+                        ElementPlus.ElMessage.warning('请输入用户名和密码');
+                        return;
+                    }
+                    loading.value = true;
+                    try {
+                        const res = await axios.post('/api/auth/login', {
+                            username: form.username,
+                            password: form.password
+                        });
+                        
+                        if (res.data.token) {
+                            localStorage.setItem('token', res.data.token);
+                            // Also set the username and role
+                            if (res.data.username) localStorage.setItem('username', res.data.username);
+                            if (res.data.role) localStorage.setItem('role', res.data.role);
+                            
+                            // Verify storage
+                            const savedToken = localStorage.getItem('token');
+                            if (!savedToken) {
+                                console.error("Critical Error: Token not saved to localStorage!");
+                                ElementPlus.ElMessage.error("浏览器存储错误，请检查浏览器设置");
+                                return;
+                            }
+                            
+                            ElementPlus.ElMessage({
+                                message: 'Access Granted. Redirecting...',
+                                type: 'success',
+                                duration: 1000
+                            });
+                            
+                            setTimeout(() => {
+                                window.location.href = '/';
+                            }, 1000);
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        const msg = err.response?.data?.detail || 'Authentication Failed';
+                        ElementPlus.ElMessage.error(msg);
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                return {
+                    form,
+                    loading,
+                    handleLogin
+                };
+            }
+        });
+        
+        for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+            app.component(key, component);
+        }
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>

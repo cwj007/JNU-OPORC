@@ -8,8 +8,9 @@ import sys
 import os
 from pathlib import Path
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, BackgroundTasks
-from .database import DB_PATH, CACHE_DIR
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from .database import DB_PATH, CACHE_DIR, query_db, execute_db
+from .auth import get_current_user, User
 from .config import SOURCE1_PLATFORMS, SOURCE2_PLATFORMS, PLATFORM_NAMES, ALL_PLATFORMS, HOTSEARCH_SOURCES
 
 # 将 TrendRadar 项目根目录添加到 sys.path
@@ -443,24 +444,80 @@ async def get_all_hotsearch_data(background_tasks: BackgroundTasks, refresh: boo
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
-    for p in platforms:
-        p_id = p["id"]
+    # Optimize: Get latest data for all platforms in a single query
+    # First, identify the target platforms we want
+    target_p_ids = [p["id"] for p in platforms]
+    
+    # Use a dictionary to map platform ID to its config for easy access
+    platform_map = {p["id"]: p for p in platforms}
+    
+    # Query to get the latest fetch_time for each platform
+    # We filter by the platforms we are interested in
+    placeholders = ','.join(['?'] * len(target_p_ids))
+    cur.execute(f'''
+        SELECT platform, MAX(fetch_time) as max_time 
+        FROM hot_search_data 
+        WHERE platform IN ({placeholders}) 
+        GROUP BY platform
+    ''', target_p_ids)
+    
+    latest_times = {row['platform']: row['max_time'] for row in cur.fetchall()}
+    
+    # Prepare to collect data
+    # We can fetch all data for these latest times in one go
+    # But since we need to structure it by platform, we can just fetch all rows and process in Python
+    # OR we can iterate (now that we have the timestamp, the query is fast)
+    # Fetching all might be better to avoid N queries
+    
+    all_data_map = {}
+    if latest_times:
+        # Construct a query to get data for these specific (platform, time) pairs
+        # Since SQLite tuple IN might be slow or not supported in old versions, 
+        # let's just query where platform IN (...) AND fetch_time >= min(latest_times)
+        # and then filter in Python. Or just query all data for these platforms that matches the specific time.
+        
+        # A simple approach that is robust:
+        # SELECT * FROM hot_search_data WHERE platform = ? AND fetch_time = ?
+        # executing this N times is actually fast if indexed.
+        # But let's try to reduce it.
+        
+        # Let's use: WHERE (platform = 'a' AND fetch_time = 't1') OR (platform = 'b' AND fetch_time = 't2') ...
+        # This can be constructed dynamically.
+        
+        criteria = []
+        params = []
+        for pid, time_str in latest_times.items():
+            criteria.append("(platform = ? AND fetch_time = ?)")
+            params.extend([pid, time_str])
+            
+        if criteria:
+            query = f"SELECT * FROM hot_search_data WHERE {' OR '.join(criteria)} ORDER BY platform, rank ASC"
+            cur.execute(query, params)
+            rows = cur.fetchall()
+            
+            for row in rows:
+                pid = row['platform']
+                if pid not in all_data_map:
+                    all_data_map[pid] = []
+                all_data_map[pid].append(row)
+
+    # Process results
+    for p_id in target_p_ids:
+        p_name = platform_map[p_id]["name"]
+        
         platform_result = {
             "id": p_id,
-            "name": p["name"],
+            "name": p_name,
             "data": [],
-            "status": "success",
+            "status": "loading", # Default to loading if no data found
             "error": None,
             "fetch_time": now_str
         }
         
-        # 1. 查找最新缓存
-        cur.execute('SELECT DISTINCT fetch_time FROM hot_search_data WHERE platform = ? ORDER BY fetch_time DESC LIMIT 1', (p_id,))
-        last_time_row = cur.fetchone()
-        
-        if last_time_row:
-            last_time = last_time_row[0]
-            cur.execute('SELECT * FROM hot_search_data WHERE platform = ? AND fetch_time = ? ORDER BY rank ASC', (p_id, last_time))
+        if p_id in latest_times:
+            last_time = latest_times[p_id]
+            platform_rows = all_data_map.get(p_id, [])
+            
             platform_result["data"] = [
                 {
                     "title": r["title"], 
@@ -470,27 +527,24 @@ async def get_all_hotsearch_data(background_tasks: BackgroundTasks, refresh: boo
                     "trend": int(r["trend"]) if r["trend"] is not None else 0,
                     "previous_rank": r["previous_rank"],
                     "is_new": bool(r["is_new"])
-                } for r in cur.fetchall()
+                } for r in platform_rows
             ]
             platform_result["fetch_time"] = last_time
             platform_result["status"] = "cached" if last_time > cache_threshold else "history"
             
-            # 如果是正常请求且数据过期，则启动后台异步抓取
+            # Check if stale
             if not refresh and last_time <= cache_threshold:
                 background_tasks.add_task(sync_platform_data, p_id, now_str, source)
-                # 将状态设为 refreshing，通知前端数据正在更新中，前端会自动轮询
                 platform_result["status"] = "refreshing"
         else:
-            # 完全没数据的情况
-            if not refresh:
-                # 异步启动抓取
+            # No data found
+             if not refresh:
                 background_tasks.add_task(sync_platform_data, p_id, now_str, source)
                 platform_result["status"] = "loading"
-            else:
-                # 强制刷新后还是没数据，可能是抓取失败
+             else:
                 platform_result["status"] = "error"
                 platform_result["error"] = "抓取失败"
-
+        
         results.append(platform_result)
         
     conn.close()
@@ -604,3 +658,36 @@ async def get_hotsearch_data(platform_id: str):
             raise HTTPException(status_code=500, detail=f"API Error: {data.get('status')}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/favorites")
+async def get_favorites(user: User = Depends(get_current_user)):
+    rows = query_db("SELECT platform_id FROM user_platform_follows WHERE user_id = ?", (user.id,))
+    if not rows:
+        return []
+    return [row['platform_id'] for row in rows]
+
+@router.post("/favorites/{platform_id}")
+async def add_favorite(platform_id: str, user: User = Depends(get_current_user)):
+    try:
+        # Check if already exists
+        exists = query_db("SELECT 1 FROM user_platform_follows WHERE user_id = ? AND platform_id = ?", 
+                          (user.id, platform_id), one=True)
+        if exists:
+            return {"message": "Already in favorites"}
+            
+        success = execute_db("INSERT INTO user_platform_follows (user_id, platform_id) VALUES (?, ?)", 
+                   (user.id, platform_id))
+        if not success:
+            raise HTTPException(status_code=500, detail="Database write failed")
+        return {"message": "Added to favorites"}
+    except Exception as e:
+        print(f"Error adding favorite: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/favorites/{platform_id}")
+async def remove_favorite(platform_id: str, user: User = Depends(get_current_user)):
+    success = execute_db("DELETE FROM user_platform_follows WHERE user_id = ? AND platform_id = ?", 
+               (user.id, platform_id))
+    if not success:
+        raise HTTPException(status_code=500, detail="Database write failed")
+    return {"message": "Removed from favorites"}

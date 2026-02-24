@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>文章详情分析 - JNU-OPORC</title>
+    <script>
+        // Auth Check
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+    </script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
     <link rel="stylesheet" href="/static/css/style.css?t={{ range(1, 10000) | random }}">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
@@ -20,13 +27,30 @@
         <div class="detail-container" v-loading="loading">
             <!-- Header -->
             <div class="page-header">
-                <el-button class="back-btn" @click="goBack">
-                    <el-icon><arrow-left></arrow-left></el-icon>返回列表
-                </el-button>
-                <el-breadcrumb separator="/">
-                    <el-breadcrumb-item>舆情监测</el-breadcrumb-item>
-                    <el-breadcrumb-item>文章详情分析</el-breadcrumb-item>
-                </el-breadcrumb>
+                <div style="display: flex; align-items: center;">
+                    <el-button class="back-btn" @click="goBack">
+                        <el-icon><arrow-left></arrow-left></el-icon>返回列表
+                    </el-button>
+                    <el-breadcrumb separator="/" style="margin-left: 20px;">
+                        <el-breadcrumb-item>舆情监测</el-breadcrumb-item>
+                        <el-breadcrumb-item>文章详情分析</el-breadcrumb-item>
+                    </el-breadcrumb>
+                </div>
+                <div style="display: flex; align-items: center; gap: 20px;">
+                    <div class="user-profile">
+                        <el-dropdown @command="handleCommand">
+                            <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
+                                <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>
+                                <span style="margin-left: 8px; color: var(--text-primary);">{{ username }}</span>
+                            </span>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
+                    </div>
+                </div>
             </div>
 
             <div v-if="article">
@@ -133,6 +157,16 @@
             setup() {
                 const article = ref(null);
                 const loading = ref(true);
+                const username = ref(localStorage.getItem('username') || 'Admin');
+
+                const handleCommand = (command) => {
+                    if (command === 'logout') {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('role');
+                        window.location.href = '/login';
+                    }
+                };
 
                 const getNoteIdFromUrl = () => {
                     const pathParts = window.location.pathname.split('/');
@@ -194,7 +228,7 @@
                 });
 
                 return {
-                    article, loading,
+                    article, loading, username, handleCommand,
                     formatImageUrl, getSentimentType, goBack
                 };
             }

@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>平台热榜 - JNU-OPORC</title>
+    <script>
+        // Auth Check
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+    </script>
     <!-- Element Plus CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.3.8/dist/index.css">
     <link rel="stylesheet" href="/static/css/style.css?t={{ range(1, 10000) | random }}">
@@ -72,9 +79,13 @@
                     <el-icon><histogram></histogram></el-icon>
                     <template #title>声量热榜</template>
                 </el-menu-item>
-                <el-menu-item index="crawler">
+                <el-menu-item index="crawler" v-if="['admin', 'root', 'user'].includes(userRole)">
                     <el-icon><share></share></el-icon>
                     <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="users" v-if="['admin', 'root'].includes(userRole)">
+                    <el-icon><user-filled /></el-icon>
+                    <template #title>用户管理</template>
                 </el-menu-item>
 
             </el-menu>
@@ -92,6 +103,21 @@
                             <el-breadcrumb-item>首页</el-breadcrumb-item>
                             <el-breadcrumb-item>平台热榜</el-breadcrumb-item>
                         </el-breadcrumb>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 20px;">
+                        <div class="user-profile">
+                            <el-dropdown @command="handleCommand">
+                                <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
+                                    <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>
+                                    <span style="margin-left: 8px; color: var(--text-primary);">{{ username }}</span>
+                                </span>
+                                <template #dropdown>
+                                    <el-dropdown-menu>
+                                        <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                                    </el-dropdown-menu>
+                                </template>
+                            </el-dropdown>
+                        </div>
                     </div>
                 </div>
 
@@ -334,7 +360,19 @@
 
             const app = createApp({
             setup() {
+                const { ElMessage } = ElementPlus;
+                const username = ref(localStorage.getItem('username') || 'Admin');
+                const userRole = ref(localStorage.getItem('role') || 'user');
                 const isCollapse = ref(false);
+
+                const handleCommand = (command) => {
+                    if (command === 'logout') {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('role');
+                        window.location.href = '/login';
+                    }
+                };
                 const hotResults = ref([]);
                 const loading = ref(true); // 默认开启加载状态
                 const currentSource = ref('1'); // 默认为数据源 1
@@ -347,16 +385,6 @@
                 const platformSearchQuery = ref('');
                 const customOrder = ref([]); // 存储自定义排序
 
-                const getInitialFavorites = () => {
-                    try {
-                        const stored = localStorage.getItem('hot_favorites');
-                        return stored ? JSON.parse(stored) : ["weibo", "zhihu", "bilibili", "douyin", "baidu", "hupu", "toutiao", "thepaper"];
-                    } catch (e) {
-                        console.error('Failed to parse favorites from localStorage', e);
-                        return ["weibo", "zhihu", "bilibili", "douyin", "baidu", "hupu", "toutiao", "thepaper"];
-                    }
-                };
-                
                 // 初始化自定义排序
                 try {
                     const storedOrder = localStorage.getItem('hot_custom_order');
@@ -367,7 +395,39 @@
                     console.error('Failed to load custom order', e);
                 }
 
-                const favorites = ref(getInitialFavorites());
+                const favorites = ref([]);
+                
+                const fetchFavorites = async () => {
+                    const token = localStorage.getItem('token');
+                    if (!token) {
+                        // If no token, use local storage as fallback or just empty
+                        const localFavs = localStorage.getItem('hot_favorites');
+                        if (localFavs) {
+                            try {
+                                favorites.value = JSON.parse(localFavs);
+                            } catch (e) {}
+                        }
+                        return;
+                    }
+
+                    try {
+                        const res = await axios.get('/api/hotsearch/favorites', {
+                            headers: { Authorization: `Bearer ${token}` }
+                        });
+                        favorites.value = res.data;
+                        // Update local storage to match backend
+                        localStorage.setItem('hot_favorites', JSON.stringify(favorites.value));
+                    } catch (e) {
+                        console.error('Failed to fetch favorites', e);
+                        // Fallback to local storage if network fails
+                        const localFavs = localStorage.getItem('hot_favorites');
+                        if (localFavs) {
+                            try {
+                                favorites.value = JSON.parse(localFavs);
+                            } catch (e) {}
+                        }
+                    }
+                };
 
                 // 获取所有平台列表
                 const fetchPlatforms = async () => {
@@ -451,16 +511,27 @@
 
                 const isFavorite = (id) => favorites.value.includes(id);
 
-                const toggleFavorite = (id) => {
+                const toggleFavorite = async (id) => {
+                    const token = localStorage.getItem('token');
+                    if (!token) {
+                        if (typeof ElementPlus !== 'undefined') {
+                            ElementPlus.ElMessage.warning('请先登录后操作');
+                            // Optional: Redirect to login
+                            setTimeout(() => {
+                                window.location.href = '/login';
+                            }, 1000);
+                        }
+                        return;
+                    }
+
+                    // 1. Optimistic update (Pre-update UI)
                     const idx = favorites.value.indexOf(id);
-                    if (idx > -1) {
-                        favorites.value.splice(idx, 1);
-                    } else {
+                    const isAdd = idx === -1;
+                    
+                    if (isAdd) {
                         favorites.value.push(id);
-                        // 新关注平台时，如果当前数据中没有该平台，立即尝试拉取
                         if (!hotResults.value.some(p => p.id === id)) {
                             console.log(`New favorite ${id} not found in results, fetching...`);
-                            // 先加一个 loading 占位
                             const platInfo = allAvailablePlatforms.value.find(p => p.id === id);
                             hotResults.value.push({
                                 id: id,
@@ -469,11 +540,61 @@
                                 data: [],
                                 fetch_time: new Date().toISOString()
                             });
-                            // 触发单平台刷新
                             refreshSinglePlatform(id);
                         }
+                    } else {
+                        favorites.value.splice(idx, 1);
                     }
-                    localStorage.setItem('hot_favorites', JSON.stringify(favorites.value));
+                    
+                    // 2. Sync with backend
+                    try {
+                        const config = {
+                            headers: { Authorization: `Bearer ${token}` }
+                        };
+                        
+                        console.log(`Sending favorite request for ${id}, isAdd=${isAdd}`);
+                        let response;
+                        if (isAdd) {
+                            response = await axios.post(`/api/hotsearch/favorites/${id}`, {}, config);
+                        } else {
+                            response = await axios.delete(`/api/hotsearch/favorites/${id}`, config);
+                        }
+                        console.log('Favorite sync response:', response);
+                        
+                        // 3. Update localStorage ONLY on success to keep it in sync with backend truth
+                        localStorage.setItem('hot_favorites', JSON.stringify(favorites.value));
+                        
+                    } catch (e) {
+                        console.error('Failed to sync favorite with backend', e);
+                        if (e.response) {
+                             console.error('Response data:', e.response.data);
+                             console.error('Response status:', e.response.status);
+                             
+                             // Handle 401 specifically
+                             if (e.response.status === 401) {
+                                 localStorage.removeItem('token');
+                                 if (typeof ElementPlus !== 'undefined') {
+                                     ElementPlus.ElMessage.error('登录已过期，请重新登录');
+                                     setTimeout(() => {
+                                         window.location.href = '/login';
+                                     }, 1000);
+                                 }
+                             } else if (typeof ElementPlus !== 'undefined') {
+                                 const errorMsg = e.response?.data?.detail || '关注同步失败';
+                                 ElementPlus.ElMessage.error(errorMsg);
+                             }
+                        } else if (typeof ElementPlus !== 'undefined') {
+                            ElementPlus.ElMessage.error('关注同步失败');
+                        }
+                        
+                        // 4. Revert UI on failure
+                        if (isAdd) {
+                            const failIdx = favorites.value.indexOf(id);
+                            if (failIdx !== -1) favorites.value.splice(failIdx, 1);
+                        } else {
+                            favorites.value.push(id);
+                        }
+                    }
                 };
 
                 const getPlatformColor = (id) => {
@@ -785,6 +906,7 @@
                         initSortable();
                     }, 1000);
                     
+                    await fetchFavorites();
                     await fetchPlatforms();
                     
                     // 初始化骨架屏：优先使用已关注的平台
@@ -877,7 +999,7 @@
                         return;
                     }
 
-                    const externalPages = ['hotsearch', 'volume_rank', 'crawler', 'monitor', 'warning'];
+                    const externalPages = ['hotsearch', 'volume_rank', 'crawler', 'monitor', 'warning', 'users'];
                     if (externalPages.includes(index)) {
                         window.location.href = `/${index}`;
                     } else if (index === 'dashboard') {
@@ -886,6 +1008,9 @@
                 };
 
                 return {
+                    username,
+                    handleCommand,
+                    userRole,
                     isCollapse,
                     hotResults,
                     loading,

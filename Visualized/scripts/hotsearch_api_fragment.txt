@@ -1,0 +1,22 @@
+
+@router.get("/favorites")
+async def get_favorites(user: User = Depends(get_current_user)):
+    rows = query_db("SELECT platform_id FROM user_platform_follows WHERE user_id = ?", (user.id,))
+    if not rows:
+        return []
+    return [row['platform_id'] for row in rows]
+
+@router.post("/favorites/{platform_id}")
+async def add_favorite(platform_id: str, user: User = Depends(get_current_user)):
+    try:
+        execute_db("INSERT OR IGNORE INTO user_platform_follows (user_id, platform_id) VALUES (?, ?)", 
+                   (user.id, platform_id))
+        return {"message": "Added to favorites"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/favorites/{platform_id}")
+async def remove_favorite(platform_id: str, user: User = Depends(get_current_user)):
+    execute_db("DELETE FROM user_platform_follows WHERE user_id = ? AND platform_id = ?", 
+               (user.id, platform_id))
+    return {"message": "Removed from favorites"}

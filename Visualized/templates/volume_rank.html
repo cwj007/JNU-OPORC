@@ -5,6 +5,13 @@
     <meta name="referrer" content="no-referrer">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>声量热榜 - JNU-OPORC 舆情哨兵</title>
+    <script>
+        // Auth Check
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+    </script>
     <!-- Element Plus CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.3.8/dist/index.css">
     <link rel="stylesheet" href="/static/css/style.css?t={{ range(1, 10000) | random }}">
@@ -49,9 +56,13 @@
                     <el-icon><histogram /></el-icon>
                     <template #title>声量热榜</template>
                 </el-menu-item>
-                <el-menu-item index="crawler">
+                <el-menu-item index="crawler" v-if="['admin', 'root', 'user'].includes(userRole)">
                     <el-icon><share /></el-icon>
                     <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="users" v-if="['admin', 'root'].includes(userRole)">
+                    <el-icon><user-filled /></el-icon>
+                    <template #title>用户管理</template>
                 </el-menu-item>
 
             </el-menu>
@@ -68,6 +79,21 @@
                         <el-breadcrumb-item>首页</el-breadcrumb-item>
                         <el-breadcrumb-item>声量热榜</el-breadcrumb-item>
                     </el-breadcrumb>
+                </div>
+                <div style="display: flex; align-items: center; gap: 20px;">
+                    <div class="user-profile">
+                        <el-dropdown @command="handleCommand">
+                            <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
+                                <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>
+                                <span style="margin-left: 8px; color: var(--text-primary);">{{ username }}</span>
+                            </span>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
+                    </div>
                 </div>
             </div>
 
@@ -121,7 +147,18 @@
         const { createApp, ref, computed, onMounted, watch } = Vue;
         const app = createApp({
             setup() {
+                const username = ref(localStorage.getItem('username') || 'Admin');
+                const userRole = ref(localStorage.getItem('role') || 'user');
                 const isCollapse = ref(false);
+
+                const handleCommand = (command) => {
+                    if (command === 'logout') {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('role');
+                        window.location.href = '/login';
+                    }
+                };
                 const platformFilter = ref('all');
                 
                 const rankData = ref([]);
@@ -203,7 +240,7 @@
                     }
                 });
 
-                return { isCollapse, platformFilter, filteredRankData, formatNumber, handleMenuSelect, handleImageError, processAvatarUrl };
+                return { username, handleCommand, userRole, isCollapse, platformFilter, filteredRankData, formatNumber, handleMenuSelect, handleImageError, processAvatarUrl };
             }
         });
         for (const [key, component] of Object.entries(ElementPlusIconsVue)) {

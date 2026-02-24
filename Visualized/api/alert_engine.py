@@ -16,18 +16,27 @@ CRISIS_KEYWORDS = {
 
 class NotificationService:
     @staticmethod
-    def notify(method: str, title: str, content: str, level: str, reference_id: str = None, meta_data: dict = None, timestamp: str = None, rule_name: str = None):
+    def notify(method: str, title: str, content: str, level: str, reference_id: str = None, meta_data: dict = None, timestamp: str = None, rule_name: str = None, user_id: int = None):
         methods = method.split(',')
         meta_str = json.dumps(meta_data) if meta_data else None
         
         # Prevent duplicate alerts for the same reference_id AND title
         # This allows the same article to trigger different types of alerts (e.g., "Crisis" vs "Article Burst")
+        # And distinct by user_id if necessary (though usually unique per user-rule)
         if reference_id:
-            existing = query_db(
-                "SELECT id FROM alerts WHERE reference_id = ? AND title = ?", 
-                (reference_id, title), 
-                one=True
-            )
+            # Check duplicates considering user_id as well if provided
+            if user_id is not None:
+                existing = query_db(
+                    "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id = ?", 
+                    (reference_id, title, user_id), 
+                    one=True
+                )
+            else:
+                existing = query_db(
+                    "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id IS NULL", 
+                    (reference_id, title), 
+                    one=True
+                )
             if existing:
                 print(f"[Skip Notification] Duplicate alert for {reference_id} with title {title}")
                 return
@@ -35,12 +44,12 @@ class NotificationService:
         for m in methods:
             m = m.strip().lower()
             if m == 'system':
-                NotificationService._send_system_msg(title, content, level, reference_id, meta_str, timestamp, rule_name)
+                NotificationService._send_system_msg(title, content, level, reference_id, meta_str, timestamp, rule_name, user_id)
             elif m == 'email':
                 NotificationService._send_email(title, content, level)
 
     @staticmethod
-    def _send_system_msg(title: str, content: str, level: str, reference_id: str = None, meta_data: str = None, timestamp: str = None, rule_name: str = None):
+    def _send_system_msg(title: str, content: str, level: str, reference_id: str = None, meta_data: str = None, timestamp: str = None, rule_name: str = None, user_id: int = None):
         """发送站内信"""
         # If rule_name is provided, use it as 'type', otherwise default to 'system'
         alert_type = rule_name if rule_name else 'system'
@@ -51,35 +60,35 @@ class NotificationService:
         try:
             if timestamp:
                 sql = """
-                    INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, time, alerts_time) 
-                    VALUES (?, ?, ?, 'unread', ?, ?, ?, ?, ?)
+                    INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, time, alerts_time, user_id) 
+                    VALUES (?, ?, ?, 'unread', ?, ?, ?, ?, ?, ?)
                 """
-                execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, timestamp, alerts_time))
+                execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, timestamp, alerts_time, user_id))
             else:
                 sql = """
-                    INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, alerts_time) 
-                    VALUES (?, ?, ?, 'unread', ?, ?, ?, ?)
+                    INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, alerts_time, user_id) 
+                    VALUES (?, ?, ?, 'unread', ?, ?, ?, ?, ?)
                 """
-                execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, alerts_time))
+                execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, alerts_time, user_id))
                 
-            print(f"[System Notification] {level.upper()}: {title} (Rule: {alert_type})")
+            print(f"[System Notification] {level.upper()}: {title} (Rule: {alert_type}, User: {user_id})")
         except Exception as e:
             # Fallback for old schema or error
-            print(f"Error inserting alert with alerts_time: {e}")
+            print(f"Error inserting alert with user_id: {e}")
             try:
-                # Try inserting without alerts_time
+                # Try inserting without user_id
                 if timestamp:
                     sql = """
-                        INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, time) 
-                        VALUES (?, ?, ?, 'unread', ?, ?, ?, ?)
+                        INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, time, alerts_time) 
+                        VALUES (?, ?, ?, 'unread', ?, ?, ?, ?, ?)
                     """
-                    execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, timestamp))
+                    execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, timestamp, alerts_time))
                 else:
                     sql = """
-                        INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data) 
-                        VALUES (?, ?, ?, 'unread', ?, ?, ?)
+                        INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, alerts_time) 
+                        VALUES (?, ?, ?, 'unread', ?, ?, ?, ?)
                     """
-                    execute_db(sql, (level, title, content, alert_type, reference_id, meta_data))
+                    execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, alerts_time))
             except Exception as e2:
                  print(f"Error inserting alert (fallback 1): {e2}")
                  try:
@@ -246,7 +255,8 @@ class AlertEngine:
                     str(note_id), 
                     details,
                     timestamp=article_dict.get('created_at'),
-                    rule_name=rule['name']
+                    rule_name=rule['name'],
+                    user_id=rule.get('user_id')
                 )
 
     def _check_cri_rule(self, rule: dict):
@@ -342,7 +352,8 @@ class AlertEngine:
                     str(note_id), 
                     details, 
                     timestamp=article_dict.get('created_at'),
-                    rule_name=rule['name']
+                    rule_name=rule['name'],
+                    user_id=rule.get('user_id')
                 )
                 continue # Skip CRI level check if veto triggered
             
@@ -376,7 +387,8 @@ class AlertEngine:
                     str(note_id), 
                     details,
                     timestamp=article_dict.get('created_at'),
-                    rule_name=rule['name']
+                    rule_name=rule['name'],
+                    user_id=rule.get('user_id')
                 )
 
     def _check_threshold_rule(self, rule: dict):
@@ -490,7 +502,8 @@ class AlertEngine:
                     content, 
                     level, 
                     meta_data=details,
-                    rule_name=rule['name']
+                    rule_name=rule['name'],
+                    user_id=rule.get('user_id')
                 )
                 return # 危机预警优先处理
 
@@ -569,7 +582,8 @@ class AlertEngine:
                         reference_id=str(art['note_id']), 
                         meta_data=meta_data,
                         timestamp=art['created_at'],
-                        rule_name=rule['name']
+                        rule_name=rule['name'],
+                        user_id=rule.get('user_id')
                     )
 
             except Exception as e:

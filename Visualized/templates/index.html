@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JNU-OPORC 舆情监测系统</title>
+    <script>
+        // Auth Check
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+    </script>
     <!-- Element Plus CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
     <!-- Vue 3 + Axios + ECharts + Element Plus -->
@@ -56,9 +63,13 @@
                     <el-icon><histogram /></el-icon>
                     <template #title>声量热榜</template>
                 </el-menu-item>
-                <el-menu-item index="crawler">
+                <el-menu-item index="crawler" v-if="['admin', 'root', 'user'].includes(userRole)">
                     <el-icon><share /></el-icon>
                     <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="users" v-if="['admin', 'root'].includes(userRole)">
+                    <el-icon><user-filled /></el-icon>
+                    <template #title>用户管理</template>
                 </el-menu-item>
 
             </el-menu>
@@ -77,8 +88,18 @@
                         <el-breadcrumb-item>{{ menuTitle }}</el-breadcrumb-item>
                     </el-breadcrumb>
                 </div>
-                <div class="user-info">
-                    <el-tag type="info">管理员</el-tag>
+                <div class="user-profile">
+                    <el-dropdown @command="handleCommand">
+                        <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
+                            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>
+                            <span style="margin-left: 8px; color: var(--text-primary);">{{ username }}</span>
+                        </span>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
                 </div>
             </div>
 
@@ -365,8 +386,29 @@
     <script>
         const { createApp, ref, onMounted, reactive, watch, nextTick, computed } = Vue;
 
+        // Set up Axios interceptor for Authentication
+        axios.interceptors.request.use(config => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                config.headers.Authorization = `Bearer ${token}`;
+            }
+            return config;
+        }, error => {
+            return Promise.reject(error);
+        });
+
         const app = createApp({
             setup() {
+                const userRole = ref(localStorage.getItem('role') || 'user');
+                const username = ref(localStorage.getItem('username') || 'Admin');
+                const handleCommand = (command) => {
+                    if (command === 'logout') {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('role');
+                        window.location.href = '/login';
+                    }
+                };
                 const urlParams = new URLSearchParams(window.location.search);
                 const initialMenu = urlParams.get('menu') || 'dashboard';
                 const activeMenu = ref(initialMenu);
@@ -513,7 +555,7 @@
                     }
 
                     // 处理外部页面跳转
-                    const externalPages = ['hotsearch', 'volume_rank', 'crawler', 'monitor', 'warning'];
+                    const externalPages = ['hotsearch', 'volume_rank', 'crawler', 'monitor', 'warning', 'users'];
                     if (externalPages.includes(index)) {
                         console.log('Navigating to external page:', index);
                         window.location.href = `/${index}`;
@@ -1343,6 +1385,9 @@
                 });
 
                 return {
+                    userRole,
+                    username,
+                    handleCommand,
                     isCollapse, dateRange, customDate, trendTitleRange, handleDateRangeChange, handleCustomDateChange,
                     activeMenu, menuTitle, handleMenuSelect,
                     stats, negativePercentage, positiveNeutralPercentage, topWords,

@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JNU-OPORC 舆情检测</title>
+    <script>
+        // Auth Check
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+    </script>
     <!-- Element Plus CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
     <!-- Custom Style -->
@@ -1230,9 +1237,13 @@
                     <el-icon><histogram /></el-icon>
                     <template #title>声量热榜</template>
                 </el-menu-item>
-                <el-menu-item index="crawler">
+                <el-menu-item index="crawler" v-if="['admin', 'root', 'user'].includes(userRole)">
                     <el-icon><share /></el-icon>
                     <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="users" v-if="['admin', 'root'].includes(userRole)">
+                    <el-icon><user-filled /></el-icon>
+                    <template #title>用户管理</template>
                 </el-menu-item>
 
             </el-menu>
@@ -1256,8 +1267,18 @@
                     </el-breadcrumb>
                 </div>
                 <div style="display: flex; align-items: center; gap: 20px;">
-                    <div class="user-info">
-                        <el-tag type="info" effect="dark">管理员</el-tag>
+                    <div class="user-profile">
+                        <el-dropdown @command="handleCommand">
+                            <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
+                                <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>
+                                <span style="margin-left: 8px; color: var(--text-primary);">{{ username }}</span>
+                            </span>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
                     </div>
                 </div>
             </div>
@@ -1533,7 +1554,7 @@
                                     <el-button size="small" @click="showDetail(scope.row)" class="cyber-btn-detail">
                                          <div class="ui-prefix"><span></span><span></span><span></span></div>详情
                                      </el-button>
-                                    <el-button size="small" @click="deleteContent(scope.row)" class="cyber-btn-delete">
+                                    <el-button v-if="['root', 'admin'].includes(userRole)" size="small" @click="deleteContent(scope.row)" class="cyber-btn-delete">
                                         <el-icon style="margin-right: 4px;"><delete /></el-icon>删除
                                     </el-button>
                                 </div>
@@ -1622,7 +1643,7 @@
         </el-dialog>
 
         <!-- 舆情详情弹窗 -->
-        <el-dialog v-model="detailVisible" :title="currentDetail.is_merged_view ? currentDetail.top_id + ' (共 ' + currentDetail.total_items + ' 篇)' : currentDetail.top_id" width="90%" style="max-width: 1000px;" destroy-on-close top="5vh" class="tech-dialog">
+        <el-dialog v-model="detailVisible" :title="currentDetail.is_merged_view ? (currentDetail.title || currentDetail.top_id) + ' (共 ' + currentDetail.total_items + ' 篇)' : (currentDetail.title || currentDetail.top_id)" width="90%" style="max-width: 1000px;" destroy-on-close top="5vh" class="tech-dialog">
             <div class="detail-container" style="padding: 0; max-width: 100%;">
                 
                 <!-- 聚合视图 -->
@@ -2253,9 +2274,30 @@
     <script>
         const { createApp, ref, reactive, onMounted, computed, watch, nextTick } = Vue;
 
+        // Set up Axios interceptor for Authentication
+        axios.interceptors.request.use(config => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                config.headers.Authorization = `Bearer ${token}`;
+            }
+            return config;
+        }, error => {
+            return Promise.reject(error);
+        });
+
         const app = createApp({
             setup() {
                 const { ElMessage, ElMessageBox } = ElementPlus;
+                const userRole = ref(localStorage.getItem('role') || 'user');
+                const username = ref(localStorage.getItem('username') || 'Admin');
+                const handleCommand = (command) => {
+                    if (command === 'logout') {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('role');
+                        window.location.href = '/login';
+                    }
+                };
                 const isCollapse = ref(false);
                 const isMobileMenuShow = ref(false);
                 const activeMenu = ref('monitor');
@@ -3308,6 +3350,7 @@
                             currentDetail.value = {
                                 is_merged_view: true,
                                 top_id: row.top_id, // 显示可读名称
+                                title: items.length > 0 ? (items[0].title || (items[0].content ? items[0].content.substring(0, 30) + '...' : row.top_id)) : row.top_id, // 优先显示第一条内容的标题
                                 total_items: row.merge_count || items.length, // 使用列表页的聚合数作为总数
                                 queryId: queryId, // 保存用于后续请求
                                 page: 1,
@@ -3358,6 +3401,7 @@
                             currentDetail.value = {
                                 is_merged_view: false,
                                 ...data,
+                                title: data.title || (data.content ? data.content.substring(0, 30) + '...' : data.top_id),
                                 commentsPage: data.current_comments_page || 1, // 使用后端返回的当前页码
                                 loadingComments: false,
                                 showAllImages: false, // 默认收起图片
@@ -3834,6 +3878,9 @@
                 };
 
                 return {
+                    userRole,
+                    username,
+                    handleCommand,
                     formatTime,
                     isCollapse, activeMenu, loading, tableData, tasks, currentTaskId,
                     filter, pagination, taskDialogVisible, taskForm, groups,

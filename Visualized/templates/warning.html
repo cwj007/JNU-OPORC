@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JNU-OPORC 预警中心</title>
+    <script>
+        // Auth Check
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/login';
+        }
+    </script>
     <!-- Element Plus CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
     <!-- Google Fonts -->
@@ -478,9 +485,13 @@
                     <el-icon><histogram /></el-icon>
                     <template #title>声量热榜</template>
                 </el-menu-item>
-                <el-menu-item index="crawler">
+                <el-menu-item index="crawler" v-if="['admin', 'root', 'user'].includes(userRole)">
                     <el-icon><share /></el-icon>
                     <template #title>爬虫管理</template>
+                </el-menu-item>
+                <el-menu-item index="users" v-if="['admin', 'root'].includes(userRole)">
+                    <el-icon><user-filled /></el-icon>
+                    <template #title>用户管理</template>
                 </el-menu-item>
 
             </el-menu>
@@ -499,8 +510,18 @@
                         <el-breadcrumb-item>预警中心</el-breadcrumb-item>
                     </el-breadcrumb>
                 </div>
-                <div class="user-info">
-                    <el-tag type="info">管理员</el-tag>
+                <div class="user-profile">
+                    <el-dropdown @command="handleCommand">
+                        <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
+                            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>
+                            <span style="margin-left: 8px; color: var(--text-primary);">{{ username }}</span>
+                        </span>
+                        <template #dropdown>
+                            <el-dropdown-menu>
+                                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                            </el-dropdown-menu>
+                        </template>
+                    </el-dropdown>
                 </div>
             </div>
 
@@ -850,9 +871,31 @@
         // Fix: Use global variable provided by the locale script, with fallback
         const ElementPlusLocaleZhCn = window.ElementPlusLocaleZhCn || {};
 
+        // Set up Axios interceptor for Authentication
+        axios.interceptors.request.use(config => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                config.headers.Authorization = `Bearer ${token}`;
+            }
+            return config;
+        }, error => {
+            return Promise.reject(error);
+        });
+
         const app = createApp({
             setup() {
+                const username = ref(localStorage.getItem('username') || 'Admin');
+                const userRole = ref(localStorage.getItem('role') || 'user');
                 const isCollapse = ref(false);
+
+                const handleCommand = (command) => {
+                    if (command === 'logout') {
+                        localStorage.removeItem('token');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('role');
+                        window.location.href = '/login';
+                    }
+                };
                 const activeMenu = ref('warning');
                 const warningActiveTab = ref('history');
                 const ruleDialogVisible = ref(false);
@@ -913,7 +956,8 @@
                         monitor: '/monitor',
                         warning: '/warning',
                         volume_rank: '/volume_rank',
-                        crawler: '/crawler'
+                        crawler: '/crawler',
+                        users: '/users'
                     };
                     
                     if (routes[index]) {
@@ -1545,6 +1589,9 @@
                 };
 
                 return {
+                        username,
+                        handleCommand,
+                        userRole,
                         isCollapse,
                         activeMenu,
                         warningActiveTab,
