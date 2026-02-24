@@ -10,16 +10,19 @@ from typing import List, Dict, Any, Optional
 from ..models.vlm_handler import VLMHandler
 import concurrent.futures
 from ..config import (
-    ANALYSIS_PROMPT, MAX_IMAGES_FOR_VLM, SENTIMENT_CATEGORIES, 
+    MAX_IMAGES_FOR_VLM, SENTIMENT_CATEGORIES, 
     FINE_GRAINED_SENTIMENT_CATEGORIES, INTENT_CATEGORIES, 
     MEDIA_CRAWLER_DATA_DIR, FINE_GRAINED_SENTIMENT_MAPPING, 
-    INTENT_CATEGORIES_MAPPING, TRANSFORMERS_DIR, CACHE_DIR
+    INTENT_CATEGORIES_MAPPING, TRANSFORMERS_DIR, CACHE_DIR,
+    PLATFORM_PROMPTS
 )
 from Transformers import utils
 
 class MultimodalAnalyzer:
-    def __init__(self, vlm_handler: VLMHandler):
+    def __init__(self, vlm_handler: VLMHandler, platform: str = "weibo"):
         self.vlm = vlm_handler
+        self.platform = platform
+        self.platform_prompt = PLATFORM_PROMPTS.get(platform, PLATFORM_PROMPTS["weibo"])
         self._analysis_cache = {} # 全量缓存: signature -> analysis
         self._vision_cache = {}   # 视觉特征缓存: img_md5 -> {objects, ocr_text}
         self._text_pool = {}      # 语义池: text -> analysis (用于相似度匹配)
@@ -458,9 +461,8 @@ class MultimodalAnalyzer:
                     preprocessed_inputs = None
                     if vlm_batch_data:
                         try:
-                            from ..config import ANALYSIS_PROMPT
                             utils.logger.info(f"[MultimodalAnalyzer.prefetch_worker] CPU: 执行 Token 编码与张量化...")
-                            preprocessed_inputs = self.vlm.preprocess_batch(vlm_batch_data, ANALYSIS_PROMPT)
+                            preprocessed_inputs = self.vlm.preprocess_batch(vlm_batch_data, self.platform_prompt)
                         except Exception as e:
                             utils.logger.error(f"[MultimodalAnalyzer.prefetch_worker] CPU 错误: 预处理失败: {e}")
 
@@ -491,11 +493,10 @@ class MultimodalAnalyzer:
                 if vlm_batch_data:
                     try:
                         vlm_start = time.time()
-                        from ..config import ANALYSIS_PROMPT
                         
                         utils.logger.info(f"[MultimodalAnalyzer.run_pipeline] [GPU] 正在推理批次 (Batch: {len(vlm_batch_data)} | 模式: {mode_name})")
                         # 仅执行 GPU 推理，不执行解码和后处理
-                        raw_outputs = self.vlm.analyze_batch(vlm_batch_data, ANALYSIS_PROMPT, preprocessed_inputs=preprocessed_inputs)
+                        raw_outputs = self.vlm.analyze_batch(vlm_batch_data, self.platform_prompt, preprocessed_inputs=preprocessed_inputs)
                         vlm_duration = time.time() - vlm_start
                         
                         # --- 核心优化：异步后处理 (CPU) ---
@@ -654,7 +655,7 @@ class MultimodalAnalyzer:
         full_prompt_text = f"{image_description}\n{full_prompt_text}"
         
         # GPU 推理
-        raw_output = self.vlm.analyze(full_prompt_text, all_relevant_images, ANALYSIS_PROMPT)
+        raw_output = self.vlm.analyze(full_prompt_text, all_relevant_images, self.platform_prompt)
         analysis = self._parse_vlm_output(raw_output, has_images=bool(all_relevant_images))
         
         if not all_relevant_images:

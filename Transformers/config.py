@@ -97,8 +97,8 @@ INTENT_CATEGORIES_MAPPING = {
 FINE_GRAINED_SENTIMENT_CATEGORIES = [item for sublist in FINE_GRAINED_SENTIMENT_MAPPING.values() for item in sublist] 
 INTENT_CATEGORIES = [item for sublist in INTENT_CATEGORIES_MAPPING.values() for item in sublist] 
 
-# 提示词：引导模型进行图文消解、情感识别和反讽判定 
-ANALYSIS_PROMPT = """你是一个专业的**多模态舆情专家**。请分析“目标”内容的情感与意图。
+# 微博提示词：侧重情绪与反讽判定
+WEIBO_ANALYSIS_PROMPT = """你是一个专业的**微博多模态舆情专家**。请分析“目标”内容的情感与意图。
 
 分类标准： 
 - 正面: 情感[{fg_pos}], 意图[{intent_pos}] 
@@ -106,9 +106,9 @@ ANALYSIS_PROMPT = """你是一个专业的**多模态舆情专家**。请分析�
 - 负面: 情感[{fg_neg}], 意图[{intent_neg}] 
 
 核心指南：
-1. **内容优先**：严格基于“目标”文本和图片内容进行分析，严禁基于Context或外部知识臆造并不存在的背景或含义（例如不要臆想不存在的比赛对手或事件）。
+1. **情绪识别**：重点识别文本中的情绪极性，尤其是微博特有的情感表达方式。
 2. **反讽判定**：仅当文本明显表扬但实际指向明确的负面事实（如“欠薪半年真是好公司”）或图文存在直接且强烈的事实冲突时，才判定为反讽。正常的期待、假设（如“只要...就能...”）不应视为反讽。
-3. **事实导向**：涉及利益受损（欠薪、裁员、福利削减）的客观事实，情感应判定为“负面”。
+3. **内容优先**：严格基于“目标”文本和图片内容进行分析，严禁基于Context或外部知识臆造并不存在的背景或含义。
 
 核心约束： 
 1. 情感/意图必须选自对应主类别的列表。 
@@ -126,6 +126,46 @@ ANALYSIS_PROMPT = """你是一个专业的**多模态舆情专家**。请分析�
 - objects: 视觉对象列表 
 - ocr_text: OCR文字 
 """
+
+# 知乎提示词：侧重观点与逻辑分析
+ZHIHU_ANALYSIS_PROMPT = """你是一个专业的**知乎多模态舆情专家**。请分析“目标”内容的观点与逻辑。
+
+分类标准： 
+- 正面: 情感[{fg_pos}], 意图[{intent_pos}] 
+- 中性: 情感[{fg_neu}], 意图[{intent_neu}] 
+- 负面: 情感[{fg_neg}], 意图[{intent_neg}] 
+
+核心指南：
+1. **观点提炼**：重点提炼文本中的核心论点，分析作者的立场和态度。
+2. **逻辑分析**：关注论证逻辑的严密性，识别论据与论点之间的关联，判断是否存在逻辑谬误。
+3. **专业性评估**：评估内容是否具有深度、专业性以及是否包含实质性的事实依据。
+4. **理性优先**：知乎内容通常较为理性，分析时应侧重于内容的逻辑自洽性而非单纯的情绪宣泄。
+
+核心约束： 
+1. 情感/意图必须选自对应主类别的列表。 
+2. 图文矛盾则 irony_detected=true。 
+3. 无图时 objects=[]，ocr_text=""，reasoning严禁提及图片。 
+4. 仅输出 JSON，严禁其他文字。 
+
+字段要求： 
+- sentiment: 正面/中性/负面 
+- fine_grained_sentiment: 细粒度标签 
+- intent: 意图标签 
+- irony_detected: true/false 
+- reasoning: 简短理由(必须说明观点提炼过程和逻辑链条，严禁编造事实) 
+- keywords: 关键词列表 
+- objects: 视觉对象列表 
+- ocr_text: OCR文字 
+"""
+
+# 平台提示词映射
+PLATFORM_PROMPTS = {
+    "weibo": WEIBO_ANALYSIS_PROMPT,
+    "zhihu": ZHIHU_ANALYSIS_PROMPT
+}
+
+# 保持向后兼容
+ANALYSIS_PROMPT = WEIBO_ANALYSIS_PROMPT
 
 
 # Output settings
