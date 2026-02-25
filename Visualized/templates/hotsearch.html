@@ -113,7 +113,8 @@
                                 </span>
                                 <template #dropdown>
                                     <el-dropdown-menu>
-                                        <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                                        <el-dropdown-item command="profile">个人设置</el-dropdown-item>
+                                        <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
                                     </el-dropdown-menu>
                                 </template>
                             </el-dropdown>
@@ -344,7 +345,51 @@
                 </div>
             </div>
         </div>
-    </div>
+    <!-- Personal Settings Dialog -->
+    <el-dialog v-model="profileDialogVisible" title="个人设置" width="450px" class="tech-dialog">
+        <div class="dialog-tech-decor"></div>
+        <el-form :model="profileForm" label-width="100px" style="padding: 20px 30px;">
+            <div class="form-section-title">基本信息</div>
+            <el-form-item label="用户名">
+                <el-input v-model="username" disabled class="tech-input"></el-input>
+            </el-form-item>
+            <el-form-item label="邮箱地址">
+                <el-input v-model="profileForm.email" placeholder="用于接收预警的邮箱" class="tech-input"></el-input>
+            </el-form-item>
+            <el-form-item label="邮件提醒">
+                <el-switch 
+                    v-model="profileForm.email_notify_enabled" 
+                    active-text="开启" 
+                    inactive-text="关闭"
+                    :active-value="1"
+                    :inactive-value="0"
+                    class="tech-switch"
+                ></el-switch>
+            </el-form-item>
+
+            <div class="form-section-title" style="margin-top: 25px;">安全设置</div>
+            <el-form-item label="旧密码">
+                <el-input v-model="profileForm.old_password" type="password" placeholder="若修改密码请填写旧密码" show-password class="tech-input"></el-input>
+            </el-form-item>
+            <el-form-item label="新密码">
+                <el-input v-model="profileForm.new_password" type="password" placeholder="不修改请留空" show-password class="tech-input"></el-input>
+            </el-form-item>
+            <el-form-item label="确认新密码">
+                <el-input v-model="profileForm.confirm_password" type="password" placeholder="请再次输入新密码" show-password class="tech-input"></el-input>
+            </el-form-item>
+            
+            <div class="tech-hint">
+                <i class="el-icon-info"></i> 开启邮件提醒后，触发预警规则时将向此邮箱发送通知
+            </div>
+        </el-form>
+        <template #footer>
+            <div class="dialog-footer">
+                <el-button @click="profileDialogVisible = false" class="tech-btn-secondary">取消</el-button>
+                <el-button type="primary" @click="saveProfile" :loading="profileSaving" class="tech-btn-primary">保存系统设置</el-button>
+            </div>
+        </template>
+    </el-dialog>
+</div>
 
     <!-- Vue 3 + Axios + Element Plus -->
     <script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.prod.js"></script>
@@ -357,6 +402,31 @@
             document.body.innerHTML = '<div style="color:white;text-align:center;padding:50px;"><h1>无法加载 Vue.js</h1><p>请检查网络连接或 CDN 是否可用。</p></div>';
         } else {
             const { createApp, ref, computed, onMounted, watch } = Vue;
+
+            // Set up Axios interceptor for Authentication
+            axios.interceptors.request.use(config => {
+                const token = localStorage.getItem('token');
+                if (token) {
+                    config.headers.Authorization = `Bearer ${token}`;
+                }
+                return config;
+            }, error => {
+                return Promise.reject(error);
+            });
+
+            // Add response interceptor to handle 401
+            axios.interceptors.response.use(response => {
+                return response;
+            }, error => {
+                if (error.response && error.response.status === 401) {
+                    console.error('Authentication failed, redirecting to login');
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('username');
+                    localStorage.removeItem('role');
+                    window.location.href = '/login';
+                }
+                return Promise.reject(error);
+            });
 
             const app = createApp({
             setup() {
@@ -371,6 +441,94 @@
                         localStorage.removeItem('username');
                         localStorage.removeItem('role');
                         window.location.href = '/login';
+                    } else if (command === 'profile') {
+                        fetchProfile();
+                        profileDialogVisible.value = true;
+                    }
+                };
+
+                const profileDialogVisible = ref(false);
+                const profileSaving = ref(false);
+                const profileForm = ref({
+                    email: '',
+                    email_notify_enabled: 1,
+                    old_password: '',
+                    new_password: '',
+                    confirm_password: ''
+                });
+
+                const fetchProfile = async () => {
+                    try {
+                        const res = await axios.get('/api/auth/profile');
+                        profileForm.value = {
+                            email: res.data.email || '',
+                            email_notify_enabled: res.data.email_notify_enabled === 0 ? 0 : 1,
+                            old_password: '',
+                            new_password: '',
+                            confirm_password: ''
+                        };
+                    } catch (e) {
+                        console.error('Failed to fetch profile', e);
+                    }
+                };
+
+                const saveProfile = async () => {
+                    // 邮箱格式验证正则表达式
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+                    if (profileForm.value.email_notify_enabled === 1 && !profileForm.value.email) {
+                        ElementPlus.ElMessage.warning('开启邮件提醒前请先设置电子邮箱');
+                        return;
+                    }
+
+                    if (profileForm.value.email && !emailRegex.test(profileForm.value.email)) {
+                        ElementPlus.ElMessage.warning('请输入正确的邮箱格式');
+                        return;
+                    }
+
+                    // 密码校验
+                    if (profileForm.value.new_password) {
+                        if (!profileForm.value.old_password) {
+                            ElementPlus.ElMessage.warning('修改密码请输入旧密码以验证身份');
+                            return;
+                        }
+                        if (profileForm.value.new_password !== profileForm.value.confirm_password) {
+                            ElementPlus.ElMessage.warning('两次输入的密码不一致');
+                            return;
+                        }
+                        if (profileForm.value.new_password.length < 6) {
+                            ElementPlus.ElMessage.warning('新密码长度不能少于6位');
+                            return;
+                        }
+                    }
+
+                    profileSaving.value = true;
+                    try {
+                        const postData = {
+                            email: profileForm.value.email,
+                            email_notify_enabled: profileForm.value.email_notify_enabled ? 1 : 0
+                        };
+                        
+                        if (profileForm.value.new_password) {
+                            postData.old_password = profileForm.value.old_password;
+                            postData.new_password = profileForm.value.new_password;
+                        }
+
+                        await axios.post('/api/auth/profile', postData);
+                        ElementPlus.ElMessage.success('个人设置保存成功');
+                        profileDialogVisible.value = false;
+                        // 重置密码字段
+                        profileForm.value.old_password = '';
+                        profileForm.value.new_password = '';
+                        profileForm.value.confirm_password = '';
+                    } catch (e) {
+                        console.error('Failed to save profile', e);
+                        const errorMsg = e.response && e.response.data && e.response.data.message 
+                                       ? e.response.data.message 
+                                       : '保存失败，请检查旧密码是否正确';
+                        ElementPlus.ElMessage.error(errorMsg);
+                    } finally {
+                        profileSaving.value = false;
                     }
                 };
                 const hotResults = ref([]);
@@ -1047,6 +1205,10 @@
                     Minus,
                     WarningFilled,
                     Clock,
+                    profileDialogVisible,
+                    profileSaving,
+                    profileForm,
+                    saveProfile,
                     location: window.location
                 };
             }

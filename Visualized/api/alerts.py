@@ -1,9 +1,10 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from .database import query_db, execute_db, HOTSEARCH_DB_PATH
 from .alert_engine import AlertEngine
-from .auth import get_current_user, User
+from .auth import get_current_user, get_current_user_optional, User
 from pydantic import BaseModel
 from typing import Optional, List
+import json
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -147,7 +148,7 @@ async def get_alerts(
     level: Optional[str] = None,
     page: int = 1,
     page_size: int = 10,
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
     获取预警列表 (分页支持)
@@ -203,10 +204,11 @@ async def get_alerts(
             where_clause += f" AND level = '{level}'"
 
     # --- 权限控制 ---
-    if current_user.role != 'admin':
+    if not current_user:
+        # 未登录用户：只能看到公共预警 (全网负面内容监测)
+        where_clause += " AND (type = '全网负面内容监测' OR user_id IS NULL)"
+    elif current_user.role != 'admin':
         # 普通用户：只能看到 (自己的预警) OR (全网负面内容监测)
-        # 假设 system alerts (user_id IS NULL) 且 type='全网负面内容监测' 是全局可见的
-        # 注意：这里直接拼接 SQL 字符串，因为 current_user.id 是可信的整数
         where_clause += f" AND (user_id = {current_user.id} OR type = '全网负面内容监测')"
 
     # 计算总数
@@ -247,13 +249,62 @@ async def get_alerts(
         "page_size": page_size
     }
 
+@router.get("/unread_count")
+async def get_unread_count(current_user: User = Depends(get_current_user)):
+    """获取未读预警数量"""
+    where_clause = "status = 'unread'"
+    params = []
+    if current_user.role != 'admin':
+        where_clause += " AND (user_id = ? OR type = '全网负面内容监测')"
+        params.append(current_user.id)
+        
+    sql = f"SELECT COUNT(*) as count FROM alerts WHERE {where_clause}"
+    res = query_db(sql, tuple(params), one=True)
+    return {"count": res['count'] if res else 0}
+
 @router.post("/read/{alert_id}")
-async def mark_as_read(alert_id: int):
-    """标记预警为已读/已处理"""
+async def mark_as_read(alert_id: int, current_user: User = Depends(get_current_user)):
+    """标记预警为已读"""
+    # 检查权限：非管理员只能标记自己的或公共的
+    if current_user.role != 'admin':
+        check_sql = "SELECT id FROM alerts WHERE id = ? AND (user_id = ? OR type = '全网负面内容监测')"
+        existing = query_db(check_sql, (alert_id, current_user.id), one=True)
+        if not existing:
+            raise HTTPException(status_code=403, detail="Permission denied")
+            
     sql = "UPDATE alerts SET status = 'read' WHERE id = ?"
     if execute_db(sql, (alert_id,)):
         return {"status": "success"}
     return {"status": "error", "message": "Failed to update alert status"}
+
+@router.post("/process/{alert_id}")
+async def mark_as_processed(alert_id: int, current_user: User = Depends(get_current_user)):
+    """标记预警为已处理（同时设为已读）"""
+    # 检查权限：非管理员只能标记自己的或公共的
+    if current_user.role != 'admin':
+        check_sql = "SELECT id FROM alerts WHERE id = ? AND (user_id = ? OR type = '全网负面内容监测')"
+        existing = query_db(check_sql, (alert_id, current_user.id), one=True)
+        if not existing:
+            raise HTTPException(status_code=403, detail="Permission denied")
+            
+    sql = "UPDATE alerts SET status = 'read', processed = 1 WHERE id = ?"
+    if execute_db(sql, (alert_id,)):
+        return {"status": "success"}
+    return {"status": "error", "message": "Failed to update alert status"}
+
+@router.post("/mark_all_read")
+async def mark_all_read(current_user: User = Depends(get_current_user)):
+    """标记所有预警为已读"""
+    where_clause = "status = 'unread'"
+    params = []
+    if current_user.role != 'admin':
+        where_clause += " AND (user_id = ? OR type = '全网负面内容监测')"
+        params.append(current_user.id)
+        
+    sql = f"UPDATE alerts SET status = 'read' WHERE {where_clause}"
+    if execute_db(sql, tuple(params)):
+        return {"status": "success"}
+    return {"status": "error", "message": "Failed to update alerts"}
 
 @router.get("/details/{reference_id}")
 async def get_alert_details(reference_id: str):

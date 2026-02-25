@@ -134,7 +134,8 @@ def init_db():
             ("alerts", "reference_id", "TEXT"),
             ("alerts", "meta_data", "TEXT"),
             ("alerts", "alerts_time", "TEXT"),
-            ("alerts", "user_id", "INTEGER")
+            ("alerts", "user_id", "INTEGER"),
+            ("alerts", "processed", "INTEGER DEFAULT 0")
         ]
         
         for table, col, col_type in columns_to_add:
@@ -201,6 +202,8 @@ def init_db():
                 password_hash TEXT NOT NULL,
                 salt TEXT NOT NULL,
                 role TEXT DEFAULT 'user', -- 'admin' or 'user'
+                email TEXT,
+                email_notify_enabled INTEGER DEFAULT 1,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -224,6 +227,18 @@ def init_db():
                  cur.execute("ALTER TABLE users ADD COLUMN salt TEXT DEFAULT ''")
              except sqlite3.OperationalError:
                  pass
+        
+        if 'email' not in columns:
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN email TEXT")
+            except sqlite3.OperationalError:
+                pass
+                
+        if 'email_notify_enabled' not in columns:
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN email_notify_enabled INTEGER DEFAULT 1")
+            except sqlite3.OperationalError:
+                pass
                  
         # Check if root admin exists, if not create default
         cur.execute("SELECT COUNT(*) FROM users WHERE username = 'root'")
@@ -243,6 +258,20 @@ def init_db():
                 expires_at TIMESTAMP NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(id)
+            )
+        ''')
+
+        # 9. 初始化通知记录表 (Notification Log)
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS notifications_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                rule_id INTEGER,
+                reference_id TEXT, -- 触发标识（如文章 note_id 或时间戳）
+                type TEXT NOT NULL, -- 'system', 'email'
+                target TEXT, -- 目标（如邮箱地址）
+                sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, rule_id, reference_id, type)
             )
         ''')
 
@@ -276,7 +305,7 @@ def query_db(query: str, args: tuple = (), one: bool = False):
     # 更加精确地判断目标数据库
     query_lower = query.lower()
     # Transformers 数据库中的表
-    tr_tables = ["content", "comments", "top_topics", "processed_items"]
+    tr_tables = ["content", "comments", "top_topics"]
     # MediaCrawler 数据库中的表
     mc_tables = ["weibo_creator", "zhihu_creator"]
     
@@ -297,6 +326,8 @@ def query_db(query: str, args: tuple = (), one: bool = False):
             if re.search(rf'\b{table}\b', query_lower):
                 target_db = TRANSFORMERS_DB_PATH
                 break
+    
+    print(f"DEBUG: query_db: {query[:100]}... target_db={target_db}, args={args}")
 
     try:
         conn = sqlite3.connect(target_db, timeout=30)
@@ -305,7 +336,9 @@ def query_db(query: str, args: tuple = (), one: bool = False):
             cur = conn.cursor()
             cur.execute(query, args)
             rv = cur.fetchall()
-            return (rv[0] if rv else None) if one else rv
+            if one:
+                return dict(rv[0]) if rv else None
+            return [dict(row) for row in rv] if rv else []
         finally:
             conn.close()
     except sqlite3.OperationalError as e:
@@ -320,7 +353,7 @@ def execute_db(query: str, args: tuple = ()):
     执行写操作（INSERT/UPDATE/DELETE）并提交
     """
     query_lower = query.lower()
-    tr_tables = ["content", "comments", "top_topics", "processed_items"]
+    tr_tables = ["content", "comments", "top_topics"]
     
     target_db = HOTSEARCH_DB_PATH
     for table in tr_tables:

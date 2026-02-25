@@ -47,6 +47,17 @@ def update_schema():
         else:
             print("monitoring_tasks already has user_id.")
             
+        # 4. Check users table for email and email_notify_enabled
+        print("Checking users table...")
+        cur.execute("PRAGMA table_info(users)")
+        columns = [col[1] for col in cur.fetchall()]
+        if 'email' not in columns:
+            print("Adding email column to users...")
+            cur.execute("ALTER TABLE users ADD COLUMN email TEXT")
+        if 'email_notify_enabled' not in columns:
+            print("Adding email_notify_enabled column to users...")
+            cur.execute("ALTER TABLE users ADD COLUMN email_notify_enabled INTEGER DEFAULT 1")
+            
         conn.commit()
         print("Schema update completed successfully.")
 

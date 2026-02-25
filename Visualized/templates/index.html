@@ -88,18 +88,77 @@
                         <el-breadcrumb-item>{{ menuTitle }}</el-breadcrumb-item>
                     </el-breadcrumb>
                 </div>
-                <div class="user-profile">
-                    <el-dropdown @command="handleCommand">
-                        <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
-                            <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>
-                            <span style="margin-left: 8px; color: var(--text-primary);">{{ username }}</span>
-                        </span>
-                        <template #dropdown>
-                            <el-dropdown-menu>
-                                <el-dropdown-item command="logout">退出登录</el-dropdown-item>
-                            </el-dropdown-menu>
-                        </template>
-                    </el-dropdown>
+                <div class="header-right" style="display: flex; align-items: center;">
+                    <!-- Notification Bell -->
+                    <div class="notification-wrapper" style="margin-right: 20px; cursor: pointer;">
+                        <el-popover
+                    placement="bottom-end"
+                    :width="350"
+                    trigger="click"
+                    popper-class="notification-popover"
+                    @show="() => { fetchRecentAlerts(); popoverVisible = true; }"
+                    @hide="() => { popoverVisible = false; }"
+                >
+                    <template #reference>
+                        <el-badge :value="unreadCount" :max="99" :hidden="unreadCount === 0" class="item notification-badge" :class="{ active: popoverVisible }">
+                            <el-icon :size="20" class="bell-icon"><bell /></el-icon>
+                        </el-badge>
+                    </template>
+                            
+                            <div class="notification-list-container">
+                                <div class="notification-header">
+                                    <span class="title">消息通知</span>
+                                    <el-button v-if="unreadCount > 0" link type="primary" size="small" @click="markAllRead">全部已读</el-button>
+                                </div>
+                                
+                                <div v-if="recentAlerts.length === 0" class="notification-empty">
+                                    <el-empty description="暂无新消息" :image-size="60"></el-empty>
+                                </div>
+                                
+                                <div v-else class="notification-list">
+                                    <div v-for="item in recentAlerts" :key="item.id" class="notification-item" @click="viewAlertDetail(item)">
+                                        <div class="item-icon" :class="item.level">
+                                            <el-icon><warning /></el-icon>
+                                        </div>
+                                        <div class="item-content">
+                                            <div class="item-title">
+                                                <el-tag :type="getLevelTagType(item.level)" size="small" effect="dark" class="level-tag" :class="item.level">
+                                        {{ getLevelLabel(item.level) }}
+                                    </el-tag>
+                                                <span class="time">{{ formatAlertTime(item.alerts_time || item.time) }}</span>
+                                            </div>
+                                            <div class="item-text">
+                                                您制定的"{{ item.type }}"任务已达到预警条件：{{ item.content }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="notification-footer">
+                                    <el-button class="cyber-btn-history" @click="goToWarningCenter">
+                                        <div class="ui-prefix"><span></span><span></span><span></span></div>
+                                        查看全部预警历史
+                                        <el-icon style="margin-left: 8px;"><right /></el-icon>
+                                    </el-button>
+                                </div>
+                            </div>
+                        </el-popover>
+                    </div>
+
+                    <div class="user-profile">
+                        <el-dropdown @command="handleCommand">
+                            <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
+                                <el-avatar :size="32" src="https://cube.elemecdn.com/0/88/03b0d39583f48206768a7534e55bcpng.png"></el-avatar>
+                                <span style="margin-left: 8px; color: var(--text-primary);">{{ username }}</span>
+                            </span>
+                            <template #dropdown>
+                                <el-dropdown-menu>
+                                    <el-dropdown-item command="profile">个人设置</el-dropdown-item>
+                                    <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
+                                </el-dropdown-menu>
+                            </template>
+                        </el-dropdown>
+                    </div>
                 </div>
             </div>
 
@@ -112,7 +171,15 @@
                         <div class="tech-card-header" style="margin-bottom: 20px;">
                             <span class="tech-card-title">数据概览</span>
                             <div class="tech-card-decoration" style="margin-right: 20px;"></div>
-                            <div class="header-controls">
+                            <div class="header-controls" style="display: flex; align-items: center; gap: 12px;">
+                                <el-select v-model="taskId" placeholder="全部数据" clearable size="small" style="width: 150px;" @change="handleTaskChange">
+                                    <el-option
+                                        v-for="item in tasks"
+                                        :key="item.id"
+                                        :label="item.name"
+                                        :value="item.id"
+                                    ></el-option>
+                                </el-select>
                                 <el-radio-group v-model="dateRange" @change="handleDateRangeChange" size="small" class="tech-radio-group">
                                     <el-radio-button label="1">24小时</el-radio-button>
                                     <el-radio-button label="3">3天</el-radio-button>
@@ -351,12 +418,12 @@
                                         <div style="display: flex; align-items: center;">
                                             <el-progress 
                                                 style="flex: 1;"
-                                                :percentage="Math.min(100, Math.round((item.value / stats.total) * 1000) / 10)" 
+                                                :percentage="stats.total > 0 ? Math.min(100, Number(((item.value / stats.total) * 100).toFixed(2))) : 0" 
                                                 :stroke-width="10" 
                                                 :color="regionColors[index % regionColors.length]"
                                                 :show-text="false"
                                             ></el-progress>
-                                            <span style="margin-left: 15px; font-size: 12px; color: #909399; width: 45px; text-align: right;">{{ (item.value / stats.total * 100).toFixed(1) }}%</span>
+                                            <span style="margin-left: 15px; font-size: 12px; color: #909399; width: 55px; text-align: right;">{{ stats.total > 0 ? (item.value / stats.total * 100).toFixed(2) : '0.00' }}%</span>
                                         </div>
                                     </div>
                                     <div v-if="topRegions.length === 0" style="text-align: center; color: var(--text-secondary); margin-top: 50px;">
@@ -381,6 +448,51 @@
         </div>
 
         <!-- Dialogs moved to monitor.html -->
+
+        <!-- Personal Settings Dialog -->
+        <el-dialog v-model="profileDialogVisible" title="个人设置" width="450px" class="tech-dialog">
+            <div class="dialog-tech-decor"></div>
+            <el-form :model="profileForm" label-width="100px" style="padding: 20px 30px;">
+                <div class="form-section-title">基本信息</div>
+                <el-form-item label="用户名">
+                    <el-input v-model="username" disabled class="tech-input"></el-input>
+                </el-form-item>
+                <el-form-item label="邮箱地址">
+                    <el-input v-model="profileForm.email" placeholder="用于接收预警的邮箱" class="tech-input"></el-input>
+                </el-form-item>
+                <el-form-item label="邮件提醒">
+                    <el-switch 
+                        v-model="profileForm.email_notify_enabled" 
+                        active-text="开启" 
+                        inactive-text="关闭"
+                        :active-value="1"
+                        :inactive-value="0"
+                        class="tech-switch"
+                    ></el-switch>
+                </el-form-item>
+
+                <div class="form-section-title" style="margin-top: 25px;">安全设置</div>
+                <el-form-item label="旧密码">
+                    <el-input v-model="profileForm.old_password" type="password" placeholder="若修改密码请填写旧密码" show-password class="tech-input"></el-input>
+                </el-form-item>
+                <el-form-item label="新密码">
+                    <el-input v-model="profileForm.new_password" type="password" placeholder="不修改请留空" show-password class="tech-input"></el-input>
+                </el-form-item>
+                <el-form-item label="确认新密码">
+                    <el-input v-model="profileForm.confirm_password" type="password" placeholder="请再次输入新密码" show-password class="tech-input"></el-input>
+                </el-form-item>
+                
+                <div class="tech-hint">
+                    <i class="el-icon-info"></i> 开启邮件提醒后，触发预警规则时将向此邮箱发送通知
+                </div>
+            </el-form>
+            <template #footer>
+                <div class="dialog-footer">
+                    <el-button @click="profileDialogVisible = false" class="tech-btn-secondary">取消</el-button>
+                    <el-button type="primary" @click="saveProfile" :loading="profileSaving" class="tech-btn-primary">保存系统设置</el-button>
+                </div>
+            </template>
+        </el-dialog>
     </div>
 
     <script>
@@ -397,16 +509,204 @@
             return Promise.reject(error);
         });
 
+        // Add response interceptor to handle 401
+        axios.interceptors.response.use(response => {
+            return response;
+        }, error => {
+            if (error.response && error.response.status === 401) {
+                console.error('Authentication failed, redirecting to login');
+                localStorage.removeItem('token');
+                localStorage.removeItem('username');
+                localStorage.removeItem('role');
+                window.location.href = '/login';
+            }
+            return Promise.reject(error);
+        });
+
         const app = createApp({
             setup() {
                 const userRole = ref(localStorage.getItem('role') || 'user');
                 const username = ref(localStorage.getItem('username') || 'Admin');
+                
+                // Notifications & Profile
+                const unreadCount = ref(0);
+                const popoverVisible = ref(false);
+                const profileDialogVisible = ref(false);
+                const profileSaving = ref(false);
+                const profileForm = ref({
+                    email: '',
+                    email_notify_enabled: 1,
+                    old_password: '',
+                    new_password: '',
+                    confirm_password: ''
+                });
+
+                const fetchUnreadCount = async () => {
+                    try {
+                        const res = await axios.get('/api/alerts/unread_count');
+                        unreadCount.value = res.data.count;
+                    } catch (e) {
+                        console.error('Failed to fetch unread count', e);
+                    }
+                };
+
+                const fetchProfile = async () => {
+                    try {
+                        const res = await axios.get('/api/auth/profile');
+                        profileForm.value = {
+                            email: res.data.email || '',
+                            email_notify_enabled: res.data.email_notify_enabled === 0 ? 0 : 1,
+                            old_password: '',
+                            new_password: '',
+                            confirm_password: ''
+                        };
+                    } catch (e) {
+                        console.error('Failed to fetch profile', e);
+                    }
+                };
+
+                const fetchRecentAlerts = async () => {
+                    try {
+                        const res = await axios.get('/api/alerts/list?page=1&page_size=5');
+                        if (res.data && res.data.data) {
+                            recentAlerts.value = res.data.data;
+                        }
+                    } catch (e) {
+                        console.error('Failed to fetch recent alerts', e);
+                    }
+                };
+
+                const getLevelTagType = (level) => {
+                    const map = {
+                        'red': 'danger',
+                        'high': 'danger',
+                        'orange': 'warning',
+                        'medium': 'warning',
+                        'yellow': 'warning',
+                        'green': 'success',
+                        'low': 'success'
+                    };
+                    return map[level.toLowerCase()] || 'info';
+                };
+
+                const getLevelLabel = (level) => {
+                    const map = {
+                        'red': '严重风险',
+                        'high': '严重风险',
+                        'orange': '高风险',
+                        'medium': '关注风险',
+                        'yellow': '关注风险',
+                        'green': '低风险',
+                        'low': '低风险'
+                    };
+                    return map[level.toLowerCase()] || '常规预警';
+                };
+
+                const formatAlertTime = (timeStr) => {
+                    if (!timeStr) return '';
+                    const date = new Date(timeStr.replace(/-/g, '/'));
+                    const now = new Date();
+                    
+                    if (date.toDateString() === now.toDateString()) {
+                        return date.getHours().toString().padStart(2, '0') + ':' + 
+                               date.getMinutes().toString().padStart(2, '0');
+                    }
+                    return (date.getMonth() + 1) + '-' + date.getDate() + ' ' + 
+                           date.getHours().toString().padStart(2, '0') + ':' + 
+                           date.getMinutes().toString().padStart(2, '0');
+                };
+
+                const markAllRead = async () => {
+                    try {
+                        await axios.post('/api/alerts/mark_all_read');
+                        fetchUnreadCount();
+                        fetchRecentAlerts();
+                    } catch (e) {
+                        console.error('Failed to mark all read', e);
+                    }
+                };
+
+                const viewAlertDetail = (alert) => {
+                    window.location.href = `/warning?id=${alert.id}`;
+                };
+
+                const goToWarningCenter = () => {
+                    window.location.href = '/warning?tab=history';
+                };
+
+                const handleNotificationClick = () => {
+                    // This is now handled by el-popover trigger="click"
+                };
+
+                const saveProfile = async () => {
+                    // 邮箱格式验证正则表达式
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+                    if (profileForm.value.email_notify_enabled === 1 && !profileForm.value.email) {
+                        ElementPlus.ElMessage.warning('开启邮件提醒前请先设置电子邮箱');
+                        return;
+                    }
+
+                    if (profileForm.value.email && !emailRegex.test(profileForm.value.email)) {
+                        ElementPlus.ElMessage.warning('请输入正确的邮箱格式');
+                        return;
+                    }
+
+                    // 密码校验
+                    if (profileForm.value.new_password) {
+                        if (!profileForm.value.old_password) {
+                            ElementPlus.ElMessage.warning('修改密码请输入旧密码以验证身份');
+                            return;
+                        }
+                        if (profileForm.value.new_password !== profileForm.value.confirm_password) {
+                            ElementPlus.ElMessage.warning('两次输入的密码不一致');
+                            return;
+                        }
+                        if (profileForm.value.new_password.length < 6) {
+                            ElementPlus.ElMessage.warning('新密码长度不能少于6位');
+                            return;
+                        }
+                    }
+
+                    profileSaving.value = true;
+                    try {
+                        const postData = {
+                            email: profileForm.value.email,
+                            email_notify_enabled: profileForm.value.email_notify_enabled ? 1 : 0
+                        };
+                        
+                        if (profileForm.value.new_password) {
+                            postData.old_password = profileForm.value.old_password;
+                            postData.new_password = profileForm.value.new_password;
+                        }
+
+                        await axios.post('/api/auth/profile', postData);
+                        ElementPlus.ElMessage.success('个人设置保存成功');
+                        profileDialogVisible.value = false;
+                        // 重置密码字段
+                        profileForm.value.old_password = '';
+                        profileForm.value.new_password = '';
+                        profileForm.value.confirm_password = '';
+                    } catch (e) {
+                        console.error('Failed to save profile', e);
+                        const errorMsg = e.response && e.response.data && e.response.data.message 
+                                       ? e.response.data.message 
+                                       : '保存失败，请检查旧密码是否正确';
+                        ElementPlus.ElMessage.error(errorMsg);
+                    } finally {
+                        profileSaving.value = false;
+                    }
+                };
+
                 const handleCommand = (command) => {
                     if (command === 'logout') {
                         localStorage.removeItem('token');
                         localStorage.removeItem('username');
                         localStorage.removeItem('role');
                         window.location.href = '/login';
+                    } else if (command === 'profile') {
+                        fetchProfile();
+                        profileDialogVisible.value = true;
                     }
                 };
                 const urlParams = new URLSearchParams(window.location.search);
@@ -427,6 +727,8 @@
                 const isCollapse = ref(false);
                 const dateRange = ref('7');
                 const customDate = ref([]);
+                const taskId = ref(null);
+                const tasks = ref([]);
 
                 const trendTitleRange = computed(() => {
                     if (dateRange.value === '1') return '24小时';
@@ -587,9 +889,21 @@
                     return Math.floor(diff / 86400) + '天前';
                 };
 
+                const fetchTasks = async () => {
+                    try {
+                        const res = await axios.get('/api/dashboard/tasks');
+                        if (res.data && res.data.tasks) {
+                            tasks.value = res.data.tasks;
+                        }
+                    } catch (e) {
+                        console.error('Failed to fetch tasks', e);
+                    }
+                };
+
                 const fetchDashboardData = async () => {
                     try {
                         const days = dateRange.value === 'custom' ? calculateDays(customDate.value) : parseInt(dateRange.value);
+                        const tId = taskId.value ? `&task_id=${taskId.value}` : '';
                         
                         // Helper to catch individual API errors without failing Promise.all
                         const safeGet = (url) => axios.get(url).catch(e => {
@@ -598,13 +912,13 @@
                         });
 
                         const [statsRes, trendsRes, wordCloudRes, alertsRes, mapRes, sentimentFineRes, intentRes] = await Promise.all([
-                            safeGet(`/api/dashboard/stats?days=${days}`),
-                            safeGet(`/api/dashboard/trends?days=${days}`),
-                            safeGet(`/api/dashboard/wordcloud?days=${days}`),
+                            safeGet(`/api/dashboard/stats?days=${days}${tId}`),
+                            safeGet(`/api/dashboard/trends?days=${days}${tId}`),
+                            safeGet(`/api/dashboard/wordcloud?days=${days}${tId}`),
                             safeGet('/api/alerts/list'),
-                            safeGet(`/api/dashboard/map?days=${days}`),
-                            safeGet(`/api/dashboard/sentiment_fine?days=${days}`),
-                            safeGet(`/api/dashboard/intent?days=${days}`)
+                            safeGet(`/api/dashboard/map?days=${days}${tId}`),
+                            safeGet(`/api/dashboard/sentiment_fine?days=${days}${tId}`),
+                            safeGet(`/api/dashboard/intent?days=${days}${tId}`)
                         ]);
                         
                         if (statsRes.data) {
@@ -626,7 +940,8 @@
                                 .map(item => ({
                                     name: item.name,
                                     value: (item.value === null || isNaN(item.value)) ? 0 : Number(item.value)
-                                }));
+                                }))
+                                .sort((a, b) => b.value - a.value);
                             
                             topRegions.value = cleanMapData.slice(0, 10);
                         }
@@ -1043,42 +1358,85 @@
                         
                         const option = {
                             backgroundColor: 'transparent',
+                            // 添加科技感装饰性背景（旋转圆环）
+                            graphic: [
+                                {
+                                    type: 'group',
+                                    left: 'center',
+                                    top: 'center',
+                                    children: [
+                                        {
+                                            type: 'circle',
+                                            shape: { r: 120 },
+                                            style: {
+                                                fill: 'none',
+                                                stroke: 'rgba(0, 240, 255, 0.1)',
+                                                lineWidth: 1,
+                                                lineDash: [5, 5]
+                                            },
+                                            // 旋转动画
+                                            keyframeAnimation: {
+                                                duration: 20000,
+                                                loop: true,
+                                                keyframes: [{ percent: 0, rotation: 0 }, { percent: 1, rotation: Math.PI * 2 }]
+                                            }
+                                        },
+                                        {
+                                            type: 'circle',
+                                            shape: { r: 150 },
+                                            style: {
+                                                fill: 'none',
+                                                stroke: 'rgba(185, 103, 255, 0.05)',
+                                                lineWidth: 2,
+                                                lineDash: [10, 10]
+                                            },
+                                            keyframeAnimation: {
+                                                duration: 30000,
+                                                loop: true,
+                                                keyframes: [{ percent: 0, rotation: 0 }, { percent: 1, rotation: -Math.PI * 2 }]
+                                            }
+                                        }
+                                    ]
+                                }
+                            ],
                             tooltip: {
                                 show: true,
-                                backgroundColor: 'rgba(10, 14, 23, 0.9)',
+                                backgroundColor: 'rgba(10, 14, 23, 0.95)',
                                 borderColor: '#00f0ff',
+                                borderWidth: 1,
                                 textStyle: { color: '#e0e6ed' },
                                 formatter: '{b}: {c}'
                             },
                             series: [{
                                 type: 'wordCloud',
-                                shape: 'rectangular',
+                                shape: 'star',
                                 left: 'center',
                                 top: 'center',
-                                width: '100%',
-                                height: '100%',
-                                sizeRange: [14, 80],
-                                rotationRange: [0, 90],
-                                rotationStep: 90,
-                                gridSize: 5,
+                                width: '90%',
+                                height: '90%',
+                                sizeRange: [12, 55],
+                                rotationRange: [-30, 60],
+                                rotationStep: 30,
+                                gridSize: 6,
                                 drawOutOfBound: false,
                                 layoutAnimation: true,
                                 textStyle: {
-                                    fontFamily: 'Inter, PingFang SC, sans-serif',
+                                    fontFamily: 'Orbitron, Inter, PingFang SC, sans-serif',
                                     fontWeight: 'bold',
                                     color: function () {
-                                        const colors = [
+                                        const techColors = [
                                             '#00f0ff', '#b967ff', '#00ff9d', '#0077ff', 
-                                            '#7000ff', '#00e5ff', '#a0f0ff', '#d0b0ff'
+                                            '#00e5ff', '#ff00ff', '#00ffff', '#4ade80'
                                         ];
-                                        return colors[Math.floor(Math.random() * colors.length)];
+                                        return techColors[Math.floor(Math.random() * techColors.length)];
                                     }
                                 },
                                 emphasis: {
                                     focus: 'self',
                                     textStyle: {
-                                        textShadowBlur: 10,
-                                        textShadowColor: 'rgba(0, 240, 255, 0.5)'
+                                        textShadowBlur: 25,
+                                        textShadowColor: 'rgba(0, 240, 255, 1)',
+                                        color: '#ffffff'
                                     }
                                 },
                                 data: data
@@ -1086,6 +1444,7 @@
                         };
 
                         chart.setOption(option);
+                        
                         window.addEventListener('resize', () => chart.resize());
                     } catch (e) {
                         console.error('Error in initWordCloud:', e);
@@ -1336,7 +1695,8 @@
 
                 const fetchRealtimeComments = async () => {
                     try {
-                        const res = await axios.get('/api/dashboard/comments?limit=50');
+                        const tId = taskId.value ? `&task_id=${taskId.value}` : '';
+                        const res = await axios.get(`/api/dashboard/comments?limit=50${tId}`);
                         if (res.data && res.data.status === 'success') {
                             if (res.data.comments && res.data.comments.length > 0) {
                                 // Update comments.
@@ -1344,6 +1704,9 @@
                                 // Actually startScroll just scrolls down.
                                 // If we just replace the list, it's fine.
                                 realtimeComments.value = res.data.comments;
+                            } else if (taskId.value) {
+                                // 如果选择了任务但没有评论，清空列表
+                                realtimeComments.value = [];
                             }
                         }
                     } catch (e) {
@@ -1351,12 +1714,17 @@
                     }
                 };
 
+                const handleTaskChange = () => {
+                    fetchDashboardData();
+                    fetchRealtimeComments();
+                };
+
                 onMounted(() => {
-                    if (activeMenu.value === 'dashboard') fetchDashboardData();
+                    fetchUnreadCount();
+                    setInterval(fetchUnreadCount, 30000); // 每30秒刷新一次未读数
                     
-                    if (activeMenu.value !== 'dashboard') {
-                         fetchDashboardData(); // Default fallback
-                    }
+                    fetchTasks();
+                    fetchDashboardData();
 
                     // 实时评论流 - 从后端获取
                     fetchRealtimeComments();
@@ -1388,13 +1756,29 @@
                     userRole,
                     username,
                     handleCommand,
-                    isCollapse, dateRange, customDate, trendTitleRange, handleDateRangeChange, handleCustomDateChange,
+                    unreadCount,
+                    popoverVisible,
+                    recentAlerts,
+                    profileDialogVisible,
+                    profileSaving,
+                    profileForm,
+                    handleNotificationClick,
+                    fetchRecentAlerts,
+                    getLevelTagType,
+                    getLevelLabel,
+                    formatAlertTime,
+                    markAllRead,
+                    viewAlertDetail,
+                    goToWarningCenter,
+                    saveProfile,
+                    isCollapse, dateRange, customDate, taskId, tasks, trendTitleRange, handleDateRangeChange, handleCustomDateChange,
                     activeMenu, menuTitle, handleMenuSelect,
                     stats, negativePercentage, positiveNeutralPercentage, topWords,
                     topRegions, fineSentimentData, intentData, regionColors,
                     getSentimentType, formatImageUrl, 
                     selectedItems,
                     exportData,
+                    fetchTasks, fetchDashboardData, handleTaskChange,
                     realtimeComments, getLogoById, timeAgo,
                     scrollRef, isHover, displayComments
                 };

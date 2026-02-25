@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from .database import query_db, execute_db, HOTSEARCH_DB_PATH, TRANSFORMERS_DB_PATH
 from .risk_assessment import calculate_cri, check_veto_rules, get_dynamic_threshold, determine_level, get_sentiment_score
+from .utils import send_email_notification
 
 # 危机识别关键词
 CRISIS_KEYWORDS = {
@@ -16,37 +17,74 @@ CRISIS_KEYWORDS = {
 
 class NotificationService:
     @staticmethod
-    def notify(method: str, title: str, content: str, level: str, reference_id: str = None, meta_data: dict = None, timestamp: str = None, rule_name: str = None, user_id: int = None):
+    def notify(method: str, title: str, content: str, level: str, reference_id: str = None, meta_data: dict = None, timestamp: str = None, rule_name: str = None, user_id: int = None, rule_id: int = None):
         methods = method.split(',')
         meta_str = json.dumps(meta_data) if meta_data else None
         
-        # Prevent duplicate alerts for the same reference_id AND title
-        # This allows the same article to trigger different types of alerts (e.g., "Crisis" vs "Article Burst")
-        # And distinct by user_id if necessary (though usually unique per user-rule)
-        if reference_id:
-            # Check duplicates considering user_id as well if provided
-            if user_id is not None:
-                existing = query_db(
-                    "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id = ?", 
-                    (reference_id, title, user_id), 
-                    one=True
-                )
-            else:
-                existing = query_db(
-                    "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id IS NULL", 
-                    (reference_id, title), 
-                    one=True
-                )
-            if existing:
-                print(f"[Skip Notification] Duplicate alert for {reference_id} with title {title}")
-                return
+        # 确定用于去重的标识符
+        # 对于非文章类的阈值告警，使用小时级时间戳防止短时间内重复发送
+        log_reference_id = reference_id
+        if not log_reference_id:
+            log_reference_id = f"threshold_{datetime.now().strftime('%Y%m%d%H')}"
 
         for m in methods:
             m = m.strip().lower()
+            
+            # 针对用户特定的告警规则，检查是否已经发送过该类型的通知
+            if user_id is not None and rule_id is not None:
+                existing_log = query_db(
+                    "SELECT id FROM notifications_log WHERE user_id = ? AND rule_id = ? AND reference_id = ? AND type = ?",
+                    (user_id, rule_id, log_reference_id, m),
+                    one=True
+                )
+                if existing_log:
+                    print(f"[Skip Notification] Already sent {m} notification for rule {rule_id} and reference {log_reference_id}")
+                    continue
+
             if m == 'system':
+                # 系统消息去重（基于 alerts 表，保持向后兼容）
+                if reference_id:
+                    if user_id is not None:
+                        existing = query_db(
+                            "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id = ?", 
+                            (reference_id, title, user_id), 
+                            one=True
+                        )
+                    else:
+                        existing = query_db(
+                            "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id IS NULL", 
+                            (reference_id, title), 
+                            one=True
+                        )
+                    if existing:
+                        print(f"[Skip System Msg] Duplicate alert for {reference_id}")
+                        # 虽然跳过了发送，但我们也记录到日志中，防止后续循环再次尝试
+                        if user_id is not None and rule_id is not None:
+                            execute_db(
+                                "INSERT OR IGNORE INTO notifications_log (user_id, rule_id, reference_id, type) VALUES (?, ?, ?, ?)",
+                                (user_id, rule_id, log_reference_id, 'system')
+                            )
+                        continue
+
                 NotificationService._send_system_msg(title, content, level, reference_id, meta_str, timestamp, rule_name, user_id)
+                
+                # 记录通知日志
+                if user_id is not None and rule_id is not None:
+                    execute_db(
+                        "INSERT OR IGNORE INTO notifications_log (user_id, rule_id, reference_id, type) VALUES (?, ?, ?, ?)",
+                        (user_id, rule_id, log_reference_id, 'system')
+                    )
+
             elif m == 'email':
-                NotificationService._send_email(title, content, level)
+                success = NotificationService._send_email(title, content, level, user_id, meta_data=meta_data, rule_name=rule_name)
+                if success and user_id is not None and rule_id is not None:
+                    # 获取用户邮箱地址作为 target 记录
+                    user_info = query_db("SELECT email FROM users WHERE id = ?", (user_id,), one=True)
+                    target = user_info['email'] if user_info else None
+                    execute_db(
+                        "INSERT OR IGNORE INTO notifications_log (user_id, rule_id, reference_id, type, target) VALUES (?, ?, ?, ?, ?)",
+                        (user_id, rule_id, log_reference_id, 'email', target)
+                    )
 
     @staticmethod
     def _send_system_msg(title: str, content: str, level: str, reference_id: str = None, meta_data: str = None, timestamp: str = None, rule_name: str = None, user_id: int = None):
@@ -72,36 +110,36 @@ class NotificationService:
                 execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, alerts_time, user_id))
                 
             print(f"[System Notification] {level.upper()}: {title} (Rule: {alert_type}, User: {user_id})")
+            return True
         except Exception as e:
             # Fallback for old schema or error
             print(f"Error inserting alert with user_id: {e}")
-            try:
-                # Try inserting without user_id
-                if timestamp:
-                    sql = """
-                        INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, time, alerts_time) 
-                        VALUES (?, ?, ?, 'unread', ?, ?, ?, ?, ?)
-                    """
-                    execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, timestamp, alerts_time))
-                else:
-                    sql = """
-                        INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, alerts_time) 
-                        VALUES (?, ?, ?, 'unread', ?, ?, ?, ?)
-                    """
-                    execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, alerts_time))
-            except Exception as e2:
-                 print(f"Error inserting alert (fallback 1): {e2}")
-                 try:
-                    sql = "INSERT INTO alerts (level, title, content, status, type) VALUES (?, ?, ?, 'unread', ?)"
-                    execute_db(sql, (level, title, content, alert_type))
-                 except:
-                    pass
+            return False
 
     @staticmethod
-    def _send_email(title: str, content: str, level: str):
-        """发送邮件 (Mock)"""
-        # 在实际系统中，这里会调用 SMTP 服务
-        print(f"[Email Notification Sent] To: admin@example.com, Subject: {title}, Level: {level}")
+    def _send_email(title: str, content: str, level: str, user_id: int = None, meta_data: dict = None, rule_name: str = None):
+        """发送邮件"""
+        user_info = None
+        if user_id is None:
+            # 如果没有指定用户，默认发给管理员
+            user_info = query_db("SELECT username, email, email_notify_enabled FROM users WHERE role = 'admin' LIMIT 1", one=True)
+        else:
+            # 查找指定用户的邮箱设置
+            user_info = query_db("SELECT username, email, email_notify_enabled FROM users WHERE id = ?", (user_id,), one=True)
+
+        if user_info and user_info['email'] and user_info['email_notify_enabled']:
+            return send_email_notification(
+                user_info['email'], 
+                title, 
+                content, 
+                level, 
+                meta_data=meta_data, 
+                rule_name=rule_name,
+                username=user_info['username']
+            )
+        else:
+            print(f"[Email Notification Skip] User {user_id if user_id else 'Admin'} has no email or disabled notifications")
+            return False
 
 class AlertEngine:
     def __init__(self):
@@ -256,7 +294,8 @@ class AlertEngine:
                     details,
                     timestamp=article_dict.get('created_at'),
                     rule_name=rule['name'],
-                    user_id=rule.get('user_id')
+                    user_id=rule.get('user_id'),
+                    rule_id=rule.get('id')
                 )
 
     def _check_cri_rule(self, rule: dict):
@@ -353,7 +392,8 @@ class AlertEngine:
                     details, 
                     timestamp=article_dict.get('created_at'),
                     rule_name=rule['name'],
-                    user_id=rule.get('user_id')
+                    user_id=rule.get('user_id'),
+                    rule_id=rule.get('id')
                 )
                 continue # Skip CRI level check if veto triggered
             
@@ -388,7 +428,8 @@ class AlertEngine:
                     details,
                     timestamp=article_dict.get('created_at'),
                     rule_name=rule['name'],
-                    user_id=rule.get('user_id')
+                    user_id=rule.get('user_id'),
+                    rule_id=rule.get('id')
                 )
 
     def _check_threshold_rule(self, rule: dict):
@@ -503,7 +544,8 @@ class AlertEngine:
                     level, 
                     meta_data=details,
                     rule_name=rule['name'],
-                    user_id=rule.get('user_id')
+                    user_id=rule.get('user_id'),
+                    rule_id=rule.get('id')
                 )
                 return # 危机预警优先处理
 
@@ -583,7 +625,8 @@ class AlertEngine:
                         meta_data=meta_data,
                         timestamp=art['created_at'],
                         rule_name=rule['name'],
-                        user_id=rule.get('user_id')
+                        user_id=rule.get('user_id'),
+                        rule_id=rule.get('id')
                     )
 
             except Exception as e:

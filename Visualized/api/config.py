@@ -1,6 +1,15 @@
 from fastapi import APIRouter, HTTPException
 from .database import query_db, HOTSEARCH_DB_PATH
 import sqlite3
+import os
+
+# --- SMTP 邮件配置 ---
+# 建议通过环境变量设置，或者在这里填写默认值
+SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.qq.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 465))
+SMTP_USER = os.environ.get("SMTP_USER", "1838079834@qq.com")  # 发件人邮箱
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "ixwgjjgvfrgdebja")  # 邮箱授权码
+SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "舆情监控系统")
 
 # 数据源 1 (uapis.cn) 的平台映射
 # 格式: "系统统一ID": "uapis对应的type"

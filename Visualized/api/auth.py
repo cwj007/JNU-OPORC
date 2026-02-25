@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from datetime import datetime, timedelta
 import secrets
 import hashlib
+from typing import Optional
 from .database import query_db, execute_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -15,6 +16,8 @@ class User(BaseModel):
     id: int
     username: str
     role: str
+    email: Optional[str] = None
+    email_notify_enabled: bool = True
 
 def get_password_hash(password: str, salt: str) -> str:
     return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
@@ -71,7 +74,19 @@ async def get_current_user(authorization: str = Header(None)):
         raise HTTPException(status_code=401, detail="Not authenticated")
     
     token = authorization.split(" ")[1]
+    return await verify_token(token)
+
+async def get_current_user_optional(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
     
+    try:
+        token = authorization.split(" ")[1]
+        return await verify_token(token)
+    except:
+        return None
+
+async def verify_token(token: str):
     # Check session
     session = query_db("SELECT * FROM sessions WHERE token = ?", (token,), one=True)
     if not session:
@@ -103,7 +118,14 @@ async def get_current_user(authorization: str = Header(None)):
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
         
-    return User(id=user['id'], username=user['username'], role=user['role'])
+    user_dict = dict(user)
+    return User(
+        id=user_dict['id'], 
+        username=user_dict['username'], 
+        role=user_dict['role'],
+        email=user_dict.get('email'),
+        email_notify_enabled=bool(user_dict.get('email_notify_enabled', 1))
+    )
 
 async def get_current_admin(user: User = Depends(get_current_user)):
     if user.role not in ['admin', 'root']:
@@ -114,17 +136,76 @@ async def get_current_admin(user: User = Depends(get_current_user)):
 async def read_users_me(user: User = Depends(get_current_user)):
     return user
 
+@router.get("/profile")
+async def get_profile(user: User = Depends(get_current_user)):
+    return user
+
+class ProfileUpdateRequest(BaseModel):
+    email: Optional[str] = None
+    email_notify_enabled: Optional[bool] = None
+    old_password: Optional[str] = None
+    new_password: Optional[str] = None
+
+@router.post("/profile")
+async def update_profile(profile_data: ProfileUpdateRequest, user: User = Depends(get_current_user)):
+    updates = []
+    params = []
+    
+    if profile_data.email is not None:
+        updates.append("email = ?")
+        params.append(profile_data.email)
+    
+    if profile_data.email_notify_enabled is not None:
+        updates.append("email_notify_enabled = ?")
+        params.append(1 if profile_data.email_notify_enabled else 0)
+
+    # 密码修改逻辑
+    if profile_data.new_password:
+        if not profile_data.old_password:
+            raise HTTPException(status_code=400, detail="修改密码需要提供旧密码")
+        
+        # 获取当前用户的完整信息（包含密码哈希和盐）
+        current_user = query_db("SELECT password_hash, salt FROM users WHERE id = ?", (user.id,), one=True)
+        if not current_user:
+            raise HTTPException(status_code=404, detail="未找到用户信息")
+        
+        # 验证旧密码
+        if not verify_password(profile_data.old_password, current_user['password_hash'], current_user['salt']):
+            raise HTTPException(status_code=400, detail="旧密码不正确")
+        
+        # 生成新的盐和哈希
+        new_salt = secrets.token_hex(16)
+        new_hash = get_password_hash(profile_data.new_password, new_salt)
+        
+        updates.append("password_hash = ?")
+        params.append(new_hash)
+        updates.append("salt = ?")
+        params.append(new_salt)
+    
+    if not updates:
+        return {"message": "No changes requested"}
+    
+    params.append(user.id)
+    sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+    
+    success = execute_db(sql, tuple(params))
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update profile")
+    
+    return {"message": "Profile updated successfully"}
+
 # --- New User Management Endpoints ---
 
 @router.get("/users", dependencies=[Depends(get_current_admin)])
-async def get_all_users():
-    users = query_db("SELECT id, username, role, created_at FROM users")
-    return [dict(u) for u in users]
+async def list_users():
+    users = query_db("SELECT id, username, role, email, created_at FROM users")
+    return users
 
 class CreateUserRequest(BaseModel):
     username: str
-    password: str
+    password: Optional[str] = None
     role: str = "user"
+    email: Optional[str] = None
 
 @router.post("/users", dependencies=[Depends(get_current_admin)])
 async def create_user(user_data: CreateUserRequest):
@@ -133,21 +214,89 @@ async def create_user(user_data: CreateUserRequest):
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
     
+    # Default password to 123456 if not provided
+    password = user_data.password if user_data.password and user_data.password.strip() != "" else "123456"
+    
     salt = secrets.token_hex(16)
-    pwd_hash = get_password_hash(user_data.password, salt)
+    pwd_hash = get_password_hash(password, salt)
     
     try:
-        execute_db("INSERT INTO users (username, password_hash, salt, role) VALUES (?, ?, ?, ?)", 
-                   (user_data.username, pwd_hash, salt, user_data.role))
+        success = execute_db("INSERT INTO users (username, password_hash, salt, role, email) VALUES (?, ?, ?, ?, ?)", 
+                         (user_data.username, pwd_hash, salt, user_data.role, user_data.email))
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to create user")
         return {"message": "User created successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/users/{user_id}", dependencies=[Depends(get_current_admin)])
 async def delete_user(user_id: int):
-    # Prevent deleting self or root?
-    # Ideally check, but for now simple delete
+    # Check if target user is root
+    user = query_db("SELECT username FROM users WHERE id = ?", (user_id,), one=True)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user['username'] == 'root':
+        raise HTTPException(status_code=403, detail="Root user cannot be deleted")
+
     execute_db("DELETE FROM users WHERE id = ?", (user_id,))
     # Also delete sessions
     execute_db("DELETE FROM sessions WHERE user_id = ?", (user_id,))
     return {"message": "User deleted"}
+
+class UpdateUserRequest(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+    role: Optional[str] = None
+    email: Optional[str] = None
+
+@router.put("/users/{user_id}", dependencies=[Depends(get_current_admin)])
+async def update_user(user_id: int, user_data: UpdateUserRequest):
+    # Check if target user is root
+    user = query_db("SELECT username FROM users WHERE id = ?", (user_id,), one=True)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if user['username'] == 'root':
+        raise HTTPException(status_code=403, detail="Root user cannot be modified")
+
+    updates = []
+    params = []
+    
+    if user_data.username is not None:
+        # Check if username exists for other users
+        existing = query_db("SELECT id FROM users WHERE username = ? AND id != ?", (user_data.username, user_id), one=True)
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already exists")
+        updates.append("username = ?")
+        params.append(user_data.username)
+    
+    if user_data.password is not None and user_data.password != "":
+        salt = secrets.token_hex(16)
+        pwd_hash = get_password_hash(user_data.password, salt)
+        updates.append("password_hash = ?")
+        params.append(pwd_hash)
+        updates.append("salt = ?")
+        params.append(salt)
+    
+    if user_data.role is not None:
+        updates.append("role = ?")
+        params.append(user_data.role)
+
+    if user_data.email is not None:
+        updates.append("email = ?")
+        params.append(user_data.email)
+    
+    if not updates:
+        return {"message": "No changes requested"}
+    
+    params.append(user_id)
+    sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
+    
+    try:
+        success = execute_db(sql, tuple(params))
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to update user")
+        return {"message": "User updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

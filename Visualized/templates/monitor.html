@@ -374,31 +374,7 @@
         }
 
         /* 覆盖 Element Plus 的一些默认样式以适应深色主题 */
-        .el-dialog {
-            background: #1a1f2e !important;
-            border: 1px solid rgba(0, 240, 255, 0.2) !important;
-        }
-        .el-dialog__title {
-            color: #fff !important;
-        }
-        .el-dialog__body {
-            color: var(--text-primary) !important;
-        }
-        .el-picker-panel {
-            background-color: #1a1f2e !important;
-            border: 1px solid rgba(0, 240, 255, 0.2) !important;
-            color: #fff !important;
-        }
-        .el-date-table td.available:hover {
-            color: var(--primary-color) !important;
-        }
-        .el-select-dropdown__item.hover, .el-select-dropdown__item:hover {
-            background-color: rgba(0, 240, 255, 0.1) !important;
-        }
-        .el-select-dropdown {
-            background-color: #1a1f2e !important;
-            border: 1px solid rgba(0, 240, 255, 0.2) !important;
-        }
+        /* 已迁移至 style.css */
         
         /* 详情页样式增强 */
         .detail-meta-item {
@@ -421,65 +397,9 @@
             padding: 5px;
         }
         
-        /* 优化 Table Filter 弹窗布局 */
-        .el-table-filter {
-            padding: 8px 0 !important;
-            border-radius: 8px !important;
-            border: 1px solid rgba(0, 240, 255, 0.2) !important;
-            background-color: #1a1f2e !important;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
-        }
-        .el-table-filter__list {
-            padding: 5px 0 !important;
-        }
-        .el-table-filter__list-item {
-            padding: 8px 20px !important;
-            color: var(--text-primary) !important;
-            line-height: 1.5 !important;
-        }
-        .el-table-filter__list-item:hover {
-            background-color: rgba(0, 240, 255, 0.1) !important;
-            color: var(--primary-color) !important;
-        }
-        .el-table-filter__list-item.is-active {
-            background-color: rgba(0, 240, 255, 0.15) !important;
-            color: var(--primary-color) !important;
-            font-weight: bold !important;
-        }
-        .el-table-filter__bottom {
-            padding: 12px 15px !important;
-            border-top: 1px solid rgba(255, 255, 255, 0.1) !important;
-            display: flex !important;
-            justify-content: space-between !important;
-            gap: 15px !important;
-        }
-        .el-table-filter__bottom button {
-            font-size: 12px !important;
-            padding: 5px 15px !important;
-            border-radius: 4px !important;
-            line-height: 1 !important;
-            height: 24px !important;
-            background: transparent !important;
-            border: 1px solid rgba(255,255,255,0.2) !important;
-            cursor: pointer !important;
-            transition: all 0.2s !important;
-        }
-        .el-table-filter__bottom button:hover {
-            border-color: var(--primary-color) !important;
-            color: var(--primary-color) !important;
-        }
-        /* 禁用状态 */
-        .el-table-filter__bottom button.is-disabled {
-            border-color: rgba(255,255,255,0.1) !important;
-            color: rgba(255,255,255,0.3) !important;
-            cursor: not-allowed !important;
-        }
-        /* Checkbox 样式微调 */
-        .el-table-filter__checkbox-group label.el-checkbox {
-            margin-right: 0 !important;
-            display: flex !important;
-            align-items: center !important;
-        }
+        /* 优化 Table Filter 弹窗布局 - 已迁移至 style.css */
+        
+        /* 评论列表悬停效果 */
 
 
 
@@ -1275,7 +1195,8 @@
                             </span>
                             <template #dropdown>
                                 <el-dropdown-menu>
-                                    <el-dropdown-item command="logout">退出登录</el-dropdown-item>
+                                    <el-dropdown-item command="profile">个人设置</el-dropdown-item>
+                                    <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
                                 </el-dropdown-menu>
                             </template>
                         </el-dropdown>
@@ -2216,6 +2137,12 @@
                     <el-switch v-model="warningRuleForm.is_crisis" :active-value="1" :inactive-value="0" active-text="开启" inactive-text="关闭"></el-switch>
                     <div style="font-size: 12px; color: #999; line-height: 1.4; margin-top: 5px;">开启后，当预警数量达到阈值时，任务卡片将标记为红色（Ⅰ级）危机状态。</div>
                 </el-form-item>
+                <el-form-item label="通知方式">
+                    <el-checkbox-group v-model="warningRuleForm.notify_methods">
+                        <el-checkbox label="system">系统推送</el-checkbox>
+                        <el-checkbox label="email">邮件推送</el-checkbox>
+                    </el-checkbox-group>
+                </el-form-item>
             </el-form>
             <template #footer>
                 <el-button @click="warningConfigVisible = false">取消</el-button>
@@ -2269,6 +2196,51 @@
                 <el-button type="primary" @click="saveCommentTrainingResult">保存修改</el-button>
             </template>
         </el-dialog>
+
+        <!-- 个人设置弹窗 -->
+        <el-dialog v-model="profileDialogVisible" title="个人设置" width="450px" class="tech-dialog">
+            <div class="dialog-tech-decor"></div>
+            <el-form :model="profileForm" label-width="100px" style="padding: 20px 30px;">
+                <div class="form-section-title">基本信息</div>
+                <el-form-item label="用户名">
+                    <el-input v-model="username" disabled class="tech-input"></el-input>
+                </el-form-item>
+                <el-form-item label="邮箱地址">
+                    <el-input v-model="profileForm.email" placeholder="用于接收预警的邮箱" class="tech-input"></el-input>
+                </el-form-item>
+                <el-form-item label="邮件提醒">
+                    <el-switch 
+                        v-model="profileForm.email_notify_enabled" 
+                        active-text="开启" 
+                        inactive-text="关闭"
+                        :active-value="1"
+                        :inactive-value="0"
+                        class="tech-switch"
+                    ></el-switch>
+                </el-form-item>
+
+                <div class="form-section-title" style="margin-top: 25px;">安全设置</div>
+                <el-form-item label="旧密码">
+                    <el-input v-model="profileForm.old_password" type="password" placeholder="若修改密码请填写旧密码" show-password class="tech-input"></el-input>
+                </el-form-item>
+                <el-form-item label="新密码">
+                    <el-input v-model="profileForm.new_password" type="password" placeholder="不修改请留空" show-password class="tech-input"></el-input>
+                </el-form-item>
+                <el-form-item label="确认新密码">
+                    <el-input v-model="profileForm.confirm_password" type="password" placeholder="请再次输入新密码" show-password class="tech-input"></el-input>
+                </el-form-item>
+                
+                <div class="tech-hint">
+                    <i class="el-icon-info"></i> 开启邮件提醒后，触发预警规则时将向此邮箱发送通知
+                </div>
+            </el-form>
+            <template #footer>
+                <div class="dialog-footer">
+                    <el-button @click="profileDialogVisible = false" class="tech-btn-secondary">取消</el-button>
+                    <el-button type="primary" @click="saveProfile" :loading="profileSaving" class="tech-btn-primary">保存系统设置</el-button>
+                </div>
+            </template>
+        </el-dialog>
     </div>
 
     <script>
@@ -2290,12 +2262,99 @@
                 const { ElMessage, ElMessageBox } = ElementPlus;
                 const userRole = ref(localStorage.getItem('role') || 'user');
                 const username = ref(localStorage.getItem('username') || 'Admin');
+                const profileDialogVisible = ref(false);
+                const profileSaving = ref(false);
+                const profileForm = ref({
+                    email: '',
+                    email_notify_enabled: 1,
+                    old_password: '',
+                    new_password: '',
+                    confirm_password: ''
+                });
+
+                const fetchProfile = async () => {
+                    try {
+                        const res = await axios.get('/api/auth/profile');
+                        profileForm.value = {
+                            email: res.data.email || '',
+                            email_notify_enabled: res.data.email_notify_enabled === 0 ? 0 : 1,
+                            old_password: '',
+                            new_password: '',
+                            confirm_password: ''
+                        };
+                    } catch (e) {
+                        console.error('Failed to fetch profile', e);
+                    }
+                };
+
+                const saveProfile = async () => {
+                    // 邮箱格式验证正则表达式
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    
+                    if (profileForm.value.email_notify_enabled === 1 && !profileForm.value.email) {
+                        ElMessage.warning('开启邮件提醒前请先设置电子邮箱');
+                        return;
+                    }
+
+                    if (profileForm.value.email && !emailRegex.test(profileForm.value.email)) {
+                        ElMessage.warning('请输入正确的邮箱格式');
+                        return;
+                    }
+
+                    // 密码校验
+                    if (profileForm.value.new_password) {
+                        if (!profileForm.value.old_password) {
+                            ElMessage.warning('修改密码请输入旧密码以验证身份');
+                            return;
+                        }
+                        if (profileForm.value.new_password !== profileForm.value.confirm_password) {
+                            ElMessage.warning('两次输入的密码不一致');
+                            return;
+                        }
+                        if (profileForm.value.new_password.length < 6) {
+                            ElMessage.warning('新密码长度不能少于6位');
+                            return;
+                        }
+                    }
+
+                    profileSaving.value = true;
+                    try {
+                        const postData = {
+                            email: profileForm.value.email,
+                            email_notify_enabled: profileForm.value.email_notify_enabled ? 1 : 0
+                        };
+                        
+                        if (profileForm.value.new_password) {
+                            postData.old_password = profileForm.value.old_password;
+                            postData.new_password = profileForm.value.new_password;
+                        }
+
+                        await axios.post('/api/auth/profile', postData);
+                        ElMessage.success('个人设置更新成功');
+                        profileDialogVisible.value = false;
+                        
+                        // 如果修改了密码，建议重新登录，但这里暂不强制
+                        if (profileForm.value.new_password) {
+                            profileForm.value.old_password = '';
+                            profileForm.value.new_password = '';
+                            profileForm.value.confirm_password = '';
+                        }
+                    } catch (e) {
+                        ElMessage.error('更新失败: ' + (e.response?.data?.detail || '未知错误'));
+                    } finally {
+                        profileSaving.value = false;
+                    }
+                };
+
                 const handleCommand = (command) => {
                     if (command === 'logout') {
                         localStorage.removeItem('token');
                         localStorage.removeItem('username');
                         localStorage.removeItem('role');
                         window.location.href = '/login';
+                    } else if (command === 'profile') {
+                        fetchProfile();
+                        profileDialogVisible.value = true;
                     }
                 };
                 const isCollapse = ref(false);
@@ -2890,7 +2949,8 @@
                     threshold: 50,
                     time_window: 24,
                     sentiment: '负面',
-                    is_crisis: 0
+                    is_crisis: 0,
+                    notify_methods: ['system']
                 });
 
                 const openWarningConfig = (task) => {
@@ -2901,11 +2961,27 @@
                     warningRuleForm.threshold = task.threshold || 50;
                     warningRuleForm.is_crisis = task.is_crisis || 0;
                     warningRuleForm.sentiment = task.warning_sentiment || '负面';
+                    warningRuleForm.notify_methods = ['system'];
                     warningConfigVisible.value = true;
                 };
 
                 const saveWarningConfig = async () => {
+                    // 邮箱格式验证正则表达式
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
                     try {
+                        // 校验：如果选择了邮件推送但未设置邮箱，提示并引导设置
+                        if (warningRuleForm.notify_methods.includes('email')) {
+                            if (!profileForm.value.email) {
+                                ElMessage.warning('检测到您选择了邮件推送，但尚未设置电子邮箱，请点击右上角头像进入“个人设置”配置邮箱');
+                                return;
+                            }
+                            if (!emailRegex.test(profileForm.value.email)) {
+                                ElMessage.warning('检测到您的电子邮箱格式不正确，请点击右上角头像进入“个人设置”修改邮箱');
+                                return;
+                            }
+                        }
+
                         // 创建针对该任务的预警规则
                         const ruleData = {
                             name: `任务预警-${warningRuleForm.taskId}`,
@@ -2914,7 +2990,7 @@
                             time_window: warningRuleForm.time_window,
                             sentiment: warningRuleForm.sentiment,
                             is_crisis: warningRuleForm.is_crisis,
-                            notify_methods: 'system',
+                            notify_methods: warningRuleForm.notify_methods.join(','),
                             is_active: 1
                         };
                         await axios.post('/api/alerts/rules', ruleData);
@@ -3117,10 +3193,26 @@
                 };
 
                 const saveTask = async () => {
+                    // 邮箱格式验证正则表达式
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
                     if (!taskForm.name || !taskForm.keywords) {
                         ElMessage.warning('请填写必要信息');
                         return;
                     }
+
+                    // 校验：如果开启了预警并选择了邮件推送，但未设置邮箱或格式不正确
+                    if (taskForm.warningEnabled && Array.isArray(taskForm.notifyMethods) && taskForm.notifyMethods.includes('email')) {
+                        if (!profileForm.value.email) {
+                            ElMessage.warning('检测到您在任务预警中选择了邮件推送，但尚未设置电子邮箱，请点击右上角头像进入“个人设置”配置邮箱');
+                            return;
+                        }
+                        if (!emailRegex.test(profileForm.value.email)) {
+                            ElMessage.warning('检测到您的电子邮箱格式不正确，请点击右上角头像进入“个人设置”修改邮箱');
+                            return;
+                        }
+                    }
+
                     try {
                         const res = await axios.post('/api/monitoring/tasks', taskForm);
                         ElMessage.success('任务保存成功');
@@ -3141,7 +3233,7 @@
                                         time_window: 24,
                                         sentiment: '负面',
                                         is_crisis: taskForm.is_crisis,
-                                        notify_methods: 'system',
+                                        notify_methods: Array.isArray(taskForm.notifyMethods) ? taskForm.notifyMethods.join(',') : 'system',
                                         is_active: 1
                                     };
                                     await axios.post('/api/alerts/rules', ruleData);
@@ -3857,6 +3949,7 @@
                 onMounted(async () => {
                     await fetchTasks();
                     fetchData();
+                    fetchProfile();
                 });
 
                 const formatTime = (timeStr) => {
@@ -3893,6 +3986,7 @@
                     loadMoreMergedItems, loadMoreComments, expandAllImages,
                     previewImageRef, openPreview, getThumbnailUrl, previewImagesList, previewKey,
                     warningConfigVisible, warningRuleForm, openWarningConfig, saveWarningConfig,
+                    profileDialogVisible, profileSaving, profileForm, saveProfile,
                     sortableContainer,
                     backToMergedView, previousMergedDetail, detailSentimentStats,
                     // Training Results

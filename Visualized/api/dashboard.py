@@ -1,28 +1,145 @@
 import json
 import math
+import jieba
+import jieba.analyse
+import re
+from collections import Counter
 from datetime import datetime, timedelta
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from .database import query_db
 from .utils import is_junk_label
+from .common import PLATFORM_MAP, parse_keyword_expr
+from .auth import get_current_user, User
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-@router.get("/comments")
-async def get_dashboard_comments(limit: int = 50):
-    """获取最新评论流"""
+def build_task_filter(task_id: int, current_user: User, table_alias: str = None, mode: str = "full"):
+    """根据任务 ID 构造 SQL 过滤条件，并校验用户权限"""
+    # 权限控制：普通用户只能看到自己任务范围内的数据
+    user_tasks = []
+    if current_user.role != 'admin':
+        if task_id:
+            # 校验特定任务是否属于该用户
+            task = query_db("SELECT id, name, keywords, exclude_words, platforms, warning_keywords FROM monitoring_tasks WHERE id = ? AND user_id = ?", (task_id, current_user.id), one=True)
+            if not task:
+                return "1=0", [] # 无权限
+            user_tasks = [task]
+        else:
+            # 获取该用户的所有任务
+            user_tasks = query_db("SELECT id, name, keywords, exclude_words, platforms, warning_keywords FROM monitoring_tasks WHERE user_id = ?", (current_user.id,))
+            if not user_tasks:
+                return "1=0", [] # 如果没有任何任务，直接返回空
+    else:
+        # 管理员可以看所有，但如果指定了 task_id，则只看该任务
+        if task_id:
+            task = query_db("SELECT id, name, keywords, exclude_words, platforms, warning_keywords FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
+            if not task:
+                return "1=0", []
+            user_tasks = [task]
+        else:
+            # 管理员且未指定任务，返回空过滤条件表示查看全部
+            return "", []
+
+    # 构造过滤条件 (逻辑同 monitoring.py 的 build_user_scope_filter)
+    or_groups = []
+    all_params = []
+    alias = f"{table_alias}." if table_alias else ""
+
+    for t in user_tasks:
+        task_clauses = []
+        task_params = []
+        
+        # 1. Keywords
+        if t.get('keywords'):
+            k_sql, k_params = parse_keyword_expr(t['keywords'], mode=mode, table_alias=table_alias)
+            if k_sql:
+                task_clauses.append(k_sql)
+                task_params.extend(k_params)
+        
+        # 2. Platforms
+        if t.get('platforms'):
+            p_clauses = []
+            p_list = t['platforms'].split(',')
+            for p in p_list:
+                if not p.strip(): continue
+                p_str = p.strip()
+                search_terms = [p_str]
+                if p_str in PLATFORM_MAP:
+                    search_terms.append(PLATFORM_MAP[p_str])
+                
+                p_or = []
+                for term in search_terms:
+                    p_or.append(f"{alias}source LIKE ?")
+                    task_params.append(f"%{term}%")
+                p_clauses.append(f"({' OR '.join(p_or)})")
+            
+            if p_clauses:
+                task_clauses.append(f"({' OR '.join(p_clauses)})")
+        
+        # 3. Exclude
+        if t.get('exclude_words'):
+            excludes = t['exclude_words'].replace(',', ' ').split()
+            for ew in excludes:
+                if not ew.strip(): continue
+                ew_wild = f"%{ew.strip()}%"
+                if table_alias == 'cm' or mode == 'content':
+                    task_clauses.append(f"({alias}content NOT LIKE ?)")
+                    task_params.append(ew_wild)
+                else:
+                    if table_alias == 'c':
+                        task_clauses.append(f"NOT ({alias}title LIKE ? OR {alias}content LIKE ? OR EXISTS (SELECT 1 FROM top_topics tt WHERE tt.top_id = {alias}top_id AND tt.top_name LIKE ?))")
+                        task_params.extend([ew_wild, ew_wild, ew_wild])
+                    else:
+                        task_clauses.append(f"({alias}title NOT LIKE ? AND {alias}content NOT LIKE ?)")
+                        task_params.extend([ew_wild, ew_wild])
+
+        if task_clauses:
+            or_groups.append(f"({' AND '.join(task_clauses)})")
+            all_params.extend(task_params)
+
+    if not or_groups:
+        return "1=0", []
+        
+    final_sql = f"({' OR '.join(or_groups)})"
+    return final_sql, all_params
+
+@router.get("/tasks")
+async def get_dashboard_tasks(current_user: User = Depends(get_current_user)):
+    """获取所有监控任务列表，用于下拉选择"""
     try:
-        # Query processed_items for comments (where comment_id != '0')
-        # We select specific columns to minimize data transfer
-        sql = """
+        if current_user.role == 'admin':
+            tasks = query_db("SELECT id, name FROM monitoring_tasks ORDER BY id DESC")
+        else:
+            tasks = query_db("SELECT id, name FROM monitoring_tasks WHERE user_id = ? ORDER BY id DESC", (current_user.id,))
+        return {"tasks": tasks, "status": "success"}
+    except Exception as e:
+        return {"tasks": [], "status": "error", "message": str(e)}
+
+@router.get("/comments")
+async def get_dashboard_comments(limit: int = 50, task_id: int = None, current_user: User = Depends(get_current_user)):
+    """获取最新评论流，支持任务筛选"""
+    try:
+        where_clauses = ["cm.comment_id != '0'", "cm.source IS NOT NULL", "cm.source != ''"]
+        params = []
+        
+        if task_id:
+            # 统一使用 comments 表
+            task_sql, task_params = build_task_filter(task_id, current_user, table_alias='cm', mode='content')
+            if task_sql:
+                where_clauses.append(task_sql)
+                params.extend(task_params)
+
+        sql = f"""
             SELECT 
                 comment_id, content, author, created_at, source, 
                 sentiment, fine_grained_sentiment 
-            FROM processed_items 
-            WHERE comment_id != '0' AND source IS NOT NULL AND source != ''
+            FROM comments cm 
+            WHERE {" AND ".join(where_clauses)}
             ORDER BY created_at DESC 
             LIMIT ?
         """
-        comments = query_db(sql, (limit,))
+        params.append(limit)
+        comments = query_db(sql, tuple(params))
         
         results = []
         if comments:
@@ -97,44 +214,90 @@ async def get_dashboard_comments(limit: int = 50):
         return {"comments": [], "status": "error", "message": str(e)}
 
 @router.get("/stats")
-async def get_dashboard_stats(days: int = 7):
-    """获取核心指标卡片数据，支持日期范围"""
+async def get_dashboard_stats(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+    """获取核心指标卡片数据，支持日期范围和任务筛选"""
     try:
-        # 今日统计：以 sync_date 为准（今天系统新发现了多少数据）
+        # 今日统计：以 sync_date 为准
         today_str = datetime.now().strftime("%Y-%m-%d")
         
-        # 趋势与分布统计：以 created_at 为准（这些舆情真实发生的时间）
+        # 趋势与分布统计：以 created_at 为准
         if days == 1:
-            # 24小时模式：从昨天当前时间到现在的范围
-            # 注意：这里需要精确到秒，或者简化为只看今天和昨天
             start_date_dt = datetime.now() - timedelta(days=1)
             start_date_str = start_date_dt.strftime("%Y-%m-%d %H:%M:%S")
         else:
             start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
             start_date_str = start_date + " 00:00:00"
         
-        # 1. 统计今日新增（系统工作量，使用 sync_date）
-        today_article = query_db("SELECT COUNT(*) FROM content WHERE sync_date = ?", (today_str,), one=True)
-        today_comment = query_db("SELECT COUNT(*) FROM comments WHERE sync_date = ?", (today_str,), one=True)
-        today_count = (today_article[0] if today_article else 0) + (today_comment[0] if today_comment else 0)
+        # 构造任务过滤条件
+        task_where_art, task_params_art = build_task_filter(task_id, current_user, table_alias="c", mode="full")
+        task_where_cm, task_params_cm = build_task_filter(task_id, current_user, mode="content")
         
-        # 2. 统计时间范围内的总数（舆情发生量，使用 created_at）
-        # 注意：created_at 是 "YYYY-MM-DD HH:MM:SS" 格式字符串，可以直接比较
-        article_stats = query_db("SELECT COUNT(*) as count FROM content WHERE created_at >= ?", (start_date_str,), one=True)
-        comment_stats = query_db("SELECT COUNT(*) as count FROM comments WHERE created_at >= ?", (start_date_str,), one=True)
+        # 1. 统计今日新增（系统工作量，使用 sync_date）
+        where_art = ["c.sync_date = ?"]
+        params_art = [today_str]
+        if task_where_art:
+            where_art.append(task_where_art)
+            params_art.extend(task_params_art)
+            
+        sql_art = f"SELECT COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)}"
+        
+        where_cm = ["sync_date = ?"]
+        params_cm = [today_str]
+        if task_where_cm:
+            where_cm.append(task_where_cm)
+            params_cm.extend(task_params_cm)
+            
+        sql_cm = f"SELECT COUNT(*) as count FROM comments WHERE {' AND '.join(where_cm)}"
+        
+        today_articles = query_db(sql_art, tuple(params_art), one=True)
+        today_comments = query_db(sql_cm, tuple(params_cm), one=True)
+        today_count = (today_articles['count'] if today_articles else 0) + (today_comments['count'] if today_comments else 0)
+        
+        # 2. 统计周期内总数（业务关注量，使用 created_at）
+        where_total_art = ["c.created_at >= ?"]
+        params_total_art = [start_date_str]
+        if task_where_art:
+            where_total_art.append(task_where_art)
+            params_total_art.extend(task_params_art)
+            
+        sql_total_art = f"SELECT COUNT(*) as count FROM content c WHERE {' AND '.join(where_total_art)}"
+        
+        where_total_cm = ["created_at >= ?"]
+        params_total_cm = [start_date_str]
+        if task_where_cm:
+            where_total_cm.append(task_where_cm)
+            params_total_cm.extend(task_params_cm)
+            
+        sql_total_cm = f"SELECT COUNT(*) as count FROM comments WHERE {' AND '.join(where_total_cm)}"
+        
+        article_stats = query_db(sql_total_art, tuple(params_total_art), one=True)
+        comment_stats = query_db(sql_total_cm, tuple(params_total_cm), one=True)
         
         article_count = article_stats['count'] if article_stats else 0
         comment_count = comment_stats['count'] if comment_stats else 0
         total_count = article_count + comment_count
         
-        sentiment_sql = """
+        # 3. 情感分布
+        # 先确保基础条件不为空
+        final_where_art = " AND ".join(where_total_art) if where_total_art else "1=1"
+        final_where_cm = " AND ".join(where_total_cm) if where_total_cm else "1=1"
+
+        sql_range_art_sent = f"SELECT sentiment, COUNT(*) as count FROM content c WHERE {final_where_art} GROUP BY sentiment"
+        sql_range_com_sent = f"SELECT sentiment, COUNT(*) as count FROM comments WHERE {final_where_cm} GROUP BY sentiment"
+        
+        sentiment_sql = f"""
             SELECT sentiment, SUM(count) as total_count FROM (
-                SELECT sentiment, COUNT(*) as count FROM content WHERE created_at >= ? GROUP BY sentiment
+                SELECT sentiment, COUNT(*) as count FROM content c WHERE {final_where_art} GROUP BY sentiment
                 UNION ALL
-                SELECT sentiment, COUNT(*) as count FROM comments WHERE created_at >= ? GROUP BY sentiment
+                SELECT sentiment, COUNT(*) as count FROM comments WHERE {final_where_cm} GROUP BY sentiment
             ) GROUP BY sentiment
         """
-        sentiment_dist = query_db(sentiment_sql, (start_date_str, start_date_str))
+        # 合并参数：文章参数在前，评论参数在后，必须与 UNION ALL 顺序一致
+        all_params_sent = params_total_art + params_total_cm
+        print(f"DEBUG: sentiment_sql: {sentiment_sql}")
+        print(f"DEBUG: all_params_sent: {all_params_sent}")
+        
+        sentiment_dist = query_db(sentiment_sql, tuple(all_params_sent))
         dist = {row['sentiment']: row['total_count'] for row in sentiment_dist} if sentiment_dist else {}
         
         return {
@@ -153,185 +316,322 @@ async def get_dashboard_stats(days: int = 7):
         }
 
 @router.get("/trends")
-async def get_dashboard_trends(days: int = 7):
-    """获取过去 N 天的舆情趋势"""
+async def get_dashboard_trends(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+    """获取过去 N 天的舆情趋势，支持任务筛选"""
     try:
         today_str = datetime.now().strftime("%Y-%m-%d")
+        task_where_art, task_params_art = build_task_filter(task_id, current_user, table_alias="c", mode="full")
+        task_where_cm, task_params_cm = build_task_filter(task_id, current_user, mode="content")
+
         if days == 1:
             # 24小时趋势：按发表时间 created_at 的小时分布
-            trend_sql = """
-                SELECT hour_key, sentiment, SUM(count) as total_count FROM (
-                    SELECT 
-                        substr(created_at, 1, 13) as hour_key, 
-                        sentiment, COUNT(*) as count 
-                    FROM content WHERE substr(created_at, 1, 10) = ? GROUP BY hour_key, sentiment
-                    UNION ALL
-                    SELECT 
-                        substr(created_at, 1, 13) as hour_key, 
-                        sentiment, COUNT(*) as count 
-                    FROM comments WHERE substr(created_at, 1, 10) = ? GROUP BY hour_key, sentiment
-                ) GROUP BY hour_key, sentiment
-            """
-            all_counts = query_db(trend_sql, (today_str, today_str))
+            where_art = ["substr(c.created_at, 1, 10) = ?"]
+            params_art = [today_str]
+            where_com = ["substr(created_at, 1, 10) = ?"]
+            params_com = [today_str]
             
-            # 生成 24 小时列表
-            hour_map = {}
-            if all_counts:
-                for row in all_counts:
-                    h_key = row['hour_key'] # 格式如 "2026-02-12 16"
-                    if h_key not in hour_map:
-                        hour_map[h_key] = {"正面": 0, "中性": 0, "负面": 0, "total": 0}
-                    hour_map[h_key][row['sentiment']] = row['total_count']
-                    hour_map[h_key]["total"] += row['total_count']
+            if task_where_art:
+                where_art.append(task_where_art)
+                params_art.extend(task_params_art)
+            if task_where_cm:
+                where_com.append(task_where_cm)
+                params_com.extend(task_params_cm)
+            
+            # 统计情感分布
+            sql_art = f"SELECT substr(c.created_at, 12, 2) as hour, sentiment, COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)} GROUP BY hour, sentiment"
+            sql_com = f"SELECT substr(created_at, 12, 2) as hour, sentiment, COUNT(*) as count FROM comments WHERE {' AND '.join(where_com)} GROUP BY hour, sentiment"
+            
+            art_res = query_db(sql_art, tuple(params_art))
+            com_res = query_db(sql_com, tuple(params_com))
+            
+            # 初始化 24 小时数据
+            data_map = {f"{i:02d}": {"total": 0, "正面": 0, "中性": 0, "负面": 0} for i in range(24)}
+            
+            def process_res(res):
+                for row in res:
+                    hour = row['hour']
+                    if hour in data_map:
+                        sentiment = row['sentiment'] or "中性"
+                        if sentiment not in ["正面", "中性", "负面"]:
+                            sentiment = "中性"
+                        data_map[hour][sentiment] += row['count']
+                        data_map[hour]["total"] += row['count']
 
-            trends = []
-            now = datetime.now()
-            for i in range(23, -1, -1):
-                h_dt = now - timedelta(hours=i)
-                h_key = h_dt.strftime("%Y-%m-%d %H")
-                display_label = f"{h_dt.hour:02d}时"
-                hour_data = hour_map.get(h_key, {"正面": 0, "中性": 0, "负面": 0, "total": 0})
-                hour_data["date"] = display_label
-                trends.append(hour_data)
-            return trends
+            if art_res: process_res(art_res)
+            if com_res: process_res(com_res)
+            
+            results = []
+            for i in range(24):
+                hour_str = f"{i:02d}"
+                results.append({
+                    "date": f"{hour_str}:00",
+                    **data_map[hour_str]
+                })
+            
+            return results
         else:
-            # 多日趋势：按发表时间 created_at 的天分布
+            # 多日趋势：按日期分布
             start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-            trend_sql = """
-                SELECT data_date, sentiment, SUM(count) as total_count FROM (
-                    SELECT substr(created_at, 1, 10) as data_date, sentiment, COUNT(*) as count 
-                    FROM content WHERE data_date >= ? GROUP BY data_date, sentiment
-                    UNION ALL
-                    SELECT substr(created_at, 1, 10) as data_date, sentiment, COUNT(*) as count 
-                    FROM comments WHERE data_date >= ? GROUP BY data_date, sentiment
-                ) GROUP BY data_date, sentiment
-            """
-            all_counts = query_db(trend_sql, (start_date, start_date))
+            where_art = ["c.created_at >= ?"]
+            params_art = [start_date + " 00:00:00"]
+            where_com = ["created_at >= ?"]
+            params_com = [start_date + " 00:00:00"]
             
-            day_map = {}
-            if all_counts:
-                for row in all_counts:
-                    d = row['data_date']
-                    if d not in day_map:
-                        day_map[d] = {"正面": 0, "中性": 0, "负面": 0, "total": 0}
-                    day_map[d][row['sentiment']] = row['total_count']
-                    day_map[d]["total"] += row['total_count']
+            if task_where_art:
+                where_art.append(task_where_art)
+                params_art.extend(task_params_art)
+            if task_where_cm:
+                where_com.append(task_where_cm)
+                params_com.extend(task_params_cm)
+                
+            sql_art = f"SELECT substr(c.created_at, 1, 10) as date, sentiment, COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)} GROUP BY date, sentiment"
+            sql_com = f"SELECT substr(created_at, 1, 10) as date, sentiment, COUNT(*) as count FROM comments WHERE {' AND '.join(where_com)} GROUP BY date, sentiment"
+            
+            art_res = query_db(sql_art, tuple(params_art))
+            com_res = query_db(sql_com, tuple(params_com))
+            
+            # 生成日期序列
+            date_list = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
+            date_list.reverse()
+            
+            data_map = {d: {"total": 0, "正面": 0, "中性": 0, "负面": 0} for d in date_list}
+            
+            def process_res(res):
+                for row in res:
+                    date = row['date']
+                    if date in data_map:
+                        sentiment = row['sentiment'] or "中性"
+                        if sentiment not in ["正面", "中性", "负面"]:
+                            sentiment = "中性"
+                        data_map[date][sentiment] += row['count']
+                        data_map[date]["total"] += row['count']
 
-            dates = []
-            for i in range(days-1, -1, -1):
-                dates.append((datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d"))
+            if art_res: process_res(art_res)
+            if com_res: process_res(com_res)
             
-            trends = []
-            for d in dates:
-                day_data = day_map.get(d, {"正面": 0, "中性": 0, "负面": 0, "total": 0})
-                day_data["date"] = d
-                trends.append(day_data)
-            return trends
+            results = []
+            for d in date_list:
+                results.append({
+                    "date": d,
+                    **data_map[d]
+                })
+            
+            return results
     except Exception as e:
         print(f"Error in get_dashboard_trends: {e}")
         return []
 
 @router.get("/map")
-async def get_dashboard_map(days: int = 7):
-    """获取热点区域统计"""
+async def get_dashboard_map(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+    """获取地域分布数据（基于 content 和 comments 的 ip_location 字段）"""
     try:
         start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-        map_sql = """
-            SELECT ip_location, SUM(count) as total_count FROM (
-                SELECT ip_location, COUNT(*) as count FROM content 
-                WHERE substr(created_at, 1, 10) >= ? AND ip_location IS NOT NULL AND ip_location != ''
-                GROUP BY ip_location
-                UNION ALL
-                SELECT ip_location, COUNT(*) as count FROM comments 
-                WHERE substr(created_at, 1, 10) >= ? AND ip_location IS NOT NULL AND ip_location != ''
-                GROUP BY ip_location
-            ) GROUP BY ip_location ORDER BY total_count DESC
-        """
-        results = query_db(map_sql, (start_date, start_date))
+        task_where_art, task_params_art = build_task_filter(task_id, current_user, table_alias="c", mode="full")
+        task_where_cm, task_params_cm = build_task_filter(task_id, current_user, mode="content")
         
-        map_data = []
-        if results:
-            for row in results:
-                loc_raw = str(row['ip_location']).strip()
-                if is_junk_label(loc_raw): continue
-                loc = loc_raw.replace("中国", "").replace("省", "").replace("市", "").strip()
+        where_art = ["c.created_at >= ?", "c.ip_location IS NOT NULL", "c.ip_location != ''"]
+        params_art = [start_date + " 00:00:00"]
+        if task_where_art:
+            where_art.append(task_where_art)
+            params_art.extend(task_params_art)
+            
+        where_cm = ["created_at >= ?", "ip_location IS NOT NULL", "ip_location != ''"]
+        params_cm = [start_date + " 00:00:00"]
+        if task_where_cm:
+            where_cm.append(task_where_cm)
+            params_cm.extend(task_params_cm)
+            
+        sql = f"""
+            SELECT ip_location, SUM(count) as total_count FROM (
+                SELECT ip_location, COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)} GROUP BY ip_location
+                UNION ALL
+                SELECT ip_location, COUNT(*) as count FROM comments WHERE {' AND '.join(where_cm)} GROUP BY ip_location
+            ) GROUP BY ip_location
+        """
+        res = query_db(sql, tuple(params_art + params_cm))
+        
+        results = []
+        if res:
+            for row in res:
+                loc = row['ip_location'].replace("发布于：", "").strip()
                 if loc:
-                    map_data.append({"name": loc, "value": int(row['total_count'])})
-        return map_data
+                    results.append({"name": loc, "value": row['total_count']})
+        
+        return results
     except Exception as e:
         print(f"Error in get_dashboard_map: {e}")
         return []
 
 @router.get("/sentiment_fine")
-async def get_dashboard_sentiment_fine(days: int = 7):
-    """获取细粒度情感分布"""
+async def get_dashboard_sentiment_fine(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+    """细粒度情感分布"""
     try:
         start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-        sql = """
-            SELECT fine_grained_sentiment, SUM(count) as total_count FROM (
-                SELECT fine_grained_sentiment, COUNT(*) as count FROM content WHERE substr(created_at, 1, 10) >= ? GROUP BY fine_grained_sentiment
+        task_where_art, task_params_art = build_task_filter(task_id, current_user, table_alias="c", mode="full")
+        task_where_cm, task_params_cm = build_task_filter(task_id, current_user, mode="content")
+        
+        where_art = ["c.created_at >= ?", "c.fine_grained_sentiment IS NOT NULL"]
+        params_art = [start_date + " 00:00:00"]
+        if task_where_art:
+            where_art.append(task_where_art)
+            params_art.extend(task_params_art)
+            
+        where_cm = ["created_at >= ?", "fine_grained_sentiment IS NOT NULL"]
+        params_cm = [start_date + " 00:00:00"]
+        if task_where_cm:
+            where_cm.append(task_where_cm)
+            params_cm.extend(task_params_cm)
+            
+        sql_art = f"SELECT fine_grained_sentiment as sentiment, COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)} GROUP BY fine_grained_sentiment"
+        sql_cm = f"SELECT fine_grained_sentiment as sentiment, COUNT(*) as count FROM comments WHERE {' AND '.join(where_cm)} GROUP BY fine_grained_sentiment"
+        
+        sentiment_sql = f"""
+            SELECT sentiment, SUM(count) as total_count FROM (
+                SELECT fine_grained_sentiment as sentiment, COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)} GROUP BY fine_grained_sentiment
                 UNION ALL
-                SELECT fine_grained_sentiment, COUNT(*) as count FROM comments WHERE substr(created_at, 1, 10) >= ? GROUP BY fine_grained_sentiment
-            ) GROUP BY fine_grained_sentiment ORDER BY total_count DESC
+                SELECT fine_grained_sentiment as sentiment, COUNT(*) as count FROM comments WHERE {' AND '.join(where_cm)} GROUP BY fine_grained_sentiment
+            ) GROUP BY sentiment
         """
-        results = query_db(sql, (start_date, start_date))
-        data = []
-        if results:
-            for row in results:
-                label = row['fine_grained_sentiment']
-                if is_junk_label(label): continue
-                data.append({"name": label, "value": int(row['total_count'])})
-        return data
+        res = query_db(sentiment_sql, tuple(params_art + params_cm))
+        
+        results = [{"name": row['sentiment'], "value": row['total_count']} for row in res] if res else []
+        return results
     except Exception as e:
         print(f"Error in get_dashboard_sentiment_fine: {e}")
         return []
 
 @router.get("/intent")
-async def get_dashboard_intent(days: int = 7):
-    """获取意图类别分布"""
+async def get_dashboard_intent(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+    """意图分布"""
     try:
         start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-        sql = """
+        task_where_art, task_params_art = build_task_filter(task_id, current_user, table_alias="c", mode="full")
+        task_where_cm, task_params_cm = build_task_filter(task_id, current_user, mode="content")
+        
+        where_art = ["c.created_at >= ?", "c.intent IS NOT NULL"]
+        params_art = [start_date + " 00:00:00"]
+        if task_where_art:
+            where_art.append(task_where_art)
+            params_art.extend(task_params_art)
+            
+        where_cm = ["created_at >= ?", "intent IS NOT NULL"]
+        params_cm = [start_date + " 00:00:00"]
+        if task_where_cm:
+            where_cm.append(task_where_cm)
+            params_cm.extend(task_params_cm)
+            
+        sql_art = f"SELECT intent, COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)} GROUP BY intent"
+        sql_cm = f"SELECT intent, COUNT(*) as count FROM comments WHERE {' AND '.join(where_cm)} GROUP BY intent"
+        
+        intent_sql = f"""
             SELECT intent, SUM(count) as total_count FROM (
-                SELECT intent, COUNT(*) as count FROM content WHERE substr(created_at, 1, 10) >= ? GROUP BY intent
+                SELECT intent, COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)} GROUP BY intent
                 UNION ALL
-                SELECT intent, COUNT(*) as count FROM comments WHERE substr(created_at, 1, 10) >= ? GROUP BY intent
-            ) GROUP BY intent ORDER BY total_count DESC
+                SELECT intent, COUNT(*) as count FROM comments WHERE {' AND '.join(where_cm)} GROUP BY intent
+            ) GROUP BY intent
         """
-        results = query_db(sql, (start_date, start_date))
-        data = []
-        if results:
-            for row in results:
-                label = row['intent']
-                if is_junk_label(label): continue
-                data.append({"name": label, "value": int(row['total_count'])})
-        return data
+        res = query_db(intent_sql, tuple(params_art + params_cm))
+        
+        results = [{"name": row['intent'], "value": row['total_count']} for row in res] if res else []
+        return results
     except Exception as e:
         print(f"Error in get_dashboard_intent: {e}")
         return []
 
 @router.get("/wordcloud")
-async def get_dashboard_wordcloud(days: int = 7):
-    """获取词云数据"""
+async def get_dashboard_wordcloud(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+    """关键词云（基于 content 和 comments 的 keywords 字段）"""
     try:
         start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-        sql = "SELECT keywords FROM content WHERE substr(created_at, 1, 10) >= ? UNION ALL SELECT keywords FROM comments WHERE substr(created_at, 1, 10) >= ?"
-        results = query_db(sql, (start_date, start_date))
+        task_where_art, task_params_art = build_task_filter(task_id, current_user, table_alias="c", mode="full")
+        task_where_cm, task_params_cm = build_task_filter(task_id, current_user, mode="content")
         
-        word_counts = {}
-        if results:
-            for row in results:
-                if row['keywords']:
-                    try:
-                        keywords = json.loads(row['keywords'])
-                        for k in keywords:
-                            if is_junk_label(k): continue
-                            word_counts[k] = word_counts.get(k, 0) + 1
-                    except: continue
+        where_art = ["c.created_at >= ?"]
+        params_art = [start_date + " 00:00:00"]
+        if task_where_art:
+            where_art.append(task_where_art)
+            params_art.extend(task_params_art)
+            
+        where_cm = ["created_at >= ?"]
+        params_cm = [start_date + " 00:00:00"]
+        if task_where_cm:
+            where_cm.append(task_where_cm)
+            params_cm.extend(task_params_cm)
+            
+        # 增加抽取数量，提高统计准确性
+        sql_art = f"SELECT keywords FROM content c WHERE {' AND '.join(where_art)} AND keywords IS NOT NULL AND keywords != '' ORDER BY created_at DESC LIMIT 2000"
+        sql_cm = f"SELECT keywords FROM comments WHERE {' AND '.join(where_cm)} AND keywords IS NOT NULL AND keywords != '' ORDER BY created_at DESC LIMIT 2000"
         
-        data = [{"name": k, "value": v} for k, v in word_counts.items()]
-        data.sort(key=lambda x: x['value'], reverse=True)
-        return data[:100]
+        art_res = query_db(sql_art, tuple(params_art))
+        com_res = query_db(sql_cm, tuple(params_cm))
+        
+        # 统计总数用于估算
+        count_sql_art = f"SELECT COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)}"
+        count_sql_cm = f"SELECT COUNT(*) as count FROM comments WHERE {' AND '.join(where_cm)}"
+        total_art = query_db(count_sql_art, tuple(params_art), one=True)['count']
+        total_cm = query_db(count_sql_cm, tuple(params_cm), one=True)['count']
+        total_total = total_art + total_cm
+        
+        # 解析 keywords 字段并计数
+        keyword_counter = Counter()
+        
+        def process_keywords(res_list):
+            for row in res_list:
+                kw_str = row['keywords']
+                if not kw_str: continue
+                try:
+                    kw_list = json.loads(kw_str)
+                    if isinstance(kw_list, list):
+                        keyword_counter.update(kw_list)
+                except:
+                    # 如果不是 JSON 格式，尝试按逗号/空格切分
+                    kw_list = kw_str.replace(',', ' ').split()
+                    keyword_counter.update([k.strip() for k in kw_list if k.strip()])
+
+        if art_res: process_keywords(art_res)
+        if com_res: process_keywords(com_res)
+            
+        if not keyword_counter:
+            return []
+            
+        # 停用词列表（用于二次过滤）
+        stopwords = {
+            '的', '了', '在', '是', '我', '有', '和', '就', '不', '人', '都', '一',
+            '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有',
+            '看', '好', '自己', '这', '那', '来', '被', '与', '为', '对', '将', '从',
+            '以', '及', '等', '但', '或', '而', '于', '中', '由', '可', '可以', '已',
+            '已经', '还', '更', '最', '再', '因为', '所以', '如果', '虽然', '然而',
+            '吧', '呢', '啊', '哦', '哈', '呀', '就是', '我们', '他们', '一个', '什么',
+            '还是', '觉得', '这个', '这么', '怎么', '这种', '那个', '那个', '这么',
+            '这些', '那些', '这样', '那样', '这里', '那里', '哪个', '哪些', '怎么',
+            '为什么', '如何', '什么', '怎样', '可能', '可以', '应该', '必须', '能够',
+            '##', '...', '....', '11', '12', '10', '20'
+        }
+        
+        # 过滤关键词
+        filtered_counts = {
+            k: v for k, v in keyword_counter.items() 
+            if len(k) > 1 
+            and k not in stopwords 
+            and not re.match(r'^[0-9]+$', k)
+            and not re.match(r'^[^\w\s]+$', k)
+        }
+        
+        top_counts = Counter(filtered_counts).most_common(100)
+        
+        # 估算总词频：(样本词频 / 样本记录数) * 总记录数
+        sample_record_count = len(art_res) + len(com_res)
+        scale_factor = total_total / sample_record_count if sample_record_count > 0 else 1
+        
+        results = []
+        for word, count in top_counts:
+            estimated_count = int(count * scale_factor)
+            results.append({"name": word, "value": estimated_count})
+            
+        return results
+    except Exception as e:
+        print(f"Error in get_dashboard_wordcloud: {e}")
+        return []
     except Exception as e:
         print(f"Error in get_dashboard_wordcloud: {e}")
         return []

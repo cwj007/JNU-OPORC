@@ -8,21 +8,7 @@ from fastapi import APIRouter, HTTPException, Body, Depends
 from typing import Optional
 from .database import query_db, execute_db
 from .auth import get_current_user, User
-
-# Try to import PLATFORM_MAP from Transformers.config
-try:
-    from Transformers.config import PLATFORM_MAP
-except ImportError:
-    # Fallback if import fails
-    PLATFORM_MAP = {
-        "weibo": "微博",
-        "zhihu": "知乎",
-        "toutiao": "头条",
-        "douyin": "抖音",
-        "kuaishou": "快手",
-        "bilibili": "B站",
-        "xiaohongshu": "小红书"
-    }
+from .common import PLATFORM_MAP, parse_keyword_expr
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
@@ -397,7 +383,8 @@ async def get_tasks(current_user: User = Depends(get_current_user)):
                             for ew in excludes:
                                 if not ew.strip(): continue
                                 ew_wild = f"%{ew.strip()}%"
-                                where_clauses.append("NOT (T.title LIKE ? OR T.content LIKE ? OR T.top_name LIKE ?)")
+                                # Fix: Handle NULL top_name and lack of top_name column in content table
+                                where_clauses.append("NOT (T.title LIKE ? OR T.content LIKE ? OR IFNULL(t_top.top_name, '') LIKE ?)")
                                 params.extend([ew_wild, ew_wild, ew_wild])
                                 
                         # Warning Keywords (The specific filter for "warning count")
@@ -473,7 +460,8 @@ async def get_tasks(current_user: User = Depends(get_current_user)):
                                 for ew in excludes:
                                     if not ew.strip(): continue
                                     ew_wild = f"%{ew.strip()}%"
-                                    scope_clauses.append("NOT (T.title LIKE ? OR T.content LIKE ? OR T.top_name LIKE ?)")
+                                    # Fix: Handle NULL top_name and lack of top_name column in content table
+                                    scope_clauses.append("NOT (T.title LIKE ? OR T.content LIKE ? OR IFNULL(t_top.top_name, '') LIKE ?)")
                                     scope_params.extend([ew_wild, ew_wild, ew_wild])
 
                             # Comment Specific Constraints
@@ -640,89 +628,17 @@ async def delete_content(note_id: str, current_user: User = Depends(get_current_
         execute_db("DELETE FROM content WHERE note_id = ?", (note_id,))
         # 删除 comments 表中的记录
         execute_db("DELETE FROM comments WHERE note_id = ?", (note_id,))
-        # 删除 processed_items 表中的记录
-        execute_db("DELETE FROM processed_items WHERE note_id = ?", (note_id,))
         
         return {"status": "success", "message": "Content deleted"}
     except Exception as e:
         print(f"Error deleting content: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, column_name: str = None) -> tuple[str, list]:
-    """
-    Parses complex keyword expressions supporting '&' (AND), '|' (OR), and newline (OR group).
-    Returns (sql_clause, params_list).
-    """
-    if not keyword_str:
-        return "", []
-
-    prefix = f"{table_alias}." if table_alias else ""
-    
-    def build_condition(term):
-        term_wild = f"%{term}%"
-        if mode == "simple" and column_name:
-             return f"({prefix}{column_name} LIKE ?)", [term_wild]
-        elif mode == "title":
-            if table_alias == 'c': # Merged query logic
-                 return f"({prefix}top_id LIKE ? OR t.top_name LIKE ?)", [term_wild, term_wild]
-            else: # Normal query logic
-                 return f"({prefix}top_name LIKE ? OR {prefix}title LIKE ?)", [term_wild, term_wild]
-        elif mode == "content":
-            return f"({prefix}content LIKE ?)", [term_wild]
-        elif mode == "comment":
-            # For comment mode, we need to handle the subquery
-            outer_ref = f"{prefix}note_id" if table_alias else "T.note_id"
-            return f"EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.content LIKE ?)", [term_wild]
-        else: # full
-            if table_alias == 'c':
-                return f"({prefix}top_id LIKE ? OR t.top_name LIKE ? OR {prefix}content LIKE ? OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {prefix}note_id AND cm_sub.content LIKE ?))", [term_wild, term_wild, term_wild, term_wild]
-            else:
-                outer_ref = "T.note_id"
-                return f"({prefix}top_name LIKE ? OR {prefix}title LIKE ? OR {prefix}content LIKE ? OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.content LIKE ?))", [term_wild, term_wild, term_wild, term_wild]
-
-    groups = keyword_str.split('\n')
-    group_clauses = []
-    all_params = []
-    
-    for group in groups:
-        if not group.strip(): continue
-        # Split by | for OR
-        or_terms = group.split('|')
-        or_clauses = []
-        for term in or_terms:
-            if not term.strip(): continue
-            # Split by & for AND
-            and_terms = term.split('&')
-            and_clauses = []
-            for subterm in and_terms:
-                subterm = subterm.strip()
-                if not subterm: continue
-                clause, params = build_condition(subterm)
-                and_clauses.append(clause)
-                all_params.extend(params)
-            
-            if and_clauses:
-                if len(and_clauses) > 1:
-                    or_clauses.append("(" + " AND ".join(and_clauses) + ")")
-                else:
-                    or_clauses.append(and_clauses[0])
-                    
-        if or_clauses:
-            if len(or_clauses) > 1:
-                group_clauses.append("(" + " OR ".join(or_clauses) + ")")
-            else:
-                group_clauses.append(or_clauses[0])
-                
-    if not group_clauses:
-        return "", []
-        
-    final_sql = "(" + " OR ".join(group_clauses) + ")"
-    return final_sql, all_params
-
-def calculate_tfidf_relevance(item, query_tokens, comment_text=""):
+def calculate_tfidf_relevance(item, query_tokens, comment_text="", mode="full"):
     """
     Calculate relevance score using TF-IDF based on user formula:
-    Total Match = (Title Score * 0.5) + (Content Score * 0.3) + (Comment Score * 0.2)
+    Total Match = (Title Score * W1) + (Content Score * W2) + (Comment Score * W3)
+    Weights depend on search mode.
     """
     if not query_tokens:
         return 0
@@ -756,27 +672,32 @@ def calculate_tfidf_relevance(item, query_tokens, comment_text=""):
                     
             return score
         except Exception as e:
-            # print(f"Error in relevance calculation: {e}")
             return 0
 
+    # 1. Define weights based on mode
+    # Default weights for "full" or unknown modes
+    w_title, w_content, w_comment = 0.5, 0.3, 0.2
+    
+    if mode == "title":
+        w_title, w_content, w_comment = 1.0, 0.0, 0.0
+    elif mode == "content":
+        w_title, w_content, w_comment = 0.0, 1.0, 0.0
+    elif mode == "comment":
+        w_title, w_content, w_comment = 0.0, 0.0, 1.0
+
     # 2. Calculate Scores
-    # Title (High weight 0.5)
     title_text = item.get("title") or item.get("top_name") or ""
-    title_score = get_field_score(title_text)
+    title_score = get_field_score(title_text) if w_title > 0 else 0
     
-    # Content (Medium weight 0.3)
     content_text = item.get("content") or ""
-    content_score = get_field_score(content_text)
+    content_score = get_field_score(content_text) if w_content > 0 else 0
     
-    # Comment (Low weight 0.2)
-    comment_score = get_field_score(comment_text)
+    comment_score = get_field_score(comment_text) if w_comment > 0 else 0
     
     # 3. Weighted Sum & Normalization
-    # TF-IDF scores are usually small (0.1-2.0). We scale them to 0-100 range.
-    # We assume a score of 2.0 is "very relevant" (100%).
     scale_factor = 50 
     
-    weighted_score = (title_score * 0.5) + (content_score * 0.3) + (comment_score * 0.2)
+    weighted_score = (title_score * w_title) + (content_score * w_content) + (comment_score * w_comment)
     final_score = weighted_score * scale_factor
     
     return min(int(final_score), 100)
@@ -811,19 +732,18 @@ async def get_monitoring_list(
         params = []
 
         # --- 权限控制：普通用户只能看到自己任务范围内的数据 ---
-        # (已移除：允许普通用户查看所有数据)
         user_tasks = []
-        # if current_user.role != 'admin':
-        #     user_tasks = query_db("SELECT keywords, exclude_words, platforms FROM monitoring_tasks WHERE user_id = ?", (current_user.id,))
-        #     if not user_tasks:
-        #         # 如果没有任何任务，直接返回空
-        #         return {
-        #             "items": [],
-        #             "total": 0,
-        #             "page": page,
-        #             "size": size,
-        #             "pages": 0
-        #         }
+        if current_user.role != 'admin':
+            user_tasks = query_db("SELECT id, keywords, exclude_words, platforms, warning_keywords FROM monitoring_tasks WHERE user_id = ?", (current_user.id,))
+            if not user_tasks:
+                # 如果没有任何任务，直接返回空
+                return {
+                    "items": [],
+                    "total": 0,
+                    "page": page,
+                    "size": size,
+                    "pages": 0
+                }
 
         def build_user_scope_filter(alias, tasks):
             """构造用户任务范围的SQL过滤条件"""
@@ -871,12 +791,14 @@ async def get_monitoring_list(
                     for ew in excludes:
                         if not ew.strip(): continue
                         ew_wild = f"%{ew.strip()}%"
-                        # Handle alias for top_name which might be null or different table
-                        if alias == 'c': # Merge query specific
-                            task_clauses.append(f"NOT ({alias}.title LIKE ? OR {alias}.content LIKE ? OR IFNULL(t.top_name, '') LIKE ?)")
+                        # Use top_topics check for content table 'c'
+                        if alias == "c":
+                            task_clauses.append(f"NOT ({alias}.title LIKE ? OR {alias}.content LIKE ? OR EXISTS (SELECT 1 FROM top_topics tt WHERE tt.top_id = {alias}.top_id AND tt.top_name LIKE ?))")
+                            task_params.extend([ew_wild, ew_wild, ew_wild])
                         else:
-                            task_clauses.append(f"NOT ({alias}.title LIKE ? OR {alias}.content LIKE ? OR {alias}.top_name LIKE ?)")
-                        task_params.extend([ew_wild, ew_wild, ew_wild])
+                            # For subquery T, top_name is already available
+                            task_clauses.append(f"NOT ({alias}.title LIKE ? OR {alias}.content LIKE ? OR IFNULL({alias}.top_name, '') LIKE ?)")
+                            task_params.extend([ew_wild, ew_wild, ew_wild])
 
                 # 只有当任务有具体的约束条件时才加入（避免空任务匹配所有）
                 if task_clauses:
@@ -890,20 +812,19 @@ async def get_monitoring_list(
             return final_sql, all_params
 
         # 应用权限过滤到主查询 params (Alias T)
-        # (已移除：允许普通用户查看所有数据)
-        # if current_user.role != 'admin':
-        #     scope_sql, scope_params = build_user_scope_filter("T", user_tasks)
-        #     if scope_sql:
-        #         where_clauses.append(scope_sql)
-        #         params.extend(scope_params)
-        #     else:
-        #          # Should theoretically catch empty tasks case above, but double check
-        #          if not user_tasks:
-        #              pass # handled above
-        #          else:
-        #              # tasks exist but produced no SQL? (e.g. empty keywords)
-        #              # Treat as no access
-        #              where_clauses.append("1=0")
+        if current_user.role != 'admin':
+            scope_sql, scope_params = build_user_scope_filter("T", user_tasks)
+            if scope_sql:
+                where_clauses.append(scope_sql)
+                params.extend(scope_params)
+            else:
+                 # Should theoretically catch empty tasks case above, but double check
+                 if not user_tasks:
+                     pass # handled above
+                 else:
+                     # tasks exist but produced no SQL? (e.g. empty keywords)
+                     # Treat as no access
+                     where_clauses.append("1=0")
 
         if sentiment:
             # Support multiple sentiment values (comma separated)
@@ -968,7 +889,8 @@ async def get_monitoring_list(
             for ew in excludes:
                 if not ew.strip(): continue
                 ew_wild = f"%{ew.strip()}%"
-                where_clauses.append("NOT (T.title LIKE ? OR T.content LIKE ? OR T.top_name LIKE ?)")
+                # Fix: Use T.top_name which is defined in the subquery T
+                where_clauses.append("NOT (T.title LIKE ? OR T.content LIKE ? OR IFNULL(T.top_name, '') LIKE ?)")
                 params.append(ew_wild)
                 params.append(ew_wild)
                 params.append(ew_wild)
@@ -988,7 +910,7 @@ async def get_monitoring_list(
                 SELECT c.top_id, 
                        CASE 
                            WHEN c.source IN ('知乎', 'zhihu') THEN (SELECT title FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1)
-                           ELSE t.top_name 
+                           ELSE IFNULL(t.top_name, (SELECT title FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1))
                        END as top_name,
                        COUNT(*) as merge_count, 
                        MAX(c.{date_col}) as latest_time,
@@ -999,11 +921,13 @@ async def get_monitoring_list(
                        (SELECT source FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as source,
                        (SELECT author FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as author,
                        -- 简单的情感统计：取众数或最新的
-                       (SELECT sentiment FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as sentiment,
-                       NULL as matched_comment_id
-                FROM content c
+                     (SELECT sentiment FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as sentiment,
+                     NULL as matched_comment_id,
+                     -- 聚合模式下的评论采样，用于计算匹配度
+                     (SELECT group_concat(content, ' ') FROM (SELECT content FROM comments cm JOIN content ct ON cm.note_id = ct.note_id WHERE ct.top_id = c.top_id ORDER BY cm.created_at DESC LIMIT 5)) as comment_sample
+              FROM content c
                 LEFT JOIN top_topics t ON c.top_id = t.top_id
-                WHERE c.top_id IS NOT NULL AND c.top_id != ''
+                WHERE (c.top_id IS NOT NULL AND c.top_id != '') OR (c.source IN ('知乎', 'zhihu'))
             """
             
             full_query = base_query
@@ -1013,14 +937,13 @@ async def get_monitoring_list(
                 c_params = []
 
                 # --- 权限控制：Merge Query ---
-                # (已移除：允许普通用户查看所有数据)
-                # if current_user.role != 'admin':
-                #     c_scope_sql, c_scope_params = build_user_scope_filter("c", user_tasks)
-                #     if c_scope_sql:
-                #         c_where_clauses.append(c_scope_sql)
-                #         c_params.extend(c_scope_params)
-                #     else:
-                #         c_where_clauses.append("1=0")
+                if current_user.role != 'admin':
+                    c_scope_sql, c_scope_params = build_user_scope_filter("c", user_tasks)
+                    if c_scope_sql:
+                        c_where_clauses.append(c_scope_sql)
+                        c_params.extend(c_scope_params)
+                    else:
+                        c_where_clauses.append("1=0")
 
                 if sentiment:
                     s_list = sentiment.split(',')
@@ -1076,8 +999,10 @@ async def get_monitoring_list(
                     for ew in excludes:
                         if not ew.strip(): continue
                         ew_wild = f"%{ew.strip()}%"
-                        # Fix: Handle NULL top_name (Zhihu items have no top_topics entry)
-                        c_where_clauses.append("NOT (c.title LIKE ? OR c.content LIKE ? OR IFNULL(t.top_name, '') LIKE ?)")
+                        # Fix: Handle cases where top_name might not exist or be NULL
+                        # In Merge Query, top_name is defined in the SELECT clause, but for filtering 
+                        # we should use the same logic as the SELECT or filter against the joined table.
+                        c_where_clauses.append(f"NOT (c.title LIKE ? OR c.content LIKE ? OR (CASE WHEN c.source IN ('知乎', 'zhihu') THEN c.title ELSE IFNULL(t.top_name, '') END) LIKE ?)")
                         c_params.append(ew_wild)
                         c_params.append(ew_wild)
                         c_params.append(ew_wild)
@@ -1213,7 +1138,14 @@ async def get_monitoring_list(
 
         items = query_db(full_query, tuple(params_with_limit))
         total_res = query_db(count_query, tuple(params), one=True)
-        total_count = total_res[0] if total_res else 0
+        # Fix KeyError: 0 when total_res is a dict (from query_db with one=True)
+        total_count = 0
+        if total_res:
+            if 'total' in total_res:
+                total_count = total_res['total']
+            else:
+                # Fallback to the first value in the dict
+                total_count = list(total_res.values())[0] if total_res else 0
         
         # Pre-compute query tokens for relevance scoring
         query_tokens = []
@@ -1233,7 +1165,6 @@ async def get_monitoring_list(
                 
                 if merge_query:
                     # 适配聚合结果
-                    # --- Fix: Decode top_name if present ---
                     display_name = item["top_name"]
                     if display_name:
                         try:
@@ -1241,7 +1172,7 @@ async def get_monitoring_list(
                         except:
                             pass
 
-                    formatted_items.append({
+                    processed_item = {
                         "top_id": display_name if display_name else item["top_id"], # 优先使用 top_name
                         "original_top_id": item["top_id"],
                         "merge_count": item["merge_count"],
@@ -1255,62 +1186,52 @@ async def get_monitoring_list(
                         },
                         "is_merged": True,
                         "keywords": [],
-                        "visual_objects": []
-                    })
+                        "visual_objects": [],
+                        "comment_sample": item.get("comment_sample", "")
+                    }
                 else:
                     # 普通结果
+                    processed_item = item
                     try:
-                        item["keywords"] = json.loads(item["keywords"]) if item["keywords"] else []
-                        item["visual_objects"] = json.loads(item["visual_objects"]) if item["visual_objects"] else []
+                        processed_item["keywords"] = json.loads(item["keywords"]) if item["keywords"] else []
+                        processed_item["visual_objects"] = json.loads(item["visual_objects"]) if item["visual_objects"] else []
                     except:
-                        item["keywords"] = []
-                        item["visual_objects"] = []
+                        processed_item["keywords"] = []
+                        processed_item["visual_objects"] = []
                     
-                    item["sentiment_analysis"] = {
+                    processed_item["sentiment_analysis"] = {
                         "sentiment": item.get("sentiment"),
                         "fine_grained_sentiment": item.get("fine_grained_sentiment"),
                         "intent": item.get("intent")
                     }
-                    item["trained_keywords"] = item["keywords"]
+                    processed_item["trained_keywords"] = processed_item["keywords"]
 
                     # --- 新增：解码 top_name 并适配前端显示 ---
                     if item.get("top_name"):
                         try:
-                            # 尝试解码，如果是URL编码的
                             decoded = unquote(item["top_name"])
-                            item["top_name"] = decoded
-                            
-                            # Fix: 将 top_id 替换为 top_name (Title/Topic) 用于前端显示
-                            # 前端列使用的是 top_id 字段，所以这里需要覆盖
-                            item["original_top_id"] = item["top_id"]
-                            item["top_id"] = decoded
+                            processed_item["top_name"] = decoded
+                            processed_item["original_top_id"] = item["top_id"]
+                            processed_item["top_id"] = decoded
                         except:
                             pass
 
                     # --- 新增：计算情感分布（文章 + 评论） ---
                     try:
-                        # 1. 查询评论情感统计
                         sentiment_stats = query_db(
                             "SELECT sentiment, COUNT(*) as count FROM comments WHERE note_id = ? GROUP BY sentiment", 
                             (item["note_id"],)
                         )
-                        
-                        # 2. 统计总数
                         counts = {}
-                        
-                        # 辅助函数：标准化情感标签
                         def normalize_sentiment(s):
                             if not s or s == "Unknown": return None
                             if s in ["愤怒", "悲伤", "恐惧"]: return "负面"
                             if s in ["愉快", "喜爱"]: return "正面"
                             return s
 
-                        # 文章本身
                         article_sentiment = normalize_sentiment(item.get("sentiment"))
                         if article_sentiment:
                             counts[article_sentiment] = counts.get(article_sentiment, 0) + 1
-                            
-                        # 评论统计
                         if sentiment_stats:
                             for stat in sentiment_stats:
                                 s_label = normalize_sentiment(stat["sentiment"])
@@ -1319,49 +1240,41 @@ async def get_monitoring_list(
                                     counts[s_label] = counts.get(s_label, 0) + s_count
                         
                         total_s = sum(counts.values())
-                        
-                        # 3. 找出最大占比
                         if total_s > 0:
-                            # 找出数量最多的情感
                             max_s = max(counts.items(), key=lambda x: x[1])
-                            item["sentiment"] = max_s[0]
-                            # 修正：计算最大占比的分数
+                            processed_item["sentiment"] = max_s[0]
                             score = int((max_s[1] / total_s) * 100)
-                            item["sentiment_score"] = score if score > 0 else 0
+                            processed_item["sentiment_score"] = score if score > 0 else 0
                         else:
-                            # 如果没有有效情感数据，默认中性
-                            item["sentiment"] = "中性"
-                            item["sentiment_score"] = 0
-                            
+                            processed_item["sentiment"] = "中性"
+                            processed_item["sentiment_score"] = 0
                     except Exception as e:
-                        print(f"Error calculating sentiment stats for {item.get('note_id')}: {e}")
-                        item["sentiment_score"] = 0
+                        processed_item["sentiment_score"] = 0
 
-                    # --- 新增：清洗时间格式 ---
-                    if item.get("created_at"):
-                        try:
-                            # 移除时区信息 +08:00 并标准化格式
-                            time_str = str(item["created_at"])
-                            if "+" in time_str:
-                                time_str = time_str.split("+")[0]
-                            time_str = time_str.replace("T", " ")
-                            if "." in time_str:
-                                time_str = time_str.split(".")[0]
-                            item["created_at"] = time_str
-                        except:
-                            pass
+                # --- 公用处理：清洗时间格式和计算匹配度 ---
+                if processed_item.get("created_at"):
+                    try:
+                        time_str = str(processed_item["created_at"])
+                        if "+" in time_str:
+                            time_str = time_str.split("+")[0]
+                        time_str = time_str.replace("T", " ")
+                        if "." in time_str:
+                            time_str = time_str.split(".")[0]
+                        processed_item["created_at"] = time_str
+                    except:
+                        pass
 
-                    # --- 新增：计算匹配度 (TF-IDF) ---
-                    relevance_score = 0
-                    if keyword:
-                        # Use matched comment content if available (highest relevance for comment part), 
-                        # otherwise fall back to sample of recent comments.
+                relevance_score = 0
+                if keyword:
+                    if merge_query:
+                        comment_text = processed_item.get("comment_sample") or ""
+                        relevance_score = calculate_tfidf_relevance(processed_item, query_tokens, comment_text, mode=keyword_mode)
+                    else:
                         comment_text = item.get("matched_comment_content") or item.get("comment_sample") or ""
-                        relevance_score = calculate_tfidf_relevance(item, query_tokens, comment_text)
-                    
-                    item["relevance"] = relevance_score
-
-                    formatted_items.append(item)
+                        relevance_score = calculate_tfidf_relevance(processed_item, query_tokens, comment_text, mode=keyword_mode)
+                
+                processed_item["relevance"] = relevance_score
+                formatted_items.append(processed_item)
 
         # Sort by relevance if needed
         if is_relevance_sort:
@@ -1405,34 +1318,54 @@ async def get_topic_detail(top_id: str, page: int = 1, size: int = 10):
         offset = (page - 1) * size
         
         # 2. 确定真实的 top_id
-        # 优先直接匹配 content 表
+        # 优先直接匹配 content 表的 top_id
         check_query = "SELECT COUNT(*) FROM content WHERE top_id = ?"
-        count = query_db(check_query, (target_top_id,), one=True)[0]
+        count_res = query_db(check_query, (target_top_id,), one=True)
+        count = list(count_res.values())[0] if count_res else 0
         
         real_top_id = target_top_id
+        is_zhihu_title = False
         
         if count == 0:
-            # 尝试加上 #
+            # 尝试加上 # (对于微博话题)
             if not target_top_id.startswith("#"):
                 hashed_id = f"#{target_top_id}#"
-                if query_db(check_query, (hashed_id,), one=True)[0] > 0:
+                hashed_res = query_db(check_query, (hashed_id,), one=True)
+                if hashed_res and list(hashed_res.values())[0] > 0:
                     real_top_id = hashed_id
-                    count = query_db(check_query, (real_top_id,), one=True)[0]
+                    count = list(hashed_res.values())[0]
             
-            # 尝试查 top_topics
+            # 尝试查 top_topics (通过名称找 ID)
             if count == 0:
                 top_row = query_db("SELECT top_id FROM top_topics WHERE top_name = ?", (target_top_id,), one=True)
                 if top_row:
                     real_top_id = top_row["top_id"]
-                    count = query_db(check_query, (real_top_id,), one=True)[0]
+                    real_res = query_db(check_query, (real_top_id,), one=True)
+                    count = list(real_res.values())[0] if real_res else 0
+            
+            # 针对知乎：如果还是没找到，尝试作为 title 匹配
+            if count == 0:
+                zhihu_check = "SELECT COUNT(*) FROM content WHERE title = ? AND source IN ('知乎', 'zhihu')"
+                zhihu_res = query_db(zhihu_check, (target_top_id,), one=True)
+                if zhihu_res and list(zhihu_res.values())[0] > 0:
+                    count = list(zhihu_res.values())[0]
+                    is_zhihu_title = True
 
         # 3. 执行分页查询
-        query = """
-            SELECT * FROM content 
-            WHERE top_id = ? 
-            ORDER BY created_at DESC
-            LIMIT ? OFFSET ?
-        """
+        if is_zhihu_title:
+            query = """
+                SELECT * FROM content 
+                WHERE title = ? AND source IN ('知乎', 'zhihu')
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """
+        else:
+            query = """
+                SELECT * FROM content 
+                WHERE top_id = ? 
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """
         
         items = query_db(query, (real_top_id, size, offset))
         
@@ -1519,8 +1452,14 @@ async def get_item_detail(
         
         # 1. 获取文章详情 (从 content 表)
         # 关联 top_topics 表以获取可读的 top_name
+        # 优化：针对知乎数据增加 top_name 回退逻辑
         article_query = """
-            SELECT c.*, t.top_name, 'article' as type 
+            SELECT c.*, 
+                   CASE 
+                       WHEN c.source IN ('知乎', 'zhihu') THEN c.title
+                       ELSE IFNULL(t.top_name, c.title)
+                   END as top_name,
+                   'article' as type 
             FROM content c 
             LEFT JOIN top_topics t ON c.top_id = t.top_id
             WHERE c.note_id = ?
@@ -1585,7 +1524,11 @@ async def get_item_detail(
             try:
                 # 假设按时间倒序
                 position_query = "SELECT COUNT(*) FROM comments WHERE note_id = ? AND created_at >= (SELECT created_at FROM comments WHERE comment_id = ?)"
-                position = query_db(position_query, (note_id, comment_id), one=True)[0]
+                position_res = query_db(position_query, (note_id, comment_id), one=True)
+                position = 0
+                if position_res:
+                    position = list(position_res.values())[0]
+                
                 if position > 0:
                     comments_page = (position - 1) // comments_size + 1
                     offset = (comments_page - 1) * comments_size
@@ -1599,7 +1542,8 @@ async def get_item_detail(
             count_sql += " AND sentiment = ?"
             count_params.append(sentiment)
             
-        total_comments = query_db(count_sql, tuple(count_params), one=True)[0]
+        count_res = query_db(count_sql, tuple(count_params), one=True)
+        total_comments = list(count_res.values())[0] if count_res else 0
         item["total_comments"] = total_comments
         
         comments_sql = "SELECT * FROM comments WHERE note_id = ?"

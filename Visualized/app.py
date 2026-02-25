@@ -176,12 +176,13 @@ init_db()
 async def startup_event():
     # 1. 检查缺失数据
     try:
-        check_and_sync_missing_data()
+        # check_and_sync_missing_data()
+        pass
     except Exception as e:
         print(f"Error during initial data check: {e}")
     
     # 2. 启动后台定时同步任务
-    asyncio.create_task(start_periodic_sync())
+    # asyncio.create_task(start_periodic_sync())
     
     # 3. 启动自定义任务调度器 (微博 ID 提取等)
     start_scheduler()

@@ -21,6 +21,18 @@ def inspect_db():
         print("Columns:")
         for col in columns:
             print(col)
+
+    print("\nInspecting table 'alerts'")
+    cur.execute("PRAGMA table_info(alerts)")
+    columns = cur.fetchall()
+    for col in columns:
+        print(col)
+
+    print("\nInspecting table 'alert_rules'")
+    cur.execute("PRAGMA table_info(alert_rules)")
+    columns = cur.fetchall()
+    for col in columns:
+        print(col)
             
     conn.close()
 
