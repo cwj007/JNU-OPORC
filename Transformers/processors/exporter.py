@@ -31,75 +31,144 @@ class Exporter:
         """确保数据库表存在，如果不存在则创建，如果存在则检查字段并升级。"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        
+        # 1. 创建 content 表
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS processed_items (
-                unique_id TEXT PRIMARY KEY,
-                note_id TEXT,
-                comment_id TEXT,
-                top_id TEXT,
-                data_date TEXT,
-                sync_date TEXT,
-                created_at TEXT,
+            CREATE TABLE IF NOT EXISTS content (
+                note_id TEXT PRIMARY KEY,
+                title TEXT,
                 content TEXT,
-                sentiment TEXT,
-                intent TEXT,
-                keywords TEXT,
-                ip_location TEXT,
-                visual_objects TEXT,
-                ocr_text TEXT,
                 author TEXT,
                 source TEXT,
+                url TEXT,
+                created_at TEXT,
+                ip_location TEXT,
+                image_paths TEXT,
+                video_path TEXT,
                 liked_count INTEGER,
                 comments_count INTEGER,
                 shared_count INTEGER,
-                gender TEXT
+                collected_count INTEGER,
+                sentiment TEXT,
+                fine_grained_sentiment TEXT,
+                intent TEXT,
+                irony_detected BOOLEAN,
+                reasoning TEXT,
+                keywords TEXT,
+                visual_objects TEXT,
+                ocr_text TEXT,
+                sync_date TEXT,
+                sync_time TEXT,
+                top_id TEXT
+            )
+        ''')
+
+        # 2. 创建 comments 表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS comments (
+                comment_id TEXT PRIMARY KEY,
+                note_id TEXT,
+                content TEXT,
+                author TEXT,
+                source TEXT,
+                url TEXT,
+                created_at TEXT,
+                ip_location TEXT,
+                gender TEXT,
+                parent_comment_id TEXT,
+                comment_like_count INTEGER,
+                sub_comment_count INTEGER,
+                image_paths TEXT,
+                sentiment TEXT,
+                fine_grained_sentiment TEXT,
+                intent TEXT,
+                irony_detected BOOLEAN,
+                reasoning TEXT,
+                labels TEXT,
+                keywords TEXT,
+                visual_objects TEXT,
+                ocr_text TEXT,
+                sync_date TEXT,
+                sync_time TEXT,
+                FOREIGN KEY (note_id) REFERENCES content(note_id)
+            )
+        ''')
+
+        # 3. 创建 top_topics 表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS top_topics (
+                top_id TEXT PRIMARY KEY,
+                top_name TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
         
-        # 字段升级逻辑
-        cursor.execute("PRAGMA table_info(processed_items)")
-        cols = [c[1] for c in cursor.fetchall()]
-        
-        # 动态添加缺失的字段
-        new_fields = [
-            ('sync_date', 'TEXT'),
-            ('sync_time', 'TEXT'),
-            ('content', 'TEXT'),
-            ('created_at', 'TEXT'),
-            ('visual_objects', 'TEXT'),
-            ('ocr_text', 'TEXT'),
-            ('author', 'TEXT'),
-            ('source', 'TEXT'),
-            ('liked_count', 'INTEGER'),
-            ('comments_count', 'INTEGER'),
-            ('shared_count', 'INTEGER'),
-            ('gender', 'TEXT'),
-            ('ip_location', 'TEXT'),
-            ('parent_comment_id', 'TEXT'),
-            ('top_id', 'TEXT')
+        # 字段升级逻辑 (确保所有字段都存在)
+        def upgrade_table(table_name, required_fields):
+            cursor.execute(f"PRAGMA table_info({table_name})")
+            existing_cols = {c[1] for c in cursor.fetchall()}
+            for field_name, field_type in required_fields:
+                if field_name not in existing_cols:
+                    try:
+                        cursor.execute(f'ALTER TABLE {table_name} ADD COLUMN {field_name} {field_type}')
+                    except sqlite3.OperationalError as e:
+                        utils.logger.warning(f"Could not add column {field_name} to {table_name}: {e}")
+
+        content_fields = [
+            ('note_id', 'TEXT'), ('title', 'TEXT'), ('content', 'TEXT'), ('author', 'TEXT'),
+            ('source', 'TEXT'), ('url', 'TEXT'), ('created_at', 'TEXT'), ('ip_location', 'TEXT'),
+            ('image_paths', 'TEXT'), ('video_path', 'TEXT'), ('liked_count', 'INTEGER'),
+            ('comments_count', 'INTEGER'), ('shared_count', 'INTEGER'), ('collected_count', 'INTEGER'),
+            ('sentiment', 'TEXT'), ('fine_grained_sentiment', 'TEXT'), ('intent', 'TEXT'),
+            ('irony_detected', 'BOOLEAN'), ('reasoning', 'TEXT'), ('keywords', 'TEXT'),
+            ('visual_objects', 'TEXT'), ('ocr_text', 'TEXT'), ('sync_date', 'TEXT'),
+            ('sync_time', 'TEXT'), ('top_id', 'TEXT')
         ]
-        
-        for field_name, field_type in new_fields:
-            if field_name not in cols:
-                cursor.execute(f'ALTER TABLE processed_items ADD COLUMN {field_name} {field_type}')
+        upgrade_table('content', content_fields)
+
+        comment_fields = [
+            ('comment_id', 'TEXT'), ('note_id', 'TEXT'), ('content', 'TEXT'), ('author', 'TEXT'),
+            ('source', 'TEXT'), ('url', 'TEXT'), ('created_at', 'TEXT'), ('ip_location', 'TEXT'),
+            ('gender', 'TEXT'), ('parent_comment_id', 'TEXT'), ('comment_like_count', 'INTEGER'),
+            ('sub_comment_count', 'INTEGER'), ('image_paths', 'TEXT'), ('sentiment', 'TEXT'),
+            ('fine_grained_sentiment', 'TEXT'), ('intent', 'TEXT'), ('irony_detected', 'BOOLEAN'),
+            ('reasoning', 'TEXT'), ('labels', 'TEXT'), ('keywords', 'TEXT'),
+            ('visual_objects', 'TEXT'), ('ocr_text', 'TEXT'), ('sync_date', 'TEXT'),
+            ('sync_time', 'TEXT')
+        ]
+        upgrade_table('comments', comment_fields)
+
+        # 检查是否需要删除旧表 processed_items
+        # 根据用户要求，删除旧表
+        cursor.execute("DROP TABLE IF EXISTS processed_items")
         
         conn.commit()
         conn.close()
 
     def get_existing_ids(self) -> set:
-        """从 SQLite 数据库中极速获取所有已处理的 ID。"""
+        """从 SQLite 数据库中获取所有已处理的 ID (note_id 和 comment_id)。"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute('SELECT unique_id FROM processed_items')
-        ids = {row[0] for row in cursor.fetchall()}
+        
+        cursor.execute('SELECT note_id FROM content')
+        note_ids = {row[0] for row in cursor.fetchall()}
+        
+        cursor.execute('SELECT comment_id FROM comments')
+        comment_ids = {row[0] for row in cursor.fetchall()}
+        
         conn.close()
-        return ids
+        return note_ids.union(comment_ids)
 
-    def _is_id_processed(self, unique_id: str) -> bool:
-        """在数据库中检查单条 ID 是否存在（极速查询）。"""
+    def _is_id_processed(self, note_id: str, comment_id: str = '0') -> bool:
+        """在数据库中检查单条 ID 是否存在。"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        cursor.execute('SELECT 1 FROM processed_items WHERE unique_id = ?', (unique_id,))
+        
+        if comment_id == '0' or not comment_id:
+            cursor.execute('SELECT 1 FROM content WHERE note_id = ?', (note_id,))
+        else:
+            cursor.execute('SELECT 1 FROM comments WHERE comment_id = ?', (comment_id,))
+            
         exists = cursor.fetchone() is not None
         conn.close()
         return exists
@@ -109,11 +178,10 @@ class Exporter:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         try:
-            # 优先查找该 note_id 且 comment_id 为 0 或空的记录
             cursor.execute('''
                 SELECT sentiment, intent, visual_objects, ocr_text, content 
-                FROM processed_items 
-                WHERE note_id = ? AND (comment_id = '0' OR comment_id IS NULL OR comment_id = '')
+                FROM content 
+                WHERE note_id = ?
                 LIMIT 1
             ''', (note_id,))
             row = cursor.fetchone()
@@ -121,7 +189,7 @@ class Exporter:
                 return {
                     "sentiment": row[0],
                     "intent": row[1],
-                    "visual_objects": row[2].split('|') if row[2] else [],
+                    "visual_objects": json.loads(row[2]) if row[2] else [],
                     "ocr_text": row[3],
                     "content": row[4]
                 }
@@ -132,22 +200,37 @@ class Exporter:
         finally:
             conn.close()
 
-    def _mark_ids_as_processed(self, entries_for_db: List[tuple]):
-        """批量将 ID 和分析结果存入数据库。"""
+    def _mark_ids_as_processed(self, content_entries: List[tuple], comment_entries: List[tuple]):
+        """批量将内容和评论存入数据库。"""
         conn = sqlite3.connect(self.db_path)
-        # 启用高性能模式
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         cursor = conn.cursor()
-        cursor.executemany('''
-            INSERT OR REPLACE INTO processed_items (
-                unique_id, note_id, comment_id, top_id, data_date, sync_date, sync_time, created_at, content,
-                sentiment, intent, keywords, ip_location, visual_objects, 
-                ocr_text, author, source, liked_count, comments_count, 
-                shared_count, gender, parent_comment_id
-            ) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', entries_for_db)
+        
+        if content_entries:
+            cursor.executemany('''
+                INSERT OR REPLACE INTO content (
+                    note_id, title, content, author, source, url, created_at, ip_location,
+                    image_paths, video_path, liked_count, comments_count, shared_count,
+                    collected_count, sentiment, fine_grained_sentiment, intent,
+                    irony_detected, reasoning, keywords, visual_objects, ocr_text,
+                    sync_date, sync_time, top_id
+                ) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', content_entries)
+            
+        if comment_entries:
+            cursor.executemany('''
+                INSERT OR REPLACE INTO comments (
+                    comment_id, note_id, content, author, source, url, created_at, ip_location,
+                    gender, parent_comment_id, comment_like_count, sub_comment_count,
+                    image_paths, sentiment, fine_grained_sentiment, intent,
+                    irony_detected, reasoning, labels, keywords, visual_objects, ocr_text,
+                    sync_date, sync_time
+                ) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', comment_entries)
+            
         conn.commit()
         conn.close()
 
@@ -189,7 +272,8 @@ class Exporter:
         """实际的写入逻辑：格式化、去重、存库、写文件。"""
         # 1. 过滤已存在的 ID (使用 SQLite 极速查询)
         valid_entries = []
-        db_entries = []
+        content_entries = []
+        comment_entries = []
         top_entries = {} # top_id -> top_name
         sync_date = datetime.now().strftime("%Y-%m-%d")
         sync_time = datetime.now().strftime("%H:%M:%S")
@@ -210,41 +294,75 @@ class Exporter:
                 
             note_id = str(entry.get('note_id'))
             comment_id = str(entry.get('comment_id', '0'))
-            unique_id = f"{note_id}_{comment_id}"
             
-            # 检查 ID 是否已处理
-            cursor.execute('SELECT 1 FROM processed_items WHERE unique_id = ?', (unique_id,))
+            # 检查 ID 是否已处理 (根据类型检查不同表)
+            if comment_id == '0' or not comment_id:
+                cursor.execute('SELECT 1 FROM content WHERE note_id = ?', (note_id,))
+            else:
+                cursor.execute('SELECT 1 FROM comments WHERE comment_id = ?', (comment_id,))
+                
             if cursor.fetchone() is not None:
                 continue
                 
             valid_entries.append(entry)
-            # 提取统计字段
-            sentiment = str(entry.get("sentiment_analysis", {}).get("sentiment", "Unknown"))
-            intent = str(entry.get("sentiment_analysis", {}).get("intent", "Unknown"))
+            
+            # 提取通用字段
+            sentiment_data = entry.get("sentiment_analysis", {})
+            sentiment = str(sentiment_data.get("sentiment", "Unknown"))
+            fine_grained_sentiment = str(sentiment_data.get("fine_grained_sentiment", "Unknown"))
+            intent = str(sentiment_data.get("intent", "Unknown"))
+            irony_detected = sentiment_data.get("irony_detected", False)
+            reasoning = str(sentiment_data.get("reasoning", ""))
+            
             keywords = json.dumps(entry.get("keywords", []), ensure_ascii=False)
             ip_location = str(entry.get("ip_location", ""))
-            top_id = str(entry.get("top_id", ""))
-            top_name = entry.get("top_name")
-            created_at = str(entry.get("created_at", ""))
-            content = str(entry.get("content", ""))
-            visual_objects = json.dumps(entry.get("visual_objects", []), ensure_ascii=False)
-            ocr_text = str(entry.get("ocr_text", ""))
-            
-            # 安全获取可选字段
             author = str(entry.get("author", ""))
             source = str(entry.get("source", ""))
-            liked_count = entry.get("liked_count") or entry.get("comment_like_count") or 0
-            comments_count = entry.get("comments_count") or entry.get("sub_comment_count") or 0
-            shared_count = entry.get("shared_count") or 0
-            gender = str(entry.get("gender", ""))
-            parent_comment_id = str(entry.get("parent_comment_id", ""))
+            url = str(entry.get("url", ""))
+            top_id = str(entry.get("top_id", ""))
+            top_name = entry.get("top_name")
             
-            db_entries.append((
-                unique_id, note_id, comment_id, top_id, str(data_date or ""), sync_date, sync_time, created_at, content,
-                sentiment, intent, keywords, ip_location, visual_objects, 
-                ocr_text, author, source, liked_count, comments_count, 
-                shared_count, gender, parent_comment_id
-            ))
+            # Fix: Ensure Zhihu items have a valid top_id (use note_id)
+            if source == '知乎' and (not top_id or top_id == 'None' or top_id == 'null'):
+                top_id = str(entry.get('note_id', ''))
+                
+            created_at = str(entry.get("created_at", ""))
+            content_text = str(entry.get("content", ""))
+            visual_objects = json.dumps(entry.get("visual_objects", []), ensure_ascii=False)
+            ocr_text = str(entry.get("ocr_text", ""))
+            image_paths = json.dumps(entry.get("image_paths", []), ensure_ascii=False)
+            
+            if comment_id == '0' or not comment_id:
+                # content 表字段
+                title = str(entry.get("title", ""))
+                video_path = str(entry.get("video_path", ""))
+                liked_count = entry.get("liked_count") or 0
+                comments_count = entry.get("comments_count") or 0
+                shared_count = entry.get("shared_count") or 0
+                collected_count = entry.get("collected_count") or 0
+                
+                content_entries.append((
+                    note_id, title, content_text, author, source, url, created_at, ip_location,
+                    image_paths, video_path, liked_count, comments_count, shared_count,
+                    collected_count, sentiment, fine_grained_sentiment, intent,
+                    irony_detected, reasoning, keywords, visual_objects, ocr_text,
+                    sync_date, sync_time, top_id
+                ))
+            else:
+                # comments 表字段
+                gender = str(entry.get("gender", ""))
+                parent_comment_id = str(entry.get("parent_comment_id", ""))
+                comment_like_count = entry.get("comment_like_count") or entry.get("liked_count") or 0
+                sub_comment_count = entry.get("sub_comment_count") or entry.get("comments_count") or 0
+                labels = json.dumps(entry.get("labels", []), ensure_ascii=False)
+                
+                comment_entries.append((
+                    comment_id, note_id, content_text, author, source, url, created_at, ip_location,
+                    gender, parent_comment_id, comment_like_count, sub_comment_count,
+                    image_paths, sentiment, fine_grained_sentiment, intent,
+                    irony_detected, reasoning, labels, keywords, visual_objects, ocr_text,
+                    sync_date, sync_time
+                ))
 
             # 记录 top_topics
             if top_id and top_id != "None":
@@ -260,8 +378,6 @@ class Exporter:
             return
 
         # 2. 写入文件 (根据配置格式)
-        # 强制执行 JSONL 写入逻辑，以确保 History 备份和主文件更新
-        # _write_to_jsonl 内部会处理主文件和 History 文件的写入
         self._write_to_jsonl(valid_entries, data_date, append, use_lock)
             
         if "csv" in self.formats:
@@ -271,14 +387,14 @@ class Exporter:
             self._write_to_sqlite_export(valid_entries, data_date)
 
         # 3. 写入数据库索引
-        self._mark_ids_as_processed(db_entries)
+        self._mark_ids_as_processed(content_entries, comment_entries)
         
         # 4. 写入 top_topics 表
         if top_entries:
             self._update_top_topics(top_entries)
         
         # 5. 输出存储日志
-        utils.logger.info(f"[Exporter._sync_worker] 存储: {len(valid_entries)} 条新记录已异步同步 (Formats: {self.formats})")
+        utils.logger.info(f"[Exporter._process_export_task] 存储: {len(valid_entries)} 条新记录已异步同步 (Formats: {self.formats})")
 
     def _update_top_topics(self, top_entries: Dict[str, str]):
         """批量更新 top_topics 表。"""

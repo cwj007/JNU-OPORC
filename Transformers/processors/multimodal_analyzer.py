@@ -731,91 +731,143 @@ class MultimodalAnalyzer:
         }
 
     def _normalize_categories(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """对 AI 输出的意图和情感进行翻译和基础清洗，不再强制归一化到固定类别。"""
+        """对 AI 输出的意图和情感进行翻译、清洗和强制归一化。"""
         # 1. 建立更全面的中英映射表
         translation_map = {
             # 意图类 (Intent)
             "recommendation": "推荐/安利",
             "seeking_advice": "求助/咨询",
             "seeking advice": "求助/咨询",
-            "sharing": "分享/展示",
-            "opinion_expression": "表达观点",
-            "opinion expression": "表达观点",
-            "emotional_venting": "情绪宣泄",
-            "emotional venting": "情绪宣泄",
-            "complaint": "吐槽/投诉",
-            "praise": "赞赏",
-            "questioning": "质疑/反驳",
-            "humor": "幽默/讽刺",
-            "irony": "幽默/讽刺",
-            "news_report": "资讯发布",
-            "news report": "资讯发布",
-            "advertisement": "广告/营销",
-            "marketing": "广告/营销",
-            "gratitude": "祈祷/感谢",
-            "thanks": "祈祷/感谢",
-            "expectation": "期待/愿望",
-            "wish": "期待/愿望",
-            "daily_life": "日常碎碎念",
-            "daily life": "日常碎碎念",
+            "sharing": "炫耀/分享",
+            "sharing/display": "炫耀/分享",
+            "opinion_expression": "其他",
+            "opinion expression": "其他",
+            "emotional_venting": "吐槽/不满",
+            "emotional venting": "吐槽/不满",
+            "complaint": "投诉/反馈",
+            "praise": "欣慰/欢喜",
+            "questioning": "吐槽/不满",
+            "humor": "其他",
+            "irony": "其他",
+            "news_report": "其他",
+            "news report": "其他",
+            "advertisement": "其他",
+            "marketing": "其他",
+            "gratitude": "欣慰/欢喜",
+            "thanks": "欣慰/欢喜",
+            "expectation": "其他",
+            "wish": "其他",
+            "daily_life": "其他",
+            "daily life": "其他",
             "others": "其他",
             "other": "其他",
+            "watching": "吃瓜/围观",
+            "curious": "吃瓜/围观",
             
             # 情感类 (Sentiment)
             "positive": "正面",
+            "pos": "正面",
             "negative": "负面",
+            "neg": "负面",
             "neutral": "中立",
+            "neu": "中立",
             "joy": "愉快",
             "happy": "愉快",
+            "delight": "愉快",
             "anger": "愤怒",
             "angry": "愤怒",
+            "furious": "愤怒",
             "sadness": "悲伤",
             "sad": "悲伤",
             "fear": "恐惧",
+            "scared": "恐惧",
             "disgust": "厌恶",
             "surprise": "惊喜",
+            "amazed": "惊喜",
             "anxiety": "焦虑",
             "anxious": "焦虑",
             "moved": "感动",
             "hope": "期待",
+            "expectation": "期待",
+            "disappointment": "失望",
+            "disappointed": "失望",
+            "admire": "赞赏",
+            "appreciation": "赞赏",
+            "praise": "赞赏",
         }
 
-        # 2. 获取原始值
-        sentiment = result.get("sentiment", "Unknown")
-        fine_grained = result.get("fine_grained_sentiment", "Unknown")
-        intent = result.get("intent", "Unknown")
+        def clean_val(val, categories, default):
+            if val is None:
+                return default
+            
+            # 转为字符串并处理数字索引
+            val_str = str(val).strip()
+            if val_str.isdigit():
+                idx = int(val_str)
+                if 0 <= idx < len(categories):
+                    return categories[idx]
+                return default
 
-        # 3. 翻译与清洗逻辑
-        def translate_val(val):
-            if not isinstance(val, str):
-                return "Unknown"
+            # 清理：去除 "必须选自..." 等元指令幻觉
+            if "必须选自" in val_str or "上表" in val_str:
+                val_str = "Unknown"
             
-            # 清理：去除 "type:", "category:" 等前缀
-            val = re.sub(r'^(type|category|intent|sentiment)\s*:\s*', '', val, flags=re.IGNORECASE)
-            val = val.strip().lower()
+            # 清理：去除常见前缀和标点
+            val_str = re.sub(r'^(type|category|intent|sentiment|label)\s*[:：]\s*', '', val_str, flags=re.IGNORECASE)
+            # 保持原始字符串用于翻译匹配，但在清理时去除特殊字符
+            val_clean = re.sub(r'[^\w\u4e00-\u9fa5/]', '', val_str).lower()
             
-            # 针对 "type" 这个词本身进行拦截，如果 AI 只输出了 "type"
-            if val == "type" or not val:
-                return "Unknown"
-            
-            # 尝试在映射表中寻找
-            if val in translation_map:
-                return translation_map[val]
-            
-            # 如果包含英文但不在表中，且长度较短（可能是漏掉的类别词），设为 Unknown 或尝试清洗
-            if re.search(r'[a-zA-Z]', val):
-                # 再次尝试模糊匹配（如 "sharing content" -> "sharing"）
-                for eng, chn in translation_map.items():
-                    if eng in val:
-                        return chn
-                return val # 实在无法识别的英文保留原样
-            
-            return result.get(val, val) # 返回原始值（如果是中文则保留）
+            if not val_clean or val_clean == "unknown":
+                return default
 
-        result["sentiment"] = translate_val(sentiment)
-        result["fine_grained_sentiment"] = translate_val(fine_grained)
-        result["intent"] = translate_val(intent)
+            # 1. 尝试翻译映射 (使用清理后的键)
+            if val_clean in translation_map:
+                val_clean = translation_map[val_clean]
             
+            # 2. 长度限制：如果是长句子，很可能是幻觉或内容描述
+            if len(val_clean) > 10:
+                # 尝试从长句子中寻找已有的类别词
+                for cat in categories:
+                    if cat in val_clean:
+                        return cat
+                return default
+
+            # 3. 最终检查是否在允许的类别中
+            if val_clean in categories:
+                return val_clean
+            
+            # 4. 模糊匹配：如果 val_clean 包含分类词，或分类词包含 val_clean
+            for cat in categories:
+                if cat in val_clean or val_clean in cat:
+                    return cat
+            
+            # 5. 兜底逻辑：如果结果仍然包含英文单词，强制转为默认值 (防止输出 English label)
+            if re.search(r'[a-zA-Z]', val_clean):
+                return default
+                
+            return default
+
+        # 归一化主情感
+        result["sentiment"] = clean_val(result.get("sentiment"), SENTIMENT_CATEGORIES, "中性")
+        
+        # 归一化细粒度情感
+        main_sentiment = result["sentiment"]
+        allowed_fg = FINE_GRAINED_SENTIMENT_MAPPING.get(main_sentiment, ["中立"])
+        result["fine_grained_sentiment"] = clean_val(result.get("fine_grained_sentiment"), FINE_GRAINED_SENTIMENT_CATEGORIES, allowed_fg[0])
+        
+        # 再次确保细粒度情感属于主情感下属 (如果之前的 clean_val 选了其他主情感下的词)
+        if result["fine_grained_sentiment"] not in allowed_fg:
+            # 如果不属于，尝试纠正：如果该细粒度词在其他主情感下，则强制设为主情感的第一个词
+            result["fine_grained_sentiment"] = allowed_fg[0]
+
+        # 归一化意图
+        allowed_intents = INTENT_CATEGORIES_MAPPING.get(main_sentiment, ["其他"])
+        result["intent"] = clean_val(result.get("intent"), INTENT_CATEGORIES, allowed_intents[0])
+        
+        # 再次确保意图属于主情感下属
+        if result["intent"] not in allowed_intents:
+             result["intent"] = allowed_intents[0]
+
         return result
 
     def _parse_vlm_output(self, output: str, has_images: bool = True) -> Dict[str, Any]:
