@@ -15,10 +15,17 @@ except ImportError:
         "xiaohongshu": "小红书"
     }
 
-def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, column_name: str = None) -> tuple:
+def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, column_name: str = None, use_fts: bool = False) -> tuple:
     """
     Parses complex keyword expressions supporting '&' (AND), '|' (OR), and newline (OR group).
     Returns (sql_clause, params_list).
+    
+    Args:
+        keyword_str: The raw keyword expression string
+        mode: 'full', 'title', 'content', 'comment', or 'simple'
+        table_alias: SQL table alias (e.g. 'c')
+        column_name: Used for 'simple' mode
+        use_fts: If True, uses FTS5 MATCH syntax for better performance
     """
     if not keyword_str:
         return "", []
@@ -27,6 +34,30 @@ def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, col
     
     def build_condition(term):
         term_wild = f"%{term}%"
+        
+        # FTS5 optimization: If use_fts is enabled and mode is suitable
+        if use_fts and mode in ["full", "title", "content", "comment"]:
+            if mode == "title":
+                fts_query = f'title:"{term}"'
+                if table_alias:
+                    # Title search with FTS + fallback for top_name
+                    return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE {fts_query}) OR EXISTS (SELECT 1 FROM top_topics tt WHERE tt.top_id = {prefix}top_id AND tt.top_name LIKE ?))", [term_wild]
+                return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE {fts_query}))", []
+            elif mode == "content":
+                fts_query = f'content:"{term}"'
+                return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE {fts_query}))", []
+            elif mode == "comment":
+                fts_query = f'"{term}"'
+                outer_ref = f"{prefix}note_id" if table_alias else "note_id"
+                return f"EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.rowid IN (SELECT rowid FROM comments_fts WHERE comments_fts MATCH ?))", [fts_query]
+            else: # full
+                fts_query = f'"{term}"'
+                outer_ref = f"{prefix}note_id" if table_alias else "note_id"
+                if table_alias:
+                    return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?) OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.rowid IN (SELECT rowid FROM comments_fts WHERE comments_fts MATCH ?)) OR EXISTS (SELECT 1 FROM top_topics tt WHERE tt.top_id = {prefix}top_id AND tt.top_name LIKE ?))", [fts_query, fts_query, term_wild]
+                return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?) OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.rowid IN (SELECT rowid FROM comments_fts WHERE comments_fts MATCH ?)))", [fts_query, fts_query]
+
+        # Fallback to standard LIKE
         if mode == "simple" and column_name:
              return f"({prefix}{column_name} LIKE ?)", [term_wild]
         elif mode == "title":

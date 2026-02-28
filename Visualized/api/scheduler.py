@@ -4,6 +4,7 @@ import json
 import time
 import os
 import sys
+import anyio
 from datetime import datetime
 from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Depends
@@ -173,8 +174,12 @@ async def get_logs(limit: int = 50):
         
         latest_log = log_files[0]
         logs = []
-        with open(latest_log, "r", encoding="utf-8", errors="ignore") as f:
-            logs = f.readlines()
+        # 使用 anyio 异步读取文件，防止大日志阻塞
+        async def read_file():
+            with open(latest_log, "r", encoding="utf-8", errors="ignore") as f:
+                return f.readlines()
+        
+        logs = await anyio.to_thread.run_sync(read_file)
             
         return {"logs": [line.strip() for line in logs[-limit:]]}
     except Exception as e:

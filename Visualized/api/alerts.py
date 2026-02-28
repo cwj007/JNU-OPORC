@@ -25,12 +25,12 @@ class AlertRuleSchema(BaseModel):
 # 全局变量记录上次检查时间
 LAST_CHECK_TIME = None
 
-def ensure_default_rules():
+async def ensure_default_rules():
     """Ensure default global CRI rule exists"""
     try:
         # Check if default rule exists
         sql = "SELECT id FROM alert_rules WHERE name = '全网负面内容监测'"
-        existing = query_db(sql, one=True)
+        existing = await query_db(sql, one=True)
         
         if not existing:
             print("[Init] Creating default global CRI rule...")
@@ -38,7 +38,7 @@ def ensure_default_rules():
                 INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, config)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
-            execute_db(insert_sql, (
+            await execute_db(insert_sql, (
                 "全网负面内容监测",
                 "", # All keywords
                 1,
@@ -53,12 +53,12 @@ def ensure_default_rules():
     except Exception as e:
         print(f"Error ensuring default rules: {e}")
 
-def sync_monitor_tasks_to_rules():
+async def sync_monitor_tasks_to_rules():
     """同步监测任务到预警规则 (双向同步支持)"""
     try:
         # 1. 获取所有监测任务 (无论是否开启预警)
         tasks_sql = "SELECT * FROM monitoring_tasks"
-        tasks = query_db(tasks_sql)
+        tasks = await query_db(tasks_sql)
         tasks = tasks if tasks else []
         
         # 构建所有存在的任务规则名称集合 (用于检测已删除的任务)
@@ -66,7 +66,7 @@ def sync_monitor_tasks_to_rules():
 
         # 2. 获取现有“监测任务”类型的规则
         existing_rules_sql = "SELECT id, name FROM alert_rules WHERE name LIKE '【监测任务】%'"
-        existing_rules = query_db(existing_rules_sql)
+        existing_rules = await query_db(existing_rules_sql)
         existing_rules_map = {row['name']: row['id'] for row in existing_rules} if existing_rules else {}
 
         # 3. 同步：添加或更新规则
@@ -80,7 +80,7 @@ def sync_monitor_tasks_to_rules():
                 rule_id = existing_rules_map[task_name]
                 keyword = task['warning_keywords'] if task['warning_keywords'] else task['keywords']
                 update_sql = "UPDATE alert_rules SET keyword = ?, is_active = ?, user_id = ? WHERE id = ?"
-                execute_db(update_sql, (keyword, is_active, user_id, rule_id))
+                await execute_db(update_sql, (keyword, is_active, user_id, rule_id))
                 continue
                 
             # 插入新规则 (即使未开启预警也创建规则，但设为禁用)
@@ -90,7 +90,7 @@ def sync_monitor_tasks_to_rules():
                 INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, user_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
-            execute_db(sql, (
+            await execute_db(sql, (
                 task_name, 
                 keyword, 
                 1, # Threshold default 1
@@ -109,19 +109,19 @@ def sync_monitor_tasks_to_rules():
         for rule_name, rule_id in existing_rules_map.items():
             if rule_name not in all_task_rule_names:
                 print(f"[Sync] Deleting obsolete alert rule: {rule_name}")
-                execute_db("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
+                await execute_db("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
             
     except Exception as e:
         print(f"Error syncing monitor tasks: {e}")
 
-def generate_auto_alerts(override_days: int = None, force: bool = False):
+async def generate_auto_alerts(override_days: int = None, force: bool = False):
     """使用预警引擎自动生成预警"""
     global LAST_CHECK_TIME
     
     # 确保默认规则存在
-    ensure_default_rules()
+    await ensure_default_rules()
     # 同步监测任务
-    sync_monitor_tasks_to_rules()
+    await sync_monitor_tasks_to_rules()
     
     # 简单的节流机制：如果距离上次检查不足 5 分钟，且不是强制覆盖模式，则跳过
     # 注意：override_days 总是会被传递，所以我们需要更智能的判断
@@ -135,7 +135,14 @@ def generate_auto_alerts(override_days: int = None, force: bool = False):
     try:
         print(f"[Auto Alert] Running check (days={override_days})...")
         engine = AlertEngine()
-        engine.run_check(override_days=override_days)
+        # engine.run_check might need to be async as well if it calls query_db
+        # I should check AlertEngine.run_check
+        if hasattr(engine, 'run_check'):
+            import inspect
+            if inspect.iscoroutinefunction(engine.run_check):
+                await engine.run_check(override_days=override_days)
+            else:
+                engine.run_check(override_days=override_days)
         LAST_CHECK_TIME = now
     except Exception as e:
         print(f"Error generating auto alerts: {e}")
@@ -176,7 +183,7 @@ async def get_alerts(
     
     # 简化逻辑：仅执行规则定义的默认周期检查（不进行强制历史扫描）
     # 注意：自动生成预警时不区分用户，而是检查所有规则
-    generate_auto_alerts(override_days=None) 
+    await generate_auto_alerts(override_days=None) 
     
     # 构建时间查询条件
     if start_date and end_date:
@@ -213,13 +220,13 @@ async def get_alerts(
 
     # 计算总数
     count_sql = f"SELECT COUNT(*) as total FROM alerts WHERE {where_clause}"
-    total_res = query_db(count_sql, one=True)
+    total_res = await query_db(count_sql, one=True)
     total = total_res['total'] if total_res else 0
 
     # 分页查询
     offset = (page - 1) * page_size
     sql = f"SELECT * FROM alerts WHERE {where_clause} ORDER BY time DESC LIMIT {page_size} OFFSET {offset}"
-    results = query_db(sql)
+    results = await query_db(sql)
     
     processed_results = []
     if results:
@@ -259,7 +266,7 @@ async def get_unread_count(current_user: User = Depends(get_current_user)):
         params.append(current_user.id)
         
     sql = f"SELECT COUNT(*) as count FROM alerts WHERE {where_clause}"
-    res = query_db(sql, tuple(params), one=True)
+    res = await query_db(sql, tuple(params), one=True)
     return {"count": res['count'] if res else 0}
 
 @router.post("/read/{alert_id}")
@@ -268,12 +275,12 @@ async def mark_as_read(alert_id: int, current_user: User = Depends(get_current_u
     # 检查权限：非管理员只能标记自己的或公共的
     if current_user.role != 'admin':
         check_sql = "SELECT id FROM alerts WHERE id = ? AND (user_id = ? OR type = '全网负面内容监测')"
-        existing = query_db(check_sql, (alert_id, current_user.id), one=True)
+        existing = await query_db(check_sql, (alert_id, current_user.id), one=True)
         if not existing:
             raise HTTPException(status_code=403, detail="Permission denied")
             
     sql = "UPDATE alerts SET status = 'read' WHERE id = ?"
-    if execute_db(sql, (alert_id,)):
+    if await execute_db(sql, (alert_id,)):
         return {"status": "success"}
     return {"status": "error", "message": "Failed to update alert status"}
 
@@ -283,12 +290,12 @@ async def mark_as_processed(alert_id: int, current_user: User = Depends(get_curr
     # 检查权限：非管理员只能标记自己的或公共的
     if current_user.role != 'admin':
         check_sql = "SELECT id FROM alerts WHERE id = ? AND (user_id = ? OR type = '全网负面内容监测')"
-        existing = query_db(check_sql, (alert_id, current_user.id), one=True)
+        existing = await query_db(check_sql, (alert_id, current_user.id), one=True)
         if not existing:
             raise HTTPException(status_code=403, detail="Permission denied")
             
     sql = "UPDATE alerts SET status = 'read', processed = 1 WHERE id = ?"
-    if execute_db(sql, (alert_id,)):
+    if await execute_db(sql, (alert_id,)):
         return {"status": "success"}
     return {"status": "error", "message": "Failed to update alert status"}
 
@@ -302,7 +309,7 @@ async def mark_all_read(current_user: User = Depends(get_current_user)):
         params.append(current_user.id)
         
     sql = f"UPDATE alerts SET status = 'read' WHERE {where_clause}"
-    if execute_db(sql, tuple(params)):
+    if await execute_db(sql, tuple(params)):
         return {"status": "success"}
     return {"status": "error", "message": "Failed to update alerts"}
 
@@ -319,7 +326,7 @@ async def get_alert_details(reference_id: str):
         # query_db routes to HOTSEARCH_DB_PATH because table name "alerts" is in the query (implicit default)
         # or we can be explicit if needed, but "alerts" is not in the transformers list
         cache_sql = "SELECT meta_data FROM alerts WHERE reference_id = ? ORDER BY id DESC LIMIT 1"
-        cached_row = query_db(cache_sql, (reference_id,), one=True)
+        cached_row = await query_db(cache_sql, (reference_id,), one=True)
         
         if cached_row and cached_row['meta_data']:
             try:
@@ -356,7 +363,7 @@ async def get_alert_details(reference_id: str):
         
         # query_db routes to TRANSFORMERS_DB_PATH because table name "content" is in the query
         article_sql = "SELECT * FROM content WHERE note_id = ?"
-        article = query_db(article_sql, (reference_id,), one=True)
+        article = await query_db(article_sql, (reference_id,), one=True)
         
         if not article:
             raise HTTPException(status_code=404, detail="Article not found")
@@ -366,7 +373,7 @@ async def get_alert_details(reference_id: str):
         # Fetch all comments
         # query_db routes to TRANSFORMERS_DB_PATH because table name "comments" is in the query
         comments_sql = "SELECT * FROM comments WHERE note_id = ?"
-        comments = query_db(comments_sql, (reference_id,))
+        comments = await query_db(comments_sql, (reference_id,))
         
         comments_list = [dict(c) for c in comments] if comments else []
         
@@ -423,11 +430,11 @@ async def get_rules(current_user: User = Depends(get_current_user)):
     """获取预警规则列表"""
     if current_user.role == 'admin':
         sql = "SELECT * FROM alert_rules ORDER BY created_at DESC"
-        results = query_db(sql)
+        results = await query_db(sql)
     else:
         # Users see their own rules OR system rules (user_id IS NULL or specific name)
         sql = "SELECT * FROM alert_rules WHERE user_id = ? OR name = '全网负面内容监测' ORDER BY created_at DESC"
-        results = query_db(sql, (current_user.id,))
+        results = await query_db(sql, (current_user.id,))
     return [dict(row) for row in results] if results else []
 
 @router.post("/rules")
@@ -437,7 +444,7 @@ async def create_rule(rule: AlertRuleSchema, background_tasks: BackgroundTasks, 
         INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, config, user_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
-    if execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, current_user.id)):
+    if await execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, current_user.id)):
         # Trigger immediate check in background
         print(f"[Manual Create] Triggering immediate check for new rule {rule.name}")
         background_tasks.add_task(generate_auto_alerts, force=True)
@@ -449,7 +456,7 @@ async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: Bac
     """更新预警规则"""
     
     # Check permission
-    existing = query_db("SELECT user_id FROM alert_rules WHERE id = ?", (rule_id,), one=True)
+    existing = await query_db("SELECT user_id FROM alert_rules WHERE id = ?", (rule_id,), one=True)
     if existing:
         # Allow if owner or admin, or if it's a system rule (user_id is None) and user is admin? 
         # Actually normal users shouldn't edit system rules either.
@@ -465,14 +472,14 @@ async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: Bac
         # Sync back to Monitoring Tasks: Update warning_enabled status
         print(f"[Sync] Updating warning status for task: {task_name} -> {rule.is_active}")
         update_task_sql = "UPDATE monitoring_tasks SET warning_enabled = ? WHERE name = ?"
-        execute_db(update_task_sql, (rule.is_active, task_name))
+        await execute_db(update_task_sql, (rule.is_active, task_name))
 
     sql = """
         UPDATE alert_rules 
         SET name=?, keyword=?, threshold=?, time_window=?, sentiment=?, is_crisis=?, notify_methods=?, is_active=?, rule_type=?, config=?
         WHERE id=?
     """
-    if execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, rule_id)):
+    if await execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, rule_id)):
         # Trigger immediate check in background
         print(f"[Manual Update] Triggering immediate check for updated rule {rule.name}")
         background_tasks.add_task(generate_auto_alerts, force=True)
@@ -483,7 +490,7 @@ async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: Bac
 async def delete_rule(rule_id: int, current_user: User = Depends(get_current_user)):
     """删除预警规则 (双向同步支持)"""
     # Check permission
-    existing = query_db("SELECT user_id, name FROM alert_rules WHERE id = ?", (rule_id,), one=True)
+    existing = await query_db("SELECT user_id, name FROM alert_rules WHERE id = ?", (rule_id,), one=True)
     if existing:
         is_owner = existing['user_id'] == current_user.id
         is_admin = current_user.role == 'admin'
@@ -493,17 +500,17 @@ async def delete_rule(rule_id: int, current_user: User = Depends(get_current_use
 
     # 1. Check if it's a synced rule
     rule_sql = "SELECT name FROM alert_rules WHERE id = ?"
-    rule = query_db(rule_sql, (rule_id,), one=True)
+    rule = await query_db(rule_sql, (rule_id,), one=True)
     
     if rule and rule['name'].startswith("【监测任务】"):
         task_name = rule['name'].replace("【监测任务】", "")
         # Sync back to Monitoring Tasks: Disable warning
         print(f"[Sync] Disabling warning for task: {task_name}")
         update_sql = "UPDATE monitoring_tasks SET warning_enabled = 0 WHERE name = ?"
-        execute_db(update_sql, (task_name,))
+        await execute_db(update_sql, (task_name,))
 
     sql = "DELETE FROM alert_rules WHERE id = ?"
-    if execute_db(sql, (rule_id,)):
+    if await execute_db(sql, (rule_id,)):
         return {"status": "success"}
     raise HTTPException(status_code=500, detail="Failed to delete rule")
 
@@ -523,7 +530,7 @@ async def get_alert_report(days: Optional[int] = 7, start_date: Optional[str] = 
 
     # 1. 按级别统计
     level_sql = f"SELECT level, COUNT(*) as count FROM alerts WHERE {time_condition} GROUP BY level"
-    levels = query_db(level_sql)
+    levels = await query_db(level_sql)
     
     # 2. 预警趋势
     trend_sql = f"""
@@ -533,11 +540,11 @@ async def get_alert_report(days: Optional[int] = 7, start_date: Optional[str] = 
         GROUP BY strftime('%Y-%m-%d %H:%M', time)
         ORDER BY date ASC
     """
-    trends = query_db(trend_sql)
+    trends = await query_db(trend_sql)
     
     # 3. 触发最频繁的规则类型
     type_sql = f"SELECT type, COUNT(*) as count FROM alerts WHERE {time_condition} GROUP BY type"
-    types = query_db(type_sql)
+    types = await query_db(type_sql)
     
     return {
         "level_dist": [dict(r) for r in levels] if levels else [],

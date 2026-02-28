@@ -3860,21 +3860,19 @@ img.circular-icon {
     .reply-target-block {
         display: inline-flex;
         align-items: center;
-        margin: 0 8px;
-        padding: 2px 8px;
-        background: rgba(0, 0, 0, 0.3);
-        border-radius: 4px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        height: 24px;
+        margin: 0 4px; /* 减少外边距，向左对齐 */
+        padding: 0;
+        background: transparent; /* 移除背景使之更紧凑 */
+        border: none; /* 移除边框 */
+        height: auto;
     }
 
     .reply-verb {
-        font-size: 10px;
-        color: rgba(255, 255, 255, 0.5);
-        margin-right: 6px;
-        font-weight: bold;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.4);
+        margin-right: 2px; /* 减小间距，使 span 紧贴 */
+        font-weight: normal;
+        letter-spacing: 0px;
     }
 
     .reply-target-user {
@@ -3883,13 +3881,11 @@ img.circular-icon {
         font-size: 12px;
         display: flex;
         align-items: center;
-        gap: 4px;
-        background: rgba(0, 240, 255, 0.15);
-        padding: 0 6px;
-        border-radius: 2px;
-        height: 18px;
-        border: 1px solid rgba(0, 240, 255, 0.3);
-        box-shadow: 0 0 5px rgba(0, 240, 255, 0.15);
+        gap: 2px; /* 减小图标和文字间距 */
+        background: transparent; /* 移除背景 */
+        padding: 0;
+        border: none; /* 移除边框 */
+        box-shadow: none;
         text-shadow: 0 0 5px rgba(0, 240, 255, 0.4);
     }
 
@@ -3930,9 +3926,10 @@ img.circular-icon {
 
     .comment-header {
         display: flex;
-        justify-content: space-between;
+        justify-content: flex-start; /* 改为左对齐 */
         align-items: center;
         margin-bottom: 8px;
+        gap: 6px; /* 控制各元素间的间距 */
     }
 
     .comment-user-name {
@@ -3981,6 +3978,7 @@ img.circular-icon {
         padding: 2px 6px;
         border-radius: 4px;
         border: 1px solid transparent;
+        margin-left: auto; /* 自动外边距推到右侧 */
     }
 
     .sentiment-positive {

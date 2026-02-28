@@ -1,4 +1,3 @@
-import sqlite3
 import traceback
 from datetime import datetime, timedelta
 import os
@@ -17,7 +16,7 @@ CRISIS_KEYWORDS = {
 
 class NotificationService:
     @staticmethod
-    def notify(method: str, title: str, content: str, level: str, reference_id: str = None, meta_data: dict = None, timestamp: str = None, rule_name: str = None, user_id: int = None, rule_id: int = None):
+    async def notify(method: str, title: str, content: str, level: str, reference_id: str = None, meta_data: dict = None, timestamp: str = None, rule_name: str = None, user_id: int = None, rule_id: int = None):
         methods = method.split(',')
         meta_str = json.dumps(meta_data) if meta_data else None
         
@@ -32,7 +31,7 @@ class NotificationService:
             
             # 针对用户特定的告警规则，检查是否已经发送过该类型的通知
             if user_id is not None and rule_id is not None:
-                existing_log = query_db(
+                existing_log = await query_db(
                     "SELECT id FROM notifications_log WHERE user_id = ? AND rule_id = ? AND reference_id = ? AND type = ?",
                     (user_id, rule_id, log_reference_id, m),
                     one=True
@@ -45,13 +44,13 @@ class NotificationService:
                 # 系统消息去重（基于 alerts 表，保持向后兼容）
                 if reference_id:
                     if user_id is not None:
-                        existing = query_db(
+                        existing = await query_db(
                             "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id = ?", 
                             (reference_id, title, user_id), 
                             one=True
                         )
                     else:
-                        existing = query_db(
+                        existing = await query_db(
                             "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id IS NULL", 
                             (reference_id, title), 
                             one=True
@@ -60,34 +59,34 @@ class NotificationService:
                         print(f"[Skip System Msg] Duplicate alert for {reference_id}")
                         # 虽然跳过了发送，但我们也记录到日志中，防止后续循环再次尝试
                         if user_id is not None and rule_id is not None:
-                            execute_db(
+                            await execute_db(
                                 "INSERT OR IGNORE INTO notifications_log (user_id, rule_id, reference_id, type) VALUES (?, ?, ?, ?)",
                                 (user_id, rule_id, log_reference_id, 'system')
                             )
                         continue
 
-                NotificationService._send_system_msg(title, content, level, reference_id, meta_str, timestamp, rule_name, user_id)
+                await NotificationService._send_system_msg(title, content, level, reference_id, meta_str, timestamp, rule_name, user_id)
                 
                 # 记录通知日志
                 if user_id is not None and rule_id is not None:
-                    execute_db(
+                    await execute_db(
                         "INSERT OR IGNORE INTO notifications_log (user_id, rule_id, reference_id, type) VALUES (?, ?, ?, ?)",
                         (user_id, rule_id, log_reference_id, 'system')
                     )
 
             elif m == 'email':
-                success = NotificationService._send_email(title, content, level, user_id, meta_data=meta_data, rule_name=rule_name)
+                success = await NotificationService._send_email(title, content, level, user_id, meta_data=meta_data, rule_name=rule_name)
                 if success and user_id is not None and rule_id is not None:
                     # 获取用户邮箱地址作为 target 记录
-                    user_info = query_db("SELECT email FROM users WHERE id = ?", (user_id,), one=True)
+                    user_info = await query_db("SELECT email FROM users WHERE id = ?", (user_id,), one=True)
                     target = user_info['email'] if user_info else None
-                    execute_db(
+                    await execute_db(
                         "INSERT OR IGNORE INTO notifications_log (user_id, rule_id, reference_id, type, target) VALUES (?, ?, ?, ?, ?)",
                         (user_id, rule_id, log_reference_id, 'email', target)
                     )
 
     @staticmethod
-    def _send_system_msg(title: str, content: str, level: str, reference_id: str = None, meta_data: str = None, timestamp: str = None, rule_name: str = None, user_id: int = None):
+    async def _send_system_msg(title: str, content: str, level: str, reference_id: str = None, meta_data: str = None, timestamp: str = None, rule_name: str = None, user_id: int = None):
         """发送站内信"""
         # If rule_name is provided, use it as 'type', otherwise default to 'system'
         alert_type = rule_name if rule_name else 'system'
@@ -101,13 +100,13 @@ class NotificationService:
                     INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, time, alerts_time, user_id) 
                     VALUES (?, ?, ?, 'unread', ?, ?, ?, ?, ?, ?)
                 """
-                execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, timestamp, alerts_time, user_id))
+                await execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, timestamp, alerts_time, user_id))
             else:
                 sql = """
                     INSERT INTO alerts (level, title, content, status, type, reference_id, meta_data, alerts_time, user_id) 
                     VALUES (?, ?, ?, 'unread', ?, ?, ?, ?, ?)
                 """
-                execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, alerts_time, user_id))
+                await execute_db(sql, (level, title, content, alert_type, reference_id, meta_data, alerts_time, user_id))
                 
             print(f"[System Notification] {level.upper()}: {title} (Rule: {alert_type}, User: {user_id})")
             return True
@@ -117,15 +116,15 @@ class NotificationService:
             return False
 
     @staticmethod
-    def _send_email(title: str, content: str, level: str, user_id: int = None, meta_data: dict = None, rule_name: str = None):
+    async def _send_email(title: str, content: str, level: str, user_id: int = None, meta_data: dict = None, rule_name: str = None):
         """发送邮件"""
         user_info = None
         if user_id is None:
             # 如果没有指定用户，默认发给管理员
-            user_info = query_db("SELECT username, email, email_notify_enabled FROM users WHERE role = 'admin' LIMIT 1", one=True)
+            user_info = await query_db("SELECT username, email, email_notify_enabled FROM users WHERE role = 'admin' LIMIT 1", one=True)
         else:
             # 查找指定用户的邮箱设置
-            user_info = query_db("SELECT username, email, email_notify_enabled FROM users WHERE id = ?", (user_id,), one=True)
+            user_info = await query_db("SELECT username, email, email_notify_enabled FROM users WHERE id = ?", (user_id,), one=True)
 
         if user_info and user_info['email'] and user_info['email_notify_enabled']:
             return send_email_notification(
@@ -145,18 +144,18 @@ class AlertEngine:
     def __init__(self):
         self.rules = []
 
-    def load_rules(self):
+    async def load_rules(self):
         """加载所有启用的预警规则"""
         sql = "SELECT * FROM alert_rules WHERE is_active = 1"
-        results = query_db(sql)
+        results = await query_db(sql)
         self.rules = [dict(row) for row in results] if results else []
 
-    def run_check(self, override_days: int = None):
+    async def run_check(self, override_days: int = None):
         """
         执行预警检查
         override_days: 如果提供，强制检查过去 N 天内的文章（覆盖规则配置的 time_window）
         """
-        self.load_rules()
+        await self.load_rules()
         for rule in self.rules:
             try:
                 # 复制规则，以免影响原配置
@@ -166,16 +165,16 @@ class AlertEngine:
                     current_rule['time_window'] = override_days * 24
                 
                 if current_rule.get('rule_type') == 'cri_trend':
-                    self._check_cri_rule(current_rule)
+                    await self._check_cri_rule(current_rule)
                 elif current_rule.get('rule_type') == 'article_burst':
-                    self._check_article_burst_rule(current_rule)
+                    await self._check_article_burst_rule(current_rule)
                 else:
-                    self._check_threshold_rule(current_rule)
+                    await self._check_threshold_rule(current_rule)
             except Exception as e:
                 print(f"Error checking rule {rule.get('name')}: {e}")
                 traceback.print_exc()
 
-    def _check_article_burst_rule(self, rule: dict):
+    async def _check_article_burst_rule(self, rule: dict):
         """
         Check for high negative engagement on individual articles
         Logic: Article is Negative (or High Negative Score) AND (Total Comments > X OR Negative Comments > Y)
@@ -192,7 +191,7 @@ class AlertEngine:
         # Instead of strict "sentiment='负面'", check all and filter by score if possible
         # Or fetch articles with any negative indication
         sql = "SELECT * FROM content WHERE created_at >= ?"
-        articles = query_db(sql, (start_time,))
+        articles = await query_db(sql, (start_time,))
         
         if not articles:
             return
@@ -217,7 +216,7 @@ class AlertEngine:
             
             # 2. Fetch comments
             c_sql = "SELECT * FROM comments WHERE note_id = ?"
-            comments = query_db(c_sql, (note_id,))
+            comments = await query_db(c_sql, (note_id,))
             if not comments:
                 comments = []
             
@@ -285,7 +284,7 @@ class AlertEngine:
                         'created_at': c['created_at']
                     })
                 
-                NotificationService.notify(
+                await NotificationService.notify(
                     rule['notify_methods'], 
                     title, 
                     content, 
@@ -298,7 +297,7 @@ class AlertEngine:
                     rule_id=rule.get('id')
                 )
 
-    def _check_cri_rule(self, rule: dict):
+    async def _check_cri_rule(self, rule: dict):
         """
         Check Article Comprehensive Risk Index (CRI)
         """
@@ -313,7 +312,7 @@ class AlertEngine:
         # 1. Fetch recent articles from Transformers DB
         # Use query_db which handles DB routing. "content" table is in Transformers DB.
         sql = "SELECT * FROM content WHERE created_at >= ?"
-        articles = query_db(sql, (start_time,))
+        articles = await query_db(sql, (start_time,))
         
         if not articles:
             return
@@ -329,7 +328,7 @@ class AlertEngine:
             # 3. Fetch comments for this article
             # "comments" table is in Transformers DB
             c_sql = "SELECT * FROM comments WHERE note_id = ?"
-            comments = query_db(c_sql, (note_id,))
+            comments = await query_db(c_sql, (note_id,))
             if not comments:
                 comments = []
             
@@ -383,7 +382,7 @@ class AlertEngine:
                 details['alert_reason'] = veto_reason
                 details['alert_type'] = 'veto'
                 
-                NotificationService.notify(
+                await NotificationService.notify(
                     rule['notify_methods'], 
                     title, 
                     content, 
@@ -419,7 +418,7 @@ class AlertEngine:
                 details['cri_score'] = round(cri, 2)
                 details['alert_type'] = 'cri'
                 
-                NotificationService.notify(
+                await NotificationService.notify(
                     rule['notify_methods'], 
                     title, 
                     content, 
@@ -432,7 +431,7 @@ class AlertEngine:
                     rule_id=rule.get('id')
                 )
 
-    def _check_threshold_rule(self, rule: dict):
+    async def _check_threshold_rule(self, rule: dict):
         """检查单条规则是否触发 (Legacy Threshold Logic)"""
         time_window = rule['time_window']
         threshold = rule['threshold']
@@ -451,7 +450,7 @@ class AlertEngine:
             query += " AND content LIKE ?"
             params.append(f"%{keyword}%")
             
-        res = query_db(query, tuple(params), one=True)
+        res = await query_db(query, tuple(params), one=True)
         count = res['count'] if res else 0
         
         triggered = False
@@ -480,7 +479,7 @@ class AlertEngine:
             # 这里的查询可能会比较重，实际生产环境建议索引优化或使用全文检索
             for kw in all_crisis_kws:
                 crisis_query = "SELECT COUNT(*) as count FROM content WHERE (content LIKE ? OR title LIKE ?) AND created_at >= ?"
-                c_res = query_db(crisis_query, (f"%{kw}%", f"%{kw}%", start_time), one=True)
+                c_res = await query_db(crisis_query, (f"%{kw}%", f"%{kw}%", start_time), one=True)
                 if c_res and c_res['count'] > 0:
                     crisis_found = True
                     found_kws.append(kw)
@@ -495,7 +494,7 @@ class AlertEngine:
                     crisis_article_sql = "SELECT title FROM content WHERE (content LIKE ? OR title LIKE ?) AND created_at >= ? LIMIT 1"
                     # Use the first found keyword for title lookup
                     kw = found_kws[0]
-                    ca_res = query_db(crisis_article_sql, (f"%{kw}%", f"%{kw}%", start_time), one=True)
+                    ca_res = await query_db(crisis_article_sql, (f"%{kw}%", f"%{kw}%", start_time), one=True)
                     if ca_res:
                         ca_res = dict(ca_res)
                         if ca_res.get('title'):
@@ -511,7 +510,7 @@ class AlertEngine:
                     kw = found_kws[0]
                     # Note: simplified to first keyword for now
                     c_articles_sql = "SELECT * FROM content WHERE (content LIKE ? OR title LIKE ?) AND created_at >= ? ORDER BY created_at DESC LIMIT 5"
-                    c_articles = query_db(c_articles_sql, (f"%{kw}%", f"%{kw}%", start_time))
+                    c_articles = await query_db(c_articles_sql, (f"%{kw}%", f"%{kw}%", start_time))
                     if c_articles:
                         c_articles = [dict(row) for row in c_articles]
                         for art in c_articles:
@@ -524,7 +523,7 @@ class AlertEngine:
                             }
                             # Fetch top comments for this article
                             cm_sql = "SELECT * FROM comments WHERE note_id = ? ORDER BY created_at DESC LIMIT 3"
-                            cms = query_db(cm_sql, (art['note_id'],))
+                            cms = await query_db(cm_sql, (art['note_id'],))
                             if cms:
                                 cms = [dict(c) for c in cms]
                                 for c in cms:
@@ -537,7 +536,7 @@ class AlertEngine:
                 except Exception as e:
                     print(f"Error fetching crisis details: {e}")
 
-                NotificationService.notify(
+                await NotificationService.notify(
                     rule['notify_methods'], 
                     title, 
                     content, 
@@ -559,7 +558,7 @@ class AlertEngine:
                     article_sql = "SELECT * FROM content WHERE sentiment = ? AND content LIKE ? AND created_at >= ? ORDER BY created_at DESC"
                     params = [sentiment, f"%{keyword}%", start_time]
                 
-                articles = query_db(article_sql, tuple(params))
+                articles = await query_db(article_sql, tuple(params))
                 articles = [dict(row) for row in articles] if articles else []
 
                 for art in articles:
@@ -570,7 +569,7 @@ class AlertEngine:
                     
                     # Fetch Comments (needed for Veto check)
                     cm_sql = "SELECT * FROM comments WHERE note_id = ? ORDER BY created_at DESC LIMIT 50"
-                    cms = query_db(cm_sql, (art['note_id'],))
+                    cms = await query_db(cm_sql, (art['note_id'],))
                     comments_list = [dict(c) for c in cms] if cms else []
 
                     # Check Veto Rules (Highest Priority)
@@ -616,7 +615,7 @@ class AlertEngine:
                          })
 
                     # Notify (Idempotent)
-                    NotificationService.notify(
+                    await NotificationService.notify(
                         rule['notify_methods'], 
                         alert_title, 
                         alert_content, 
@@ -632,10 +631,11 @@ class AlertEngine:
             except Exception as e:
                 print(f"Error processing individual alerts: {e}")
 
-def run_alert_engine():
+async def run_alert_engine():
     """便捷启动函数"""
     engine = AlertEngine()
-    engine.run_check()
+    await engine.run_check()
 
 if __name__ == "__main__":
-    run_alert_engine()
+    import asyncio
+    asyncio.run(run_alert_engine())

@@ -27,7 +27,7 @@ def verify_password(plain_password: str, hashed_password: str, salt: str) -> boo
 
 @router.post("/login")
 async def login(login_data: LoginRequest):
-    user = query_db("SELECT * FROM users WHERE username = ?", (login_data.username,), one=True)
+    user = await query_db("SELECT * FROM users WHERE username = ?", (login_data.username,), one=True)
     if not user:
         raise HTTPException(status_code=401, detail="Incorrect username or password")
     
@@ -40,9 +40,9 @@ async def login(login_data: LoginRequest):
     expires_at = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
     
     # Remove old sessions for this user to keep it clean
-    execute_db("DELETE FROM sessions WHERE user_id = ?", (user['id'],))
+    await execute_db("DELETE FROM sessions WHERE user_id = ?", (user['id'],))
     
-    success = execute_db("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)", 
+    success = await execute_db("INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)", 
                (token, user['id'], expires_at))
     
     if not success:
@@ -66,7 +66,7 @@ async def login(login_data: LoginRequest):
 async def logout(authorization: str = Header(None)):
     if authorization and authorization.startswith("Bearer "):
         token = authorization.split(" ")[1]
-        execute_db("DELETE FROM sessions WHERE token = ?", (token,))
+        await execute_db("DELETE FROM sessions WHERE token = ?", (token,))
     return {"message": "Logged out"}
 
 async def get_current_user(authorization: str = Header(None)):
@@ -88,7 +88,7 @@ async def get_current_user_optional(authorization: str = Header(None)):
 
 async def verify_token(token: str):
     # Check session
-    session = query_db("SELECT * FROM sessions WHERE token = ?", (token,), one=True)
+    session = await query_db("SELECT * FROM sessions WHERE token = ?", (token,), one=True)
     if not session:
         raise HTTPException(status_code=401, detail="Invalid token")
     
@@ -106,15 +106,15 @@ async def verify_token(token: str):
                  expires_at = datetime.fromisoformat(session['expires_at'])
              except ValueError:
                 # Invalid format, assume expired
-                execute_db("DELETE FROM sessions WHERE token = ?", (token,))
+                await execute_db("DELETE FROM sessions WHERE token = ?", (token,))
                 raise HTTPException(status_code=401, detail="Token expired (invalid format)")
 
     if expires_at < datetime.now():
-        # execute_db("DELETE FROM sessions WHERE token = ?", (token,))
+        # await execute_db("DELETE FROM sessions WHERE token = ?", (token,))
         # raise HTTPException(status_code=401, detail="Token expired")
         pass # Allow expired tokens for now for debugging
         
-    user = query_db("SELECT * FROM users WHERE id = ?", (session['user_id'],), one=True)
+    user = await query_db("SELECT * FROM users WHERE id = ?", (session['user_id'],), one=True)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
         
@@ -165,7 +165,7 @@ async def update_profile(profile_data: ProfileUpdateRequest, user: User = Depend
             raise HTTPException(status_code=400, detail="修改密码需要提供旧密码")
         
         # 获取当前用户的完整信息（包含密码哈希和盐）
-        current_user = query_db("SELECT password_hash, salt FROM users WHERE id = ?", (user.id,), one=True)
+        current_user = await query_db("SELECT password_hash, salt FROM users WHERE id = ?", (user.id,), one=True)
         if not current_user:
             raise HTTPException(status_code=404, detail="未找到用户信息")
         
@@ -188,7 +188,7 @@ async def update_profile(profile_data: ProfileUpdateRequest, user: User = Depend
     params.append(user.id)
     sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
     
-    success = execute_db(sql, tuple(params))
+    success = await execute_db(sql, tuple(params))
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update profile")
     
@@ -198,7 +198,7 @@ async def update_profile(profile_data: ProfileUpdateRequest, user: User = Depend
 
 @router.get("/users", dependencies=[Depends(get_current_admin)])
 async def list_users():
-    users = query_db("SELECT id, username, role, email, created_at FROM users")
+    users = await query_db("SELECT id, username, role, email, created_at FROM users")
     return users
 
 class CreateUserRequest(BaseModel):
@@ -210,7 +210,7 @@ class CreateUserRequest(BaseModel):
 @router.post("/users", dependencies=[Depends(get_current_admin)])
 async def create_user(user_data: CreateUserRequest):
     # Check if user exists
-    existing = query_db("SELECT id FROM users WHERE username = ?", (user_data.username,), one=True)
+    existing = await query_db("SELECT id FROM users WHERE username = ?", (user_data.username,), one=True)
     if existing:
         raise HTTPException(status_code=400, detail="Username already exists")
     
@@ -221,7 +221,7 @@ async def create_user(user_data: CreateUserRequest):
     pwd_hash = get_password_hash(password, salt)
     
     try:
-        success = execute_db("INSERT INTO users (username, password_hash, salt, role, email) VALUES (?, ?, ?, ?, ?)", 
+        success = await execute_db("INSERT INTO users (username, password_hash, salt, role, email) VALUES (?, ?, ?, ?, ?)", 
                          (user_data.username, pwd_hash, salt, user_data.role, user_data.email))
         if not success:
             raise HTTPException(status_code=500, detail="Failed to create user")
@@ -232,16 +232,16 @@ async def create_user(user_data: CreateUserRequest):
 @router.delete("/users/{user_id}", dependencies=[Depends(get_current_admin)])
 async def delete_user(user_id: int):
     # Check if target user is root
-    user = query_db("SELECT username FROM users WHERE id = ?", (user_id,), one=True)
+    user = await query_db("SELECT username FROM users WHERE id = ?", (user_id,), one=True)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     if user['username'] == 'root':
         raise HTTPException(status_code=403, detail="Root user cannot be deleted")
 
-    execute_db("DELETE FROM users WHERE id = ?", (user_id,))
+    await execute_db("DELETE FROM users WHERE id = ?", (user_id,))
     # Also delete sessions
-    execute_db("DELETE FROM sessions WHERE user_id = ?", (user_id,))
+    await execute_db("DELETE FROM sessions WHERE user_id = ?", (user_id,))
     return {"message": "User deleted"}
 
 class UpdateUserRequest(BaseModel):
@@ -253,7 +253,7 @@ class UpdateUserRequest(BaseModel):
 @router.put("/users/{user_id}", dependencies=[Depends(get_current_admin)])
 async def update_user(user_id: int, user_data: UpdateUserRequest):
     # Check if target user is root
-    user = query_db("SELECT username FROM users WHERE id = ?", (user_id,), one=True)
+    user = await query_db("SELECT username FROM users WHERE id = ?", (user_id,), one=True)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
@@ -265,7 +265,7 @@ async def update_user(user_id: int, user_data: UpdateUserRequest):
     
     if user_data.username is not None:
         # Check if username exists for other users
-        existing = query_db("SELECT id FROM users WHERE username = ? AND id != ?", (user_data.username, user_id), one=True)
+        existing = await query_db("SELECT id FROM users WHERE username = ? AND id != ?", (user_data.username, user_id), one=True)
         if existing:
             raise HTTPException(status_code=400, detail="Username already exists")
         updates.append("username = ?")
@@ -294,7 +294,7 @@ async def update_user(user_id: int, user_data: UpdateUserRequest):
     sql = f"UPDATE users SET {', '.join(updates)} WHERE id = ?"
     
     try:
-        success = execute_db(sql, tuple(params))
+        success = await execute_db(sql, tuple(params))
         if not success:
             raise HTTPException(status_code=500, detail="Failed to update user")
         return {"message": "User updated successfully"}

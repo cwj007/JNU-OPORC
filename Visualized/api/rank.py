@@ -1,13 +1,35 @@
 from fastapi import APIRouter, Response
 from fastapi.responses import StreamingResponse
-import urllib.request
-import urllib.error
+import httpx
 from .database import query_db
 from datetime import datetime, timedelta
 import json
 import math
 import hashlib
 import re
+import anyio
+
+# 创建全局 AsyncClient 提高性能
+_client = None
+
+async def get_client():
+    global _client
+    if _client is None or _client.is_closed:
+        # 使用适当的超时和连接池配置
+        _client = httpx.AsyncClient(
+            timeout=10,
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+        )
+    return _client
+
+async def close_client():
+    global _client
+    if _client and not _client.is_closed:
+        await _client.aclose()
+        _client = None
 
 def parse_chinese_number(num_str):
     """
@@ -48,38 +70,34 @@ async def proxy_image(url: str):
         if not url.startswith(('http://', 'https://')):
             return Response(status_code=400)
             
+        client = await get_client()
+        
+        # 针对微博图片的特殊 Referer
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Referer": "https://weibo.com/"  # 设置 Referer 为 weibo.com
+            "Referer": "https://weibo.com/"
         }
         
-        req = urllib.request.Request(url, headers=headers)
-        
-        # 使用 yield generator 来流式传输
-        def iterfile(req):
-            try:
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    while True:
-                        chunk = response.read(8192)
-                        if not chunk:
-                            break
-                        yield chunk
-            except Exception as e:
-                print(f"Error reading stream: {e}")
-                return
-
-        # 预先请求一次以获取 headers 和 status
-        content_type = "image/jpeg"
+        # 先获取 content_type
         try:
-            with urllib.request.urlopen(req, timeout=10) as response:
-                content_type = response.info().get_content_type()
-        except urllib.error.HTTPError as e:
-            return Response(status_code=e.code)
-        except urllib.error.URLError as e:
-            return Response(status_code=500)
+            head_resp = await client.head(url, headers=headers)
+            content_type = head_resp.headers.get("Content-Type", "image/jpeg")
+        except Exception:
+            content_type = "image/jpeg"
+
+        async def stream_image():
+            try:
+                # 使用 client.stream 提高效率
+                async with client.stream("GET", url, headers=headers) as response:
+                    if response.status_code != 200:
+                        yield b""
+                    else:
+                        async for chunk in response.aiter_bytes():
+                            yield chunk
+            except Exception as e:
+                print(f"Streaming error: {e}")
 
         return StreamingResponse(
-            iterfile(req), 
+            stream_image(), 
             media_type=content_type
         )
             
@@ -97,7 +115,7 @@ async def get_influencer_rank(platform: str = "all", days: int = 7):
         try:
             # Get all creators and sort in Python because SQLite might not handle '1.4亿' correctly
             sql = "SELECT * FROM weibo_creator"
-            rows = query_db(sql)
+            rows = await query_db(sql)
             if rows:
                 print(f"DEBUG: Found {len(rows)} rows in weibo_creator")
                 
@@ -172,7 +190,7 @@ async def get_influencer_rank(platform: str = "all", days: int = 7):
     if platform in ["all", "zhihu"]:
         try:
             sql = "SELECT * FROM zhihu_creator"
-            rows = query_db(sql)
+            rows = await query_db(sql)
             if rows:
                 parsed_rows = []
                 max_fans = 0

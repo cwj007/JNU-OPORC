@@ -135,7 +135,7 @@ async def update_training_result(
         if update_fields:
             query = f"UPDATE content SET {', '.join(update_fields)} WHERE note_id = ?"
             params.append(note_id)
-            execute_db(query, tuple(params))
+            await execute_db(query, tuple(params))
              
         return {"status": "success", "message": "Training result updated"}
         
@@ -193,9 +193,9 @@ async def update_sentiment(
             
         # 3. 更新数据库
         if comment_id == "0":
-            execute_db("UPDATE content SET sentiment = ? WHERE note_id = ?", (new_sentiment, note_id))
+            await execute_db("UPDATE content SET sentiment = ? WHERE note_id = ?", (new_sentiment, note_id))
         else:
-            execute_db("UPDATE comments SET sentiment = ? WHERE note_id = ? AND comment_id = ?", (new_sentiment, note_id, comment_id))
+            await execute_db("UPDATE comments SET sentiment = ? WHERE note_id = ? AND comment_id = ?", (new_sentiment, note_id, comment_id))
              
         return {"status": "success", "message": "Sentiment updated"}
         
@@ -290,7 +290,7 @@ async def update_comment_training_result(
             
         # 3. Update Database (sentiment only for comments table)
         if sentiment is not None:
-            execute_db("UPDATE comments SET sentiment = ? WHERE note_id = ? AND comment_id = ?", (sentiment, note_id, comment_id))
+            await execute_db("UPDATE comments SET sentiment = ? WHERE note_id = ? AND comment_id = ?", (sentiment, note_id, comment_id))
              
         return {"status": "success", "message": "Comment training result updated"}
         
@@ -308,11 +308,11 @@ async def get_tasks(current_user: User = Depends(get_current_user)):
     """获取所有监控任务，并附带预警统计信息"""
     try:
         if current_user.role == 'admin':
-            tasks = query_db("SELECT * FROM monitoring_tasks ORDER BY created_at DESC")
+            tasks = await query_db("SELECT * FROM monitoring_tasks ORDER BY created_at DESC")
         else:
-            tasks = query_db("SELECT * FROM monitoring_tasks WHERE user_id = ? ORDER BY created_at DESC", (current_user.id,))
+            tasks = await query_db("SELECT * FROM monitoring_tasks WHERE user_id = ? ORDER BY created_at DESC", (current_user.id,))
             
-        rules = query_db("SELECT * FROM alert_rules")
+        rules = await query_db("SELECT * FROM alert_rules")
         
         # Build a map of rules by name for faster lookup
         rule_map = {}
@@ -355,7 +355,7 @@ async def get_tasks(current_user: User = Depends(get_current_user)):
                         
                         # Task Keywords
                         if t["keywords"]:
-                            k_sql, k_params = parse_keyword_expr(t["keywords"], mode="full", table_alias="T")
+                            k_sql, k_params = parse_keyword_expr(t["keywords"], mode="full", table_alias="T", use_fts=False)
                             if k_sql:
                                 where_clauses.append(k_sql)
                                 params.extend(k_params)
@@ -389,7 +389,7 @@ async def get_tasks(current_user: User = Depends(get_current_user)):
                                 
                         # Warning Keywords (The specific filter for "warning count")
                         if t["warningKeywords"]:
-                            w_sql, w_params = parse_keyword_expr(t["warningKeywords"], mode="full", table_alias="T")
+                            w_sql, w_params = parse_keyword_expr(t["warningKeywords"], mode="full", table_alias="T", use_fts=False)
                             if w_sql:
                                 where_clauses.append(w_sql)
                                 params.extend(w_params)
@@ -432,7 +432,7 @@ async def get_tasks(current_user: User = Depends(get_current_user)):
                             
                             # Task Keywords (Article must match topic)
                             if t["keywords"]:
-                                k_sql, k_params = parse_keyword_expr(t["keywords"], mode="full", table_alias="T")
+                                k_sql, k_params = parse_keyword_expr(t["keywords"], mode="full", table_alias="T", use_fts=False)
                                 if k_sql:
                                     scope_clauses.append(k_sql)
                                     scope_params.extend(k_params)
@@ -472,7 +472,7 @@ async def get_tasks(current_user: User = Depends(get_current_user)):
                             if t["warningKeywords"]:
                                 # parse_keyword_expr generates SQL like (T.title LIKE ... OR T.content LIKE ...)
                                 # We need it to apply to C.content (assuming comments table column is 'content' as seen in line 422)
-                                w_sql_c, w_params_c = parse_keyword_expr(t["warningKeywords"], mode="simple", table_alias="C", column_name="content")
+                                w_sql_c, w_params_c = parse_keyword_expr(t["warningKeywords"], mode="simple", table_alias="C", column_name="content", use_fts=False)
                                 if w_sql_c:
                                     comment_specific.append(w_sql_c)
                                     comment_specific_params.extend(w_params_c)
@@ -502,10 +502,10 @@ async def get_tasks(current_user: User = Depends(get_current_user)):
                                 # query_db detects "content" or "comments" and should route correctly if logic supports it.
                                 # Let's assume query_db handles it.
                                 
-                                article_res = query_db(article_count_sql, tuple(params), one=True)
+                                article_res = await query_db(article_count_sql, tuple(params), one=True)
                                 article_count = article_res[0] if article_res else 0
                                 
-                                comment_res = query_db(comment_count_sql, tuple(full_comment_params), one=True)
+                                comment_res = await query_db(comment_count_sql, tuple(full_comment_params), one=True)
                                 comment_count = comment_res[0] if comment_res else 0
                                 
                                 t["warning_count"] = article_count + comment_count
@@ -546,7 +546,7 @@ async def create_task(task: dict = Body(...), current_user: User = Depends(get_c
 
         if task_id:
             # Check permission
-            existing = query_db("SELECT user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
+            existing = await query_db("SELECT user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
             if existing:
                 # Allow if owner or admin
                 if existing['user_id'] != current_user.id and current_user.role != 'admin':
@@ -559,7 +559,7 @@ async def create_task(task: dict = Body(...), current_user: User = Depends(get_c
                     warning_enabled=?, warning_keywords=?, notify_methods=?, frequency=?
                 WHERE id=?
             """
-            execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, task_id))
+            await execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, task_id))
         else:
             # Create Task
             sql = """
@@ -569,9 +569,9 @@ async def create_task(task: dict = Body(...), current_user: User = Depends(get_c
             # execute_db returns True/False, not ID directly with current impl, 
             # but we need ID for alert_rules.
             # We need to fetch the last inserted ID.
-            execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, current_user.id))
+            await execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, current_user.id))
             # Get the new ID
-            last_task = query_db("SELECT id FROM monitoring_tasks ORDER BY id DESC LIMIT 1", one=True)
+            last_task = await query_db("SELECT id FROM monitoring_tasks ORDER BY id DESC LIMIT 1", one=True)
             if last_task:
                 task_id = last_task['id']
         
@@ -579,16 +579,16 @@ async def create_task(task: dict = Body(...), current_user: User = Depends(get_c
         if task_id:
             rule_name = f"任务预警-{task_id}"
             # Check if rule exists
-            existing_rule = query_db("SELECT id, user_id FROM alert_rules WHERE name = ?", (rule_name,), one=True)
+            existing_rule = await query_db("SELECT id, user_id FROM alert_rules WHERE name = ?", (rule_name,), one=True)
             
             if existing_rule:
-                execute_db("""
+                await execute_db("""
                     UPDATE alert_rules 
                     SET threshold=?, is_crisis=?, notify_methods=?, is_active=?, keyword=?
                     WHERE id=?
                 """, (threshold, is_crisis, notify_methods, warning_enabled, warning_keywords, existing_rule['id']))
             else:
-                execute_db("""
+                await execute_db("""
                     INSERT INTO alert_rules (name, threshold, is_crisis, notify_methods, is_active, keyword, user_id)
                     VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (rule_name, threshold, is_crisis, notify_methods, warning_enabled, warning_keywords, current_user.id))
@@ -604,12 +604,12 @@ async def delete_task(task_id: int, current_user: User = Depends(get_current_use
     """删除监控任务"""
     try:
         # Check permission
-        existing = query_db("SELECT user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
+        existing = await query_db("SELECT user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
         if existing:
             if existing['user_id'] != current_user.id and current_user.role != 'admin':
                 raise HTTPException(status_code=403, detail="Not authorized to delete this task")
                 
-        execute_db("DELETE FROM monitoring_tasks WHERE id = ?", (task_id,))
+        await execute_db("DELETE FROM monitoring_tasks WHERE id = ?", (task_id,))
         return {"status": "success", "message": "Task deleted"}
     except HTTPException as he:
         raise he
@@ -625,9 +625,9 @@ async def delete_content(note_id: str, current_user: User = Depends(get_current_
         
     try:
         # 删除 content 表中的记录
-        execute_db("DELETE FROM content WHERE note_id = ?", (note_id,))
+        await execute_db("DELETE FROM content WHERE note_id = ?", (note_id,))
         # 删除 comments 表中的记录
-        execute_db("DELETE FROM comments WHERE note_id = ?", (note_id,))
+        await execute_db("DELETE FROM comments WHERE note_id = ?", (note_id,))
         
         return {"status": "success", "message": "Content deleted"}
     except Exception as e:
@@ -734,7 +734,7 @@ async def get_monitoring_list(
         # --- 权限控制：普通用户只能看到自己任务范围内的数据 ---
         user_tasks = []
         if current_user.role != 'admin':
-            user_tasks = query_db("SELECT id, keywords, exclude_words, platforms, warning_keywords FROM monitoring_tasks WHERE user_id = ?", (current_user.id,))
+            user_tasks = await query_db("SELECT id, keywords, exclude_words, platforms, warning_keywords FROM monitoring_tasks WHERE user_id = ?", (current_user.id,))
             if not user_tasks:
                 # 如果没有任何任务，直接返回空
                 return {
@@ -760,7 +760,8 @@ async def get_monitoring_list(
                 
                 # 1. Keywords
                 if t['keywords']:
-                    k_sql, k_params = parse_keyword_expr(t['keywords'], mode="full", table_alias=alias)
+                    # 暂时禁用 FTS5，因为其对中文分词支持不佳，改用 LIKE
+                    k_sql, k_params = parse_keyword_expr(t['keywords'], mode="full", table_alias=alias, use_fts=False)
                     if k_sql:
                         task_clauses.append(k_sql)
                         task_params.extend(k_params)
@@ -864,7 +865,8 @@ async def get_monitoring_list(
             # This follows the user's "If user inputs warning trigger words... Return results must be..."
             
             # Use parse_keyword_expr but with "full" mode (check title, content, comment)
-            w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="T")
+            # 暂时禁用 FTS5，改用 LIKE
+            w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="T", use_fts=False)
             if w_sql:
                 where_clauses.append(w_sql)
                 params.extend(w_params)
@@ -873,13 +875,15 @@ async def get_monitoring_list(
             if keyword_mode == "comment":
                 # Comment mode: strict matching in comments (A&B means a single comment has A and B)
                 # Use strict alias to avoid ambiguity
-                inner_sql, inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm_strict")
+                # 暂时禁用 FTS5，改用 LIKE
+                inner_sql, inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm_strict", use_fts=False)
                 if inner_sql:
                     where_clauses.append(f"EXISTS (SELECT 1 FROM comments cm_strict WHERE cm_strict.note_id = T.note_id AND {inner_sql})")
                     params.extend(inner_params)
             else:
                 # Normal modes (Title, Content, Full)
-                k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="T")
+                # 暂时禁用 FTS5，改用 LIKE
+                k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="T", use_fts=False)
                 if k_sql:
                     where_clauses.append(k_sql)
                     params.extend(k_params)
@@ -977,19 +981,19 @@ async def get_monitoring_list(
 
                 if warning_keywords:
                     # Warning Keywords: Strict intersection for Merged Query
-                    w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="c")
+                    w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="c", use_fts=False)
                     if w_sql:
                         c_where_clauses.append(w_sql)
                         c_params.extend(w_params)
 
                 if keyword:
                     if keyword_mode == "comment":
-                        inner_sql, inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm")
+                        inner_sql, inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm", use_fts=False)
                         if inner_sql:
                             c_where_clauses.append(f"EXISTS (SELECT 1 FROM comments cm WHERE cm.note_id = c.note_id AND {inner_sql})")
                             c_params.extend(inner_params)
                     else:
-                        k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="c")
+                        k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="c", use_fts=False)
                         if k_sql:
                             c_where_clauses.append(k_sql)
                             c_params.extend(k_params)
@@ -1041,7 +1045,7 @@ async def get_monitoring_list(
             
             if warning_keywords:
                  # Warning keywords are always "full" mode, check if they match in comments
-                 w_inner_sql, w_inner_params = parse_keyword_expr(warning_keywords, mode="content", table_alias="cm_w")
+                 w_inner_sql, w_inner_params = parse_keyword_expr(warning_keywords, mode="content", table_alias="cm_w", use_fts=False)
                  if w_inner_sql:
                      # ID
                      part = f"(SELECT comment_id FROM comments cm_w WHERE cm_w.note_id = content.note_id AND {w_inner_sql} LIMIT 1)"
@@ -1055,7 +1059,7 @@ async def get_monitoring_list(
             # 2. Normal Keywords
             if keyword and (keyword_mode == "comment" or keyword_mode == "full"):
                  # Find the first matching comment using strict logic
-                 k_inner_sql, k_inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm_k")
+                 k_inner_sql, k_inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm_k", use_fts=False)
                  if k_inner_sql:
                      # ID
                      part = f"(SELECT comment_id FROM comments cm_k WHERE cm_k.note_id = content.note_id AND {k_inner_sql} LIMIT 1)"
@@ -1136,8 +1140,8 @@ async def get_monitoring_list(
         else:
             params_with_limit = params
 
-        items = query_db(full_query, tuple(params_with_limit))
-        total_res = query_db(count_query, tuple(params), one=True)
+        items = await query_db(full_query, tuple(params_with_limit))
+        total_res = await query_db(count_query, tuple(params), one=True)
         # Fix KeyError: 0 when total_res is a dict (from query_db with one=True)
         total_count = 0
         if total_res:
@@ -1218,7 +1222,7 @@ async def get_monitoring_list(
 
                     # --- 新增：计算情感分布（文章 + 评论） ---
                     try:
-                        sentiment_stats = query_db(
+                        sentiment_stats = await query_db(
                             "SELECT sentiment, COUNT(*) as count FROM comments WHERE note_id = ? GROUP BY sentiment", 
                             (item["note_id"],)
                         )
@@ -1320,7 +1324,7 @@ async def get_topic_detail(top_id: str, page: int = 1, size: int = 10):
         # 2. 确定真实的 top_id
         # 优先直接匹配 content 表的 top_id
         check_query = "SELECT COUNT(*) FROM content WHERE top_id = ?"
-        count_res = query_db(check_query, (target_top_id,), one=True)
+        count_res = await query_db(check_query, (target_top_id,), one=True)
         count = list(count_res.values())[0] if count_res else 0
         
         real_top_id = target_top_id
@@ -1330,23 +1334,23 @@ async def get_topic_detail(top_id: str, page: int = 1, size: int = 10):
             # 尝试加上 # (对于微博话题)
             if not target_top_id.startswith("#"):
                 hashed_id = f"#{target_top_id}#"
-                hashed_res = query_db(check_query, (hashed_id,), one=True)
+                hashed_res = await query_db(check_query, (hashed_id,), one=True)
                 if hashed_res and list(hashed_res.values())[0] > 0:
                     real_top_id = hashed_id
                     count = list(hashed_res.values())[0]
             
             # 尝试查 top_topics (通过名称找 ID)
             if count == 0:
-                top_row = query_db("SELECT top_id FROM top_topics WHERE top_name = ?", (target_top_id,), one=True)
+                top_row = await query_db("SELECT top_id FROM top_topics WHERE top_name = ?", (target_top_id,), one=True)
                 if top_row:
                     real_top_id = top_row["top_id"]
-                    real_res = query_db(check_query, (real_top_id,), one=True)
+                    real_res = await query_db(check_query, (real_top_id,), one=True)
                     count = list(real_res.values())[0] if real_res else 0
             
             # 针对知乎：如果还是没找到，尝试作为 title 匹配
             if count == 0:
                 zhihu_check = "SELECT COUNT(*) FROM content WHERE title = ? AND source IN ('知乎', 'zhihu')"
-                zhihu_res = query_db(zhihu_check, (target_top_id,), one=True)
+                zhihu_res = await query_db(zhihu_check, (target_top_id,), one=True)
                 if zhihu_res and list(zhihu_res.values())[0] > 0:
                     count = list(zhihu_res.values())[0]
                     is_zhihu_title = True
@@ -1367,7 +1371,7 @@ async def get_topic_detail(top_id: str, page: int = 1, size: int = 10):
                 LIMIT ? OFFSET ?
             """
         
-        items = query_db(query, (real_top_id, size, offset))
+        items = await query_db(query, (real_top_id, size, offset))
         
         formatted_items = []
         if items:
@@ -1464,7 +1468,7 @@ async def get_item_detail(
             LEFT JOIN top_topics t ON c.top_id = t.top_id
             WHERE c.note_id = ?
         """
-        article_row = query_db(article_query, (note_id,), one=True)
+        article_row = await query_db(article_query, (note_id,), one=True)
         
         if not article_row:
             # 如果找不到文章，返回 404
@@ -1524,7 +1528,7 @@ async def get_item_detail(
             try:
                 # 假设按时间倒序
                 position_query = "SELECT COUNT(*) FROM comments WHERE note_id = ? AND created_at >= (SELECT created_at FROM comments WHERE comment_id = ?)"
-                position_res = query_db(position_query, (note_id, comment_id), one=True)
+                position_res = await query_db(position_query, (note_id, comment_id), one=True)
                 position = 0
                 if position_res:
                     position = list(position_res.values())[0]
@@ -1542,7 +1546,7 @@ async def get_item_detail(
             count_sql += " AND sentiment = ?"
             count_params.append(sentiment)
             
-        count_res = query_db(count_sql, tuple(count_params), one=True)
+        count_res = await query_db(count_sql, tuple(count_params), one=True)
         total_comments = list(count_res.values())[0] if count_res else 0
         item["total_comments"] = total_comments
         
@@ -1555,7 +1559,7 @@ async def get_item_detail(
         comments_sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         comments_params.extend([comments_size, offset])
         
-        comments_rows = query_db(comments_sql, tuple(comments_params))
+        comments_rows = await query_db(comments_sql, tuple(comments_params))
         
         item["comments"] = []
         if comments_rows:
@@ -1647,7 +1651,7 @@ async def get_item_detail(
         try:
             # Query ALL keywords for this article's comments (not just the paginated ones)
             # Fetch raw JSON strings
-            kw_rows = query_db("SELECT keywords FROM comments WHERE note_id = ?", (note_id,))
+            kw_rows = await query_db("SELECT keywords FROM comments WHERE note_id = ?", (note_id,))
             if kw_rows:
                 for row in kw_rows:
                     kw_json = row["keywords"]
@@ -1683,7 +1687,7 @@ async def get_item_detail(
         
         # 7. Get sentiment statistics for all comments (for accurate progress bar)
         try:
-            sentiment_stats = query_db(
+            sentiment_stats = await query_db(
                 "SELECT sentiment, COUNT(*) as count FROM comments WHERE note_id = ? GROUP BY sentiment", 
                 (note_id,)
             )

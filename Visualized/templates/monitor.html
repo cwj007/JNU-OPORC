@@ -136,13 +136,39 @@
         }
 
         .task-card-cyber.active {
-            background: rgba(0, 240, 255, 0.15) !important;
+            background: rgba(0, 240, 255, 0.2) !important;
             border-color: var(--primary-color) !important;
-            border-left-width: 3px !important;
-            color: var(--primary-color) !important;
-            box-shadow: 0 0 20px rgba(0, 240, 255, 0.4), inset 0 0 20px rgba(0, 240, 255, 0.1);
-            text-shadow: 0 0 8px rgba(0, 240, 255, 0.8);
-            font-weight: 700;
+            border-left: 5px solid var(--primary-color) !important;
+            color: #fff !important;
+            box-shadow: 
+                0 0 25px rgba(0, 240, 255, 0.5), 
+                inset 0 0 15px rgba(0, 240, 255, 0.2);
+            text-shadow: 0 0 10px rgba(0, 240, 255, 0.9);
+            font-weight: 800;
+            transform: translateY(-2px) scale(1.02);
+            letter-spacing: 0.5px;
+        }
+        
+        /* 针对不同预警等级的选中状态增强 */
+        .task-card-cyber.warning-blue.active {
+            border-left: 5px solid #409eff !important;
+            box-shadow: 0 0 25px rgba(64, 158, 255, 0.5), inset 0 0 15px rgba(64, 158, 255, 0.2);
+            text-shadow: 0 0 10px rgba(64, 158, 255, 0.9);
+        }
+        .task-card-cyber.warning-yellow.active {
+            border-left: 5px solid #e6a23c !important;
+            box-shadow: 0 0 25px rgba(230, 162, 60, 0.5), inset 0 0 15px rgba(230, 162, 60, 0.2);
+            text-shadow: 0 0 10px rgba(230, 162, 60, 0.9);
+        }
+        .task-card-cyber.warning-orange.active {
+            border-left: 5px solid #ff7800 !important;
+            box-shadow: 0 0 25px rgba(255, 120, 0, 0.5), inset 0 0 15px rgba(255, 120, 0, 0.2);
+            text-shadow: 0 0 10px rgba(255, 120, 0, 0.9);
+        }
+        .task-card-cyber.warning-red.active {
+            border-left: 5px solid #f56c6c !important;
+            box-shadow: 0 0 30px rgba(245, 108, 108, 0.6), inset 0 0 15px rgba(245, 108, 108, 0.3);
+            text-shadow: 0 0 10px rgba(245, 108, 108, 0.9);
         }
         
         /* 带有预警的任务卡片特殊样式 - 已移除，使用更细粒度的分级样式 */
@@ -273,9 +299,43 @@
         }
 
         @keyframes cyber-shine {
-            0% { left: -100%; }
-            20% { left: 200%; }
-            100% { left: 200%; }
+            0% { left: -100%; opacity: 0; }
+            10% { opacity: 1; }
+            30% { left: 200%; opacity: 1; }
+            40% { left: 200%; opacity: 0; }
+            100% { left: 200%; opacity: 0; }
+        }
+
+        /* 呼吸灯效果 - 增强选中感 */
+        .task-card-cyber.active {
+            animation: cyber-pulse 2s infinite ease-in-out;
+        }
+
+        @keyframes cyber-pulse {
+            0% { box-shadow: 0 0 15px rgba(0, 240, 255, 0.3), inset 0 0 10px rgba(0, 240, 255, 0.1); }
+            50% { box-shadow: 0 0 30px rgba(0, 240, 255, 0.6), inset 0 0 20px rgba(0, 240, 255, 0.3); }
+            100% { box-shadow: 0 0 15px rgba(0, 240, 255, 0.3), inset 0 0 10px rgba(0, 240, 255, 0.1); }
+        }
+
+        .task-card-cyber.warning-blue.active { animation: pulse-blue 2s infinite ease-in-out; }
+        .task-card-cyber.warning-yellow.active { animation: pulse-yellow 2s infinite ease-in-out; }
+        .task-card-cyber.warning-orange.active { animation: pulse-orange 2s infinite ease-in-out; }
+        /* red 已有 pulse-red 动画，这里可以复用或增强 */
+
+        @keyframes pulse-blue {
+            0% { box-shadow: 0 0 15px rgba(64, 158, 255, 0.3); }
+            50% { box-shadow: 0 0 30px rgba(64, 158, 255, 0.6); }
+            100% { box-shadow: 0 0 15px rgba(64, 158, 255, 0.3); }
+        }
+        @keyframes pulse-yellow {
+            0% { box-shadow: 0 0 15px rgba(230, 162, 60, 0.3); }
+            50% { box-shadow: 0 0 30px rgba(230, 162, 60, 0.6); }
+            100% { box-shadow: 0 0 15px rgba(230, 162, 60, 0.3); }
+        }
+        @keyframes pulse-orange {
+            0% { box-shadow: 0 0 15px rgba(255, 120, 0, 0.3); }
+            50% { box-shadow: 0 0 30px rgba(255, 120, 0, 0.6); }
+            100% { box-shadow: 0 0 15px rgba(255, 120, 0, 0.3); }
         }
 
         /* 铃铛动画 - 科技感脉冲 */

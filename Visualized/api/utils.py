@@ -7,6 +7,8 @@ from email.utils import formataddr, formatdate, make_msgid
 from datetime import datetime
 from . import config
 
+import anyio
+
 # 辅助函数：判断是否包含中文
 def contains_chinese(text):
     if not text: return False
@@ -22,8 +24,8 @@ def is_junk_label(text):
         return True
     return False
 
-def send_email_notification(to_email: str, subject: str, content: str, level: str = "info", meta_data: dict = None, rule_name: str = None, username: str = "用户"):
-    """发送邮件通知"""
+def _send_email_sync(to_email: str, subject: str, content: str, level: str = "info", meta_data: dict = None, rule_name: str = None, username: str = "用户"):
+    """同步发送邮件的内部函数"""
     if not config.SMTP_USER or not config.SMTP_PASSWORD:
         print("[Email] Skip sending: SMTP_USER or SMTP_PASSWORD not configured")
         return False
@@ -152,3 +154,10 @@ def send_email_notification(to_email: str, subject: str, content: str, level: st
     except Exception as e:
         print(f"[Email] Error sending to {to_email}: {e}")
         return False
+
+async def send_email_notification(to_email: str, subject: str, content: str, level: str = "info", meta_data: dict = None, rule_name: str = None, username: str = "用户"):
+    """异步发送邮件通知（在线程池中运行）"""
+    return await anyio.to_thread.run_sync(
+        _send_email_sync, to_email, subject, content, level, meta_data, rule_name, username
+    )
+

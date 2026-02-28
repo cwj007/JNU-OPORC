@@ -1,6 +1,9 @@
 import sqlite3
 import os
 import json
+import re
+import asyncio
+import aiosqlite
 from pathlib import Path
 
 # 定义 Visualized 模块自己的缓存目录
@@ -31,8 +34,56 @@ MEDIA_CRAWLER_DB_PATH = Path(__file__).parent.parent.parent / "MediaCrawler" / "
 # 为了向后兼容，保留 DB_PATH，默认指向热搜数据库
 DB_PATH = HOTSEARCH_DB_PATH
 
+# 预编译正则以提高性能
+RE_TABLE_BOUNDARIES = {}
+
+def get_target_db(query: str) -> Path:
+    """根据查询内容智能选择数据库路径"""
+    query_lower = query.lower()
+    
+    # MediaCrawler 数据库中的表
+    mc_tables = ["weibo_creator", "zhihu_creator"]
+    for table in mc_tables:
+        if table not in RE_TABLE_BOUNDARIES:
+            RE_TABLE_BOUNDARIES[table] = re.compile(rf'\b{table}\b')
+        if RE_TABLE_BOUNDARIES[table].search(query_lower):
+            return MEDIA_CRAWLER_DB_PATH
+            
+    # Transformers 数据库中的表
+    tr_tables = ["content", "comments", "top_topics"]
+    for table in tr_tables:
+        if table not in RE_TABLE_BOUNDARIES:
+            RE_TABLE_BOUNDARIES[table] = re.compile(rf'\b{table}\b')
+        if RE_TABLE_BOUNDARIES[table].search(query_lower):
+            # 特殊处理：如果是插入 alerts 表，即使包含 content 列名，也应该去 hotsearch.db
+            if "into alerts" in query_lower:
+                return HOTSEARCH_DB_PATH
+            return TRANSFORMERS_DB_PATH
+            
+    return HOTSEARCH_DB_PATH
+
+async def init_wal(db_path: Path):
+    """初始化数据库为 WAL 模式以提高并发性能"""
+    if not db_path.exists():
+        return
+    try:
+        async with aiosqlite.connect(db_path) as db:
+            await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute("PRAGMA synchronous=NORMAL")
+            await db.commit()
+    except Exception as e:
+        print(f"Failed to enable WAL for {db_path}: {e}")
+
 def init_db():
     """初始化数据库表结构"""
+    # 确保 WAL 模式开启
+    for db in [HOTSEARCH_DB_PATH, TRANSFORMERS_DB_PATH, MEDIA_CRAWLER_DB_PATH]:
+        if db.exists():
+            conn = sqlite3.connect(db)
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            conn.close()
+
     # 1. 初始化热搜数据库
     try:
         conn = sqlite3.connect(HOTSEARCH_DB_PATH, timeout=30)
@@ -185,10 +236,112 @@ def init_db():
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
              ''', ('单贴高危负面预警', 'article_burst', json.dumps(burst_config), 'system', '', 20, 720, '负面', 0))
             
+        # 索引优化：提高查询性能
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_time ON alerts(time)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_user_id ON alerts(user_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_reference_id ON alerts(reference_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_monitoring_tasks_user_id ON monitoring_tasks(user_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_rules_user_id ON alert_rules(user_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_hotsearch_fetch_time ON hot_search_data(fetch_time)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_hotsearch_platform_rank ON hot_search_data(platform, rank)")
+        
         conn.commit()
         conn.close()
     except Exception as e:
         print(f"Alerts/Tasks database init error: {e}")
+
+            # 5.5 初始化内容数据库索引 (Transformers)
+    try:
+        if TRANSFORMERS_DB_PATH.exists():
+            conn = sqlite3.connect(TRANSFORMERS_DB_PATH, timeout=30)
+            cur = conn.cursor()
+            
+            # 检查列是否存在，防止索引创建失败
+            cur.execute("PRAGMA table_info(content)")
+            content_cols = [col[1] for col in cur.fetchall()]
+            
+            cur.execute("PRAGMA table_info(comments)")
+            comments_cols = [col[1] for col in cur.fetchall()]
+
+            if "note_id" in content_cols:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_content_note_id ON content(note_id)")
+            if "fetch_time" in content_cols:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_content_fetch_time ON content(fetch_time)")
+            if "created_at" in content_cols:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_content_created_at ON content(created_at)")
+            if "source" in content_cols:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_content_source ON content(source)")
+            
+            if "note_id" in comments_cols:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_comments_note_id ON comments(note_id)")
+            if "created_at" in comments_cols:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at)")
+            if "sentiment" in comments_cols:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_comments_sentiment ON comments(sentiment)")
+            
+            # 初始化 FTS5 全文搜索表 (针对 content 和 comments)
+            # 使用 content 选项以减少存储空间，引用原始表的 rowid
+            cur.execute("CREATE VIRTUAL TABLE IF NOT EXISTS content_fts USING fts5(title, content, content='content', content_rowid='rowid')")
+            cur.execute("CREATE VIRTUAL TABLE IF NOT EXISTS comments_fts USING fts5(content, content='comments', content_rowid='rowid')")
+            
+            # 创建触发器以自动同步 FTS 数据
+            # content 表触发器
+            cur.execute("DROP TRIGGER IF EXISTS content_ai")
+            cur.execute("""
+                CREATE TRIGGER content_ai AFTER INSERT ON content BEGIN
+                    INSERT INTO content_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+                END;
+            """)
+            cur.execute("DROP TRIGGER IF EXISTS content_ad")
+            cur.execute("""
+                CREATE TRIGGER content_ad AFTER DELETE ON content BEGIN
+                    INSERT INTO content_fts(content_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
+                END;
+            """)
+            cur.execute("DROP TRIGGER IF EXISTS content_au")
+            cur.execute("""
+                CREATE TRIGGER content_au AFTER UPDATE ON content BEGIN
+                    INSERT INTO content_fts(content_fts, rowid, title, content) VALUES('delete', old.rowid, old.title, old.content);
+                    INSERT INTO content_fts(rowid, title, content) VALUES (new.rowid, new.title, new.content);
+                END;
+            """)
+            
+            # comments 表触发器
+            cur.execute("DROP TRIGGER IF EXISTS comments_ai")
+            cur.execute("""
+                CREATE TRIGGER comments_ai AFTER INSERT ON comments BEGIN
+                    INSERT INTO comments_fts(rowid, content) VALUES (new.rowid, new.content);
+                END;
+            """)
+            cur.execute("DROP TRIGGER IF EXISTS comments_ad")
+            cur.execute("""
+                CREATE TRIGGER comments_ad AFTER DELETE ON comments BEGIN
+                    INSERT INTO comments_fts(comments_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+                END;
+            """)
+            cur.execute("DROP TRIGGER IF EXISTS comments_au")
+            cur.execute("""
+                CREATE TRIGGER comments_au AFTER UPDATE ON comments BEGIN
+                    INSERT INTO comments_fts(comments_fts, rowid, content) VALUES('delete', old.rowid, old.content);
+                    INSERT INTO comments_fts(rowid, content) VALUES (new.rowid, new.content);
+                END;
+            """)
+            
+            # 首次运行时填充 FTS 数据
+            cur.execute("SELECT COUNT(*) FROM content_fts")
+            if cur.fetchone()[0] == 0:
+                cur.execute("INSERT INTO content_fts(rowid, title, content) SELECT rowid, title, content FROM content")
+            
+            cur.execute("SELECT COUNT(*) FROM comments_fts")
+            if cur.fetchone()[0] == 0:
+                cur.execute("INSERT INTO comments_fts(rowid, content) SELECT rowid, content FROM comments")
+            
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        print(f"Transformers database index error: {e}")
+        import traceback
+        traceback.print_exc()
 
     # 6. 初始化用户表 (Authentication)
     try:
@@ -298,37 +451,46 @@ def init_db():
     if not TRANSFORMERS_DB_PATH.exists():
         print(f"Warning: Transformers database not found at {TRANSFORMERS_DB_PATH}")
 
-def query_db(query: str, args: tuple = (), one: bool = False):
+async def query_db(query: str, args: tuple = (), one: bool = False):
     """
-    智能查询：根据查询表名选择数据库
+    异步智能查询：根据查询表名选择数据库
     """
-    # 更加精确地判断目标数据库
-    query_lower = query.lower()
-    # Transformers 数据库中的表
-    tr_tables = ["content", "comments", "top_topics"]
-    # MediaCrawler 数据库中的表
-    mc_tables = ["weibo_creator", "zhihu_creator"]
+    target_db = get_target_db(query)
     
-    target_db = HOTSEARCH_DB_PATH
-    
-    # 检查是否为 MediaCrawler 表
-    for table in mc_tables:
-        if table in query_lower:
-            target_db = MEDIA_CRAWLER_DB_PATH
-            # print(f"DEBUG: Routing query to MediaCrawler DB: {query}")
-            break
-            
-    # 检查是否为 Transformers 表 (如果不匹配 MediaCrawler)
-    if target_db == HOTSEARCH_DB_PATH:
-        for table in tr_tables:
-            # 使用正则表达式或者更精确的边界检查，避免 "content" 作为列名时被误判
-            import re
-            if re.search(rf'\b{table}\b', query_lower):
-                target_db = TRANSFORMERS_DB_PATH
-                break
-    
-    print(f"DEBUG: query_db: {query[:100]}... target_db={target_db}, args={args}")
+    # print(f"DEBUG: async query_db: {query[:100]}... target_db={target_db}")
 
+    try:
+        async with aiosqlite.connect(target_db, timeout=30) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute(query, args) as cursor:
+                rv = await cursor.fetchall()
+                if one:
+                    return dict(rv[0]) if rv else None
+                return [dict(row) for row in rv] if rv else []
+    except Exception as e:
+        print(f"Async query error on {target_db}: {e}")
+        return None
+
+async def execute_db(query: str, args: tuple = ()):
+    """
+    异步执行写操作（INSERT/UPDATE/DELETE）并提交
+    """
+    target_db = get_target_db(query)
+
+    try:
+        async with aiosqlite.connect(target_db, timeout=30) as db:
+            await db.execute(query, args)
+            await db.commit()
+            return True
+    except Exception as e:
+        print(f"Async execute error on {target_db}: {e}")
+        return False
+
+def query_db_sync(query: str, args: tuple = (), one: bool = False):
+    """
+    同步智能查询（保留用于非异步场景）
+    """
+    target_db = get_target_db(query)
     try:
         conn = sqlite3.connect(target_db, timeout=30)
         try:
@@ -341,31 +503,15 @@ def query_db(query: str, args: tuple = (), one: bool = False):
             return [dict(row) for row in rv] if rv else []
         finally:
             conn.close()
-    except sqlite3.OperationalError as e:
-        print(f"Database error on {target_db}: {e}")
-        return None
     except Exception as e:
-        print(f"General query error: {e}")
+        print(f"Sync query error: {e}")
         return None
 
-def execute_db(query: str, args: tuple = ()):
+def execute_db_sync(query: str, args: tuple = ()):
     """
-    执行写操作（INSERT/UPDATE/DELETE）并提交
+    同步写操作（保留用于非异步场景）
     """
-    query_lower = query.lower()
-    tr_tables = ["content", "comments", "top_topics"]
-    
-    target_db = HOTSEARCH_DB_PATH
-    for table in tr_tables:
-        import re
-        if re.search(rf'\b{table}\b', query_lower):
-            # 特殊处理：如果是插入 alerts 表，即使包含 content 列名，也应该去 hotsearch.db
-            if "into alerts" in query_lower:
-                target_db = HOTSEARCH_DB_PATH
-            else:
-                target_db = TRANSFORMERS_DB_PATH
-            break
-
+    target_db = get_target_db(query)
     try:
         conn = sqlite3.connect(target_db, timeout=30)
         try:
@@ -376,13 +522,5 @@ def execute_db(query: str, args: tuple = ()):
         finally:
             conn.close()
     except Exception as e:
-        error_msg = f"Execute error on {target_db}: {e}"
-        print(error_msg)
-        # Log to file for debugging
-        try:
-            with open(CACHE_DIR / "db_errors.log", "a") as f:
-                import datetime
-                f.write(f"{datetime.datetime.now()} - {error_msg}\n")
-        except:
-            pass
+        print(f"Sync execute error: {e}")
         return False
