@@ -56,61 +56,84 @@ async def ensure_default_rules():
 async def sync_monitor_tasks_to_rules():
     """同步监测任务到预警规则 (双向同步支持)"""
     try:
-        # 1. 获取所有监测任务 (无论是否开启预警)
+        # 1. 获取所有监测任务
         tasks_sql = "SELECT * FROM monitoring_tasks"
         tasks = await query_db(tasks_sql)
         tasks = tasks if tasks else []
         
-        # 构建所有存在的任务规则名称集合 (用于检测已删除的任务)
-        all_task_rule_names = {f"【监测任务】{task['name']}" for task in tasks}
+        # 预警频率与时间窗口映射
+        freq_to_window = {
+            "realtime": 1,
+            "hourly": 1,
+            "daily": 24,
+            "weekly": 168
+        }
 
         # 2. 获取现有“监测任务”类型的规则
         existing_rules_sql = "SELECT id, name FROM alert_rules WHERE name LIKE '【监测任务】%'"
         existing_rules = await query_db(existing_rules_sql)
         existing_rules_map = {row['name']: row['id'] for row in existing_rules} if existing_rules else {}
 
-        # 3. 同步：添加或更新规则
+        # 3. 同步：添加、更新或删除规则
+        # 记录本次同步涉及的规则名，用于最后清理已删除的任务
+        processed_rule_names = set()
+
         for task in tasks:
             task_name = f"【监测任务】{task['name']}"
             is_active = task['warning_enabled']
             user_id = task.get('user_id')
             
-            # 如果规则已存在，更新关键词、状态和用户ID
-            if task_name in existing_rules_map:
-                rule_id = existing_rules_map[task_name]
+            # 只有开启预警的任务才同步
+            if is_active:
+                processed_rule_names.add(task_name)
                 keyword = task['warning_keywords'] if task['warning_keywords'] else task['keywords']
-                update_sql = "UPDATE alert_rules SET keyword = ?, is_active = ?, user_id = ? WHERE id = ?"
-                await execute_db(update_sql, (keyword, is_active, user_id, rule_id))
-                continue
+                time_window = freq_to_window.get(task.get('frequency'), 1)
                 
-            # 插入新规则 (即使未开启预警也创建规则，但设为禁用)
-            keyword = task['warning_keywords'] if task['warning_keywords'] else task['keywords']
-            
-            sql = """
-                INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, user_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
-            await execute_db(sql, (
-                task_name, 
-                keyword, 
-                1, # Threshold default 1
-                24, # Time window 24h (check daily window)
-                '负面', 
-                0, 
-                task['notify_methods'] or 'system', 
-                is_active, 
-                'threshold',
-                user_id
-            ))
-            print(f"[Sync] Created alert rule for task: {task['name']}")
+                # 如果规则已存在，更新
+                if task_name in existing_rules_map:
+                    rule_id = existing_rules_map[task_name]
+                    update_sql = "UPDATE alert_rules SET keyword = ?, is_active = 1, user_id = ?, time_window = ?, notify_methods = ? WHERE id = ?"
+                    await execute_db(update_sql, (keyword, user_id, time_window, task['notify_methods'] or 'system', rule_id))
+                    continue
+                    
+                # 插入新规则
+                sql = """
+                    INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, user_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                await execute_db(sql, (
+                    task_name, 
+                    keyword, 
+                    1, # Threshold default 1
+                    time_window, 
+                    '负面', 
+                    0, 
+                    task['notify_methods'] or 'system', 
+                    1, 
+                    'threshold',
+                    user_id
+                ))
+                print(f"[Sync] Created alert rule for task: {task['name']}")
+            else:
+                # 如果任务未开启预警，但规则存在，则删除规则
+                if task_name in existing_rules_map:
+                    print(f"[Sync] Deleting disabled alert rule: {task_name}")
+                    await execute_db("DELETE FROM alert_rules WHERE id = ?", (existing_rules_map[task_name],))
 
-        # 4. 同步：删除无效规则 (Task deleted -> Rule deleted)
-        # 只有当任务真正从 monitoring_tasks 表中删除时，才删除对应的规则
+        # 4. 同步：清理已在监测任务中删除的规则
         for rule_name, rule_id in existing_rules_map.items():
-            if rule_name not in all_task_rule_names:
-                print(f"[Sync] Deleting obsolete alert rule: {rule_name}")
-                await execute_db("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
-            
+            if rule_name not in processed_rule_names:
+                # 只有当对应的任务不存在时才删除
+                task_exists = False
+                for t in tasks:
+                    if f"【监测任务】{t['name']}" == rule_name:
+                        task_exists = True
+                        break
+                
+                if not task_exists:
+                    print(f"[Sync] Deleting obsolete alert rule: {rule_name}")
+                    await execute_db("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
+                    
     except Exception as e:
         print(f"Error syncing monitor tasks: {e}")
 
@@ -437,14 +460,38 @@ async def get_rules(current_user: User = Depends(get_current_user)):
         results = await query_db(sql, (current_user.id,))
     return [dict(row) for row in results] if results else []
 
+# 时间窗口与预警频率映射
+WINDOW_TO_FREQUENCY = {
+    1: "hourly",
+    24: "daily",
+    168: "weekly"
+}
+
 @router.post("/rules")
 async def create_rule(rule: AlertRuleSchema, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
-    """创建预警规则"""
+    """创建预警规则 (双向同步支持)"""
+    # 1. 创建预警规则
     sql = """
         INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, config, user_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     if await execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, current_user.id)):
+        
+        # 2. 同步到舆情监测任务 (如果不是由任务同步过来的规则，且关键词不为空)
+        if not rule.name.startswith("【监测任务】") and rule.keyword:
+            # 只有开启状态且是阈值告警才同步到监测任务
+            frequency = WINDOW_TO_FREQUENCY.get(rule.time_window, "realtime")
+            task_sql = """
+                INSERT INTO monitoring_tasks (name, keywords, warning_enabled, warning_keywords, notify_methods, frequency, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """
+            # 使用规则名称作为任务名称
+            await execute_db(task_sql, (rule.name, rule.keyword, rule.is_active, rule.keyword, rule.notify_methods, frequency, current_user.id))
+            
+            # 更新规则名称，添加前缀以建立关联
+            new_name = f"【监测任务】{rule.name}"
+            await execute_db("UPDATE alert_rules SET name = ? WHERE name = ? AND user_id = ?", (new_name, rule.name, current_user.id))
+
         # Trigger immediate check in background
         print(f"[Manual Create] Triggering immediate check for new rule {rule.name}")
         background_tasks.add_task(generate_auto_alerts, force=True)
@@ -453,33 +500,50 @@ async def create_rule(rule: AlertRuleSchema, background_tasks: BackgroundTasks, 
 
 @router.put("/rules/{rule_id}")
 async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
-    """更新预警规则"""
+    """更新预警规则 (双向同步支持)"""
     
     # Check permission
-    existing = await query_db("SELECT user_id FROM alert_rules WHERE id = ?", (rule_id,), one=True)
+    existing = await query_db("SELECT id, name, user_id FROM alert_rules WHERE id = ?", (rule_id,), one=True)
     if existing:
-        # Allow if owner or admin, or if it's a system rule (user_id is None) and user is admin? 
-        # Actually normal users shouldn't edit system rules either.
         is_owner = existing['user_id'] == current_user.id
         is_admin = current_user.role == 'admin'
         
         if not is_owner and not is_admin:
             raise HTTPException(status_code=403, detail="Not authorized to update this rule")
             
-    # Check if it's a synced rule (Monitoring Task)
-    if rule.name.startswith("【监测任务】"):
-        task_name = rule.name.replace("【监测任务】", "")
-        # Sync back to Monitoring Tasks: Update warning_enabled status
-        print(f"[Sync] Updating warning status for task: {task_name} -> {rule.is_active}")
-        update_task_sql = "UPDATE monitoring_tasks SET warning_enabled = ? WHERE name = ?"
-        await execute_db(update_task_sql, (rule.is_active, task_name))
+    # 同步回监测任务 (只有当规则关键词不为空时才同步)
+    target_rule_name = rule.name
+    if existing and existing['name'].startswith("【监测任务】"):
+        old_task_name = existing['name'].replace("【监测任务】", "")
+        # 确保新名称也有前缀（如果用户删除了前缀）
+        if not rule.name.startswith("【监测任务】"):
+            target_rule_name = f"【监测任务】{rule.name}"
+            
+        new_task_name = target_rule_name.replace("【监测任务】", "")
+        frequency = WINDOW_TO_FREQUENCY.get(rule.time_window, "realtime")
+        
+        # 只有当规则关键词不为空时才更新监测任务
+        if rule.keyword:
+            print(f"[Sync] Updating monitoring task: {old_task_name} -> {new_task_name}")
+            update_task_sql = """
+                UPDATE monitoring_tasks 
+                SET name = ?, keywords = ?, warning_enabled = ?, warning_keywords = ?, notify_methods = ?, frequency = ? 
+                WHERE name = ?
+            """
+            await execute_db(update_task_sql, (new_task_name, rule.keyword, rule.is_active, rule.keyword, rule.notify_methods, frequency, old_task_name))
+        else:
+            print(f"[Sync] Rule keyword is empty, skipping task sync for {new_task_name}")
+            # 如果规则关键词为空，我们仍然允许更新规则名称，但不同步到任务关键词
+            # 这里我们只更新任务名称（如果改变了）
+            if new_task_name != old_task_name:
+                await execute_db("UPDATE monitoring_tasks SET name = ? WHERE name = ?", (new_task_name, old_task_name))
 
     sql = """
         UPDATE alert_rules 
         SET name=?, keyword=?, threshold=?, time_window=?, sentiment=?, is_crisis=?, notify_methods=?, is_active=?, rule_type=?, config=?
         WHERE id=?
     """
-    if await execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, rule_id)):
+    if await execute_db(sql, (target_rule_name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, rule_id)):
         # Trigger immediate check in background
         print(f"[Manual Update] Triggering immediate check for updated rule {rule.name}")
         background_tasks.add_task(generate_auto_alerts, force=True)
@@ -490,24 +554,21 @@ async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: Bac
 async def delete_rule(rule_id: int, current_user: User = Depends(get_current_user)):
     """删除预警规则 (双向同步支持)"""
     # Check permission
-    existing = await query_db("SELECT user_id, name FROM alert_rules WHERE id = ?", (rule_id,), one=True)
-    if existing:
-        is_owner = existing['user_id'] == current_user.id
-        is_admin = current_user.role == 'admin'
+    existing = await query_db("SELECT id, name, user_id FROM alert_rules WHERE id = ?", (rule_id,), one=True)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Rule not found")
         
-        if not is_owner and not is_admin:
-             raise HTTPException(status_code=403, detail="Not authorized to delete this rule")
-
-    # 1. Check if it's a synced rule
-    rule_sql = "SELECT name FROM alert_rules WHERE id = ?"
-    rule = await query_db(rule_sql, (rule_id,), one=True)
+    is_owner = existing['user_id'] == current_user.id
+    is_admin = current_user.role == 'admin'
     
-    if rule and rule['name'].startswith("【监测任务】"):
-        task_name = rule['name'].replace("【监测任务】", "")
-        # Sync back to Monitoring Tasks: Disable warning
-        print(f"[Sync] Disabling warning for task: {task_name}")
-        update_sql = "UPDATE monitoring_tasks SET warning_enabled = 0 WHERE name = ?"
-        await execute_db(update_sql, (task_name,))
+    if not is_owner and not is_admin:
+         raise HTTPException(status_code=403, detail="Not authorized to delete this rule")
+
+    # 同步删除监测任务
+    if existing['name'].startswith("【监测任务】"):
+        task_name = existing['name'].replace("【监测任务】", "")
+        print(f"[Sync] Deleting monitoring task: {task_name}")
+        await execute_db("DELETE FROM monitoring_tasks WHERE name = ?", (task_name,))
 
     sql = "DELETE FROM alert_rules WHERE id = ?"
     if await execute_db(sql, (rule_id,)):
@@ -515,7 +576,12 @@ async def delete_rule(rule_id: int, current_user: User = Depends(get_current_use
     raise HTTPException(status_code=500, detail="Failed to delete rule")
 
 @router.get("/report")
-async def get_alert_report(days: Optional[int] = 7, start_date: Optional[str] = None, end_date: Optional[str] = None):
+async def get_alert_report(
+    days: Optional[int] = 7, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user)
+):
     """获取预警统计报告 (可视化支持)"""
     
     # 构建时间查询条件
@@ -527,6 +593,14 @@ async def get_alert_report(days: Optional[int] = 7, start_date: Optional[str] = 
     else:
         time_threshold = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
         time_condition = f"time >= '{time_threshold}'"
+
+    # --- 权限控制 ---
+    if not current_user:
+        # 未登录用户：只能看到公共预警 (全网负面内容监测)
+        time_condition += " AND (type = '全网负面内容监测' OR user_id IS NULL)"
+    elif current_user.role != 'admin':
+        # 普通用户：只能看到 (自己的预警) OR (全网负面内容监测)
+        time_condition += f" AND (user_id = {current_user.id} OR type = '全网负面内容监测')"
 
     # 1. 按级别统计
     level_sql = f"SELECT level, COUNT(*) as count FROM alerts WHERE {time_condition} GROUP BY level"

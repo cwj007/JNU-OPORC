@@ -127,7 +127,7 @@ class NotificationService:
             user_info = await query_db("SELECT username, email, email_notify_enabled FROM users WHERE id = ?", (user_id,), one=True)
 
         if user_info and user_info['email'] and user_info['email_notify_enabled']:
-            return send_email_notification(
+            return await send_email_notification(
                 user_info['email'], 
                 title, 
                 content, 
@@ -252,18 +252,22 @@ class AlertEngine:
                 stats_info = f" [评论激增: 总{total_comments}/负{neg_count}]"
                 content = article_snippet + stats_info
                 
+                # Calculate CRI to provide risk score even for burst alerts
+                cri, details_cri = calculate_cri(article_dict, comments_list)
+                
                 # Prepare details for frontend
-                details = {
+                details = details_cri.copy() if details_cri else {}
+                details.update({
                     'article_title': article_dict['title'],
-                    # Store full content into hotsearch.db (no truncation)
                     'article_content': article_dict.get('content', ''),
                     'article_id': article_dict['note_id'],
                     'total_comments': total_comments,
                     'negative_comments_count': neg_count,
                     'top_negative_comments': [],
                     'alert_type': 'article_burst',
-                    'publish_time': article_dict.get('created_at')
-                }
+                    'publish_time': article_dict.get('created_at'),
+                    'cri': cri # Explicitly set CRI for frontend
+                })
                 
                 # Sort negative comments by sentiment score
                 try:
@@ -504,7 +508,7 @@ class AlertEngine:
                     print(f"Error fetching crisis article title: {e}")
                 
                 # --- Fetch details for crisis alert ---
-                details = {"type": "crisis_list", "keywords": found_kws, "articles": []}
+                details = {"type": "crisis_list", "keywords": found_kws, "articles": [], "count": count}
                 try:
                     # Fetch top 5 crisis articles
                     kw = found_kws[0]
@@ -567,11 +571,14 @@ class AlertEngine:
                     if not art_title:
                          art_title = art.get('content', '')[:20].replace('\n', ' ') + "..." if art.get('content') else "无标题内容"
                     
-                    # Fetch Comments (needed for Veto check)
+                    # Fetch Comments (needed for Veto/CRI check)
                     cm_sql = "SELECT * FROM comments WHERE note_id = ? ORDER BY created_at DESC LIMIT 50"
                     cms = await query_db(cm_sql, (art['note_id'],))
                     comments_list = [dict(c) for c in cms] if cms else []
 
+                    # Calculate CRI for this article
+                    cri, details_cri = calculate_cri(art, comments_list)
+                    
                     # Check Veto Rules (Highest Priority)
                     veto_triggered, veto_reason, veto_level = check_veto_rules(art, comments_list)
                     
@@ -588,7 +595,10 @@ class AlertEngine:
                                 "created_at": art['created_at'],
                                 "comments": []
                             },
-                            "alert_reason": veto_reason
+                            "alert_reason": veto_reason,
+                            "count": count,
+                            "cri": cri,
+                            "metrics": details_cri
                         }
                     else:
                         alert_title = f"【敏感内容】{art_title}"
@@ -603,7 +613,10 @@ class AlertEngine:
                                 "note_id": art['note_id'],
                                 "created_at": art['created_at'],
                                 "comments": []
-                            }
+                            },
+                            "count": count,
+                            "cri": cri,
+                            "metrics": details_cri
                         }
 
                     # Add comments to meta_data

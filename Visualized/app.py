@@ -9,9 +9,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 
-# Add project root to sys.path
+# Add project root and Visualized to sys.path
 BASE_DIR = Path(__file__).parent.parent
 sys.path.append(str(BASE_DIR))
+sys.path.append(str(BASE_DIR / "Visualized"))
 
 # --- MediaCrawler 集成相关导入 ---
 try:

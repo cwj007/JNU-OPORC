@@ -523,6 +523,14 @@ async def get_tasks(current_user: User = Depends(get_current_user)):
         print(f"Error getting tasks: {e}")
         return []
 
+# 预警频率与时间窗口映射
+FREQUENCY_TO_WINDOW = {
+    "realtime": 1,
+    "hourly": 1,
+    "daily": 24,
+    "weekly": 168
+}
+
 @router.post("/tasks")
 async def create_task(task: dict = Body(...), current_user: User = Depends(get_current_user)):
     """创建或更新监控任务"""
@@ -541,6 +549,7 @@ async def create_task(task: dict = Body(...), current_user: User = Depends(get_c
         # Extra fields for alert_rules
         threshold = task.get("threshold", 50)
         is_crisis = 1 if task.get("is_crisis") else 0
+        time_window = FREQUENCY_TO_WINDOW.get(frequency, 1)
         
         task_id = task.get("id")
 
@@ -566,32 +575,36 @@ async def create_task(task: dict = Body(...), current_user: User = Depends(get_c
                 INSERT INTO monitoring_tasks (name, group_name, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, user_id)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """
-            # execute_db returns True/False, not ID directly with current impl, 
-            # but we need ID for alert_rules.
-            # We need to fetch the last inserted ID.
             await execute_db(sql, (name, group, keywords, exclude_words, platforms, warning_enabled, warning_keywords, notify_methods, frequency, current_user.id))
             # Get the new ID
             last_task = await query_db("SELECT id FROM monitoring_tasks ORDER BY id DESC LIMIT 1", one=True)
             if last_task:
                 task_id = last_task['id']
         
-        # Update/Create Alert Rule
+        # 同步到预警规则 (只有开启预警的任务才同步)
         if task_id:
-            rule_name = f"任务预警-{task_id}"
-            # Check if rule exists
-            existing_rule = await query_db("SELECT id, user_id FROM alert_rules WHERE name = ?", (rule_name,), one=True)
+            rule_name = f"【监测任务】{name}"
+            # 查找是否已有该任务对应的规则 (通过名称或规则类型，这里先用名称)
+            existing_rule = await query_db("SELECT id FROM alert_rules WHERE name = ?", (rule_name,), one=True)
             
-            if existing_rule:
-                await execute_db("""
-                    UPDATE alert_rules 
-                    SET threshold=?, is_crisis=?, notify_methods=?, is_active=?, keyword=?
-                    WHERE id=?
-                """, (threshold, is_crisis, notify_methods, warning_enabled, warning_keywords, existing_rule['id']))
+            if warning_enabled:
+                if existing_rule:
+                    # 更新现有规则 (同时更新名称以保持同步)
+                    await execute_db("""
+                        UPDATE alert_rules 
+                        SET name=?, threshold=?, is_crisis=?, notify_methods=?, is_active=1, keyword=?, time_window=?, user_id=?
+                        WHERE id=?
+                    """, (rule_name, threshold, is_crisis, notify_methods, warning_keywords if warning_keywords else keywords, time_window, current_user.id, existing_rule['id']))
+                else:
+                    # 创建新规则
+                    await execute_db("""
+                        INSERT INTO alert_rules (name, threshold, is_crisis, notify_methods, is_active, keyword, time_window, user_id, rule_type)
+                        VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+                    """, (rule_name, threshold, is_crisis, notify_methods, warning_keywords if warning_keywords else keywords, time_window, current_user.id, "threshold"))
             else:
-                await execute_db("""
-                    INSERT INTO alert_rules (name, threshold, is_crisis, notify_methods, is_active, keyword, user_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (rule_name, threshold, is_crisis, notify_methods, warning_enabled, warning_keywords, current_user.id))
+                # 如果未开启预警，删除对应的规则
+                if existing_rule:
+                    await execute_db("DELETE FROM alert_rules WHERE id = ?", (existing_rule['id'],))
 
         return {"status": "success", "message": "Task saved", "id": task_id}
             
@@ -604,13 +617,19 @@ async def delete_task(task_id: int, current_user: User = Depends(get_current_use
     """删除监控任务"""
     try:
         # Check permission
-        existing = await query_db("SELECT user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
+        existing = await query_db("SELECT id, name, user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
         if existing:
             if existing['user_id'] != current_user.id and current_user.role != 'admin':
                 raise HTTPException(status_code=403, detail="Not authorized to delete this task")
                 
-        await execute_db("DELETE FROM monitoring_tasks WHERE id = ?", (task_id,))
-        return {"status": "success", "message": "Task deleted"}
+            # 同时删除对应的预警规则
+            rule_name = f"【监测任务】{existing['name']}"
+            await execute_db("DELETE FROM alert_rules WHERE name = ?", (rule_name,))
+            
+            await execute_db("DELETE FROM monitoring_tasks WHERE id = ?", (task_id,))
+            return {"status": "success", "message": "Task deleted"}
+        else:
+            raise HTTPException(status_code=404, detail="Task not found")
     except HTTPException as he:
         raise he
     except Exception as e:

@@ -1247,6 +1247,62 @@
                     </el-breadcrumb>
                 </div>
                 <div style="display: flex; align-items: center; gap: 20px;">
+                    <!-- Notification Bell -->
+                    <div class="notification-wrapper" style="cursor: pointer;">
+                        <el-popover
+                            placement="bottom-end"
+                            :width="350"
+                            trigger="click"
+                            popper-class="notification-popover"
+                            @show="() => { fetchRecentAlerts(); popoverVisible = true; }"
+                            @hide="() => { popoverVisible = false; }"
+                        >
+                            <template #reference>
+                                <el-badge :value="unreadCount" :max="99" :hidden="unreadCount === 0" class="item notification-badge" :class="{ active: popoverVisible }">
+                                    <el-icon :size="20" class="bell-icon"><bell /></el-icon>
+                                </el-badge>
+                            </template>
+                            
+                            <div class="notification-list-container">
+                                <div class="notification-header">
+                                    <span class="title">消息通知</span>
+                                    <el-button v-if="unreadCount > 0" link type="primary" size="small" @click="handleMarkAllRead">全部已读</el-button>
+                                </div>
+                                
+                                <div v-if="recentAlerts.length === 0" class="notification-empty">
+                                    <el-empty description="暂无新消息" :image-size="60"></el-empty>
+                                </div>
+                                
+                                <div v-else class="notification-list">
+                                    <div v-for="item in recentAlerts" :key="item.id" class="notification-item" @click="viewAlertDetail(item)">
+                                        <div class="item-icon" :class="item.level">
+                                            <el-icon><warning /></el-icon>
+                                        </div>
+                                        <div class="item-content">
+                                            <div class="item-title">
+                                                <el-tag :type="getLevelTagType(item.level)" size="small" effect="dark" class="level-tag" :class="item.level">
+                                                    {{ getLevelLabel(item.level) }}
+                                                </el-tag>
+                                                <span class="time">{{ formatAlertTime(item.alerts_time || item.time) }}</span>
+                                            </div>
+                                            <div class="item-text">
+                                                您制定的"{{ item.type }}"任务已达到预警条件：{{ item.content }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="notification-footer">
+                                    <el-button class="cyber-btn-history" @click="handleNotificationClick">
+                                        <div class="ui-prefix"><span></span><span></span><span></span></div>
+                                        查看全部预警历史
+                                        <el-icon style="margin-left: 8px;"><right /></el-icon>
+                                    </el-button>
+                                </div>
+                            </div>
+                        </el-popover>
+                    </div>
+
                     <div class="user-profile">
                         <el-dropdown @command="handleCommand">
                             <span class="el-dropdown-link" style="cursor: pointer; display: flex; align-items: center;">
@@ -2322,6 +2378,9 @@
                 const { ElMessage, ElMessageBox } = ElementPlus;
                 const userRole = ref(localStorage.getItem('role') || 'user');
                 const username = ref(localStorage.getItem('username') || 'Admin');
+                const unreadCount = ref(0);
+                const recentAlerts = ref([]);
+                const popoverVisible = ref(false);
                 const profileDialogVisible = ref(false);
                 const profileSaving = ref(false);
                 const profileForm = ref({
@@ -2345,6 +2404,85 @@
                     } catch (e) {
                         console.error('Failed to fetch profile', e);
                     }
+                };
+
+                const fetchUnreadCount = async () => {
+                    try {
+                        const res = await axios.get('/api/alerts/unread_count');
+                        unreadCount.value = res.data.count;
+                    } catch (e) {
+                        console.error('Failed to fetch unread count', e);
+                    }
+                };
+
+                const fetchRecentAlerts = async () => {
+                    try {
+                        const res = await axios.get('/api/alerts/list?page=1&page_size=5');
+                        if (res.data && res.data.data) {
+                            recentAlerts.value = res.data.data;
+                        }
+                    } catch (e) {
+                        console.error('Failed to fetch recent alerts', e);
+                    }
+                };
+
+                const getLevelTagType = (level) => {
+                    if (!level) return 'info';
+                    const map = {
+                        'red': 'danger',
+                        'high': 'danger',
+                        'orange': 'warning',
+                        'medium': 'warning',
+                        'yellow': 'warning',
+                        'green': 'success',
+                        'low': 'success'
+                    };
+                    return map[level.toLowerCase()] || 'info';
+                };
+
+                const getLevelLabel = (level) => {
+                    if (!level) return '普通预警';
+                    const map = {
+                        'red': '严重风险',
+                        'high': '严重风险',
+                        'orange': '高风险',
+                        'medium': '关注风险',
+                        'yellow': '关注风险',
+                        'green': '低风险',
+                        'low': '低风险'
+                    };
+                    return map[level.toLowerCase()] || '普通预警';
+                };
+
+                const formatAlertTime = (timeStr) => {
+                    if (!timeStr) return '';
+                    const date = new Date(timeStr);
+                    const now = new Date();
+                    const diff = (now - date) / 1000;
+
+                    if (diff < 60) return '刚刚';
+                    if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`;
+                    if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`;
+                    return timeStr.split(' ')[0];
+                };
+
+                const handleMarkAllRead = async () => {
+                    try {
+                        await axios.post('/api/alerts/mark_all_read');
+                        unreadCount.value = 0;
+                        fetchRecentAlerts();
+                        ElMessage.success('已全部标记为已读');
+                    } catch (e) {
+                        console.error('Failed to mark all read', e);
+                    }
+                };
+
+                const handleNotificationClick = () => {
+                    window.location.href = '/warning';
+                };
+
+                const viewAlertDetail = (alert) => {
+                    window.location.href = '/warning';
                 };
 
                 const saveProfile = async () => {
@@ -3424,7 +3562,7 @@
                             id: item.is_merged ? item.original_top_id || item.top_id : (item.note_id + (item.comment_id ? '_' + item.comment_id : '')),
                             note_id: item.note_id,
                             comment_id: item.comment_id || "0",
-                            top_id: safeDecode(item.top_id || item.title || (item.content ? item.content.substring(0, 30) + '...' : '无标题')),
+                            top_id: safeDecode((item.top_id && item.top_id !== 'None' && item.top_id !== 'null' && item.top_id !== 'nan') ? item.top_id : (item.title || (item.content ? item.content.substring(0, 30) + '...' : '无标题'))),
                             top_name: safeDecode(item.top_name),
                             original_top_id: item.original_top_id, // 保存原始 top_id 用于查询详情
                             content: item.content,
@@ -3502,7 +3640,7 @@
                             currentDetail.value = {
                                 is_merged_view: true,
                                 top_id: row.top_id, // 显示可读名称
-                                title: items.length > 0 ? (items[0].title || (items[0].content ? items[0].content.substring(0, 30) + '...' : row.top_id)) : row.top_id, // 优先显示第一条内容的标题
+                                title: items.length > 0 ? (items[0].title || (items[0].content ? items[0].content.substring(0, 30) + '...' : (row.top_id && row.top_id !== 'None' && row.top_id !== 'null' ? row.top_id : '无标题'))) : (row.top_id && row.top_id !== 'None' && row.top_id !== 'null' ? row.top_id : '无标题'), // 优先显示第一条内容的标题
                                 total_items: row.merge_count || items.length, // 使用列表页的聚合数作为总数
                                 queryId: queryId, // 保存用于后续请求
                                 page: 1,
@@ -3510,7 +3648,7 @@
                                 items: items.map(item => ({
                                     ...item,
                                     id: item.note_id, // 确保唯一ID
-                                    title: item.title || (item.content ? item.content.substring(0, 30) + '...' : '无标题'),
+                                    title: (item.top_id && item.top_id !== 'None' && item.top_id !== 'null') ? item.top_id : (item.title || (item.content ? item.content.substring(0, 30) + '...' : '无标题')),
                                     sentiment_score: item.sentiment_score || 0,
                                     sentiment: item.sentiment || '中性',
                                     trained_keywords: item.trained_keywords || [],
@@ -3553,7 +3691,7 @@
                             currentDetail.value = {
                                 is_merged_view: false,
                                 ...data,
-                                title: data.title || (data.content ? data.content.substring(0, 30) + '...' : data.top_id),
+                                title: (data.top_id && data.top_id !== 'None' && data.top_id !== 'null') ? data.top_id : (data.title || (data.content ? data.content.substring(0, 30) + '...' : '无标题')),
                                 commentsPage: data.current_comments_page || 1, // 使用后端返回的当前页码
                                 loadingComments: false,
                                 showAllImages: false, // 默认收起图片
@@ -4010,6 +4148,10 @@
                     await fetchTasks();
                     fetchData();
                     fetchProfile();
+                    fetchUnreadCount();
+                    setInterval(() => {
+                        fetchUnreadCount();
+                    }, 30000); // 每30秒刷新一次
                 });
 
                 const formatTime = (timeStr) => {
@@ -4033,6 +4175,17 @@
                 return {
                     userRole,
                     username,
+                    unreadCount,
+                    recentAlerts,
+                    popoverVisible,
+                    fetchUnreadCount,
+                    fetchRecentAlerts,
+                    getLevelTagType,
+                    getLevelLabel,
+                    formatAlertTime,
+                    handleMarkAllRead,
+                    handleNotificationClick,
+                    viewAlertDetail,
                     handleCommand,
                     formatTime,
                     isCollapse, activeMenu, loading, tableData, tasks, currentTaskId,
@@ -4058,8 +4211,10 @@
         });
 
         // Register Icons
-        for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-            app.component(key, component);
+        if (typeof ElementPlusIconsVue !== 'undefined') {
+            for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+                app.component(key, component);
+            }
         }
 
         app.use(ElementPlus, {

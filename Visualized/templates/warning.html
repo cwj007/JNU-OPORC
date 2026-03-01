@@ -512,10 +512,59 @@
                 </div>
                 <div class="header-right" style="display: flex; align-items: center;">
                     <!-- Notification Bell -->
-                    <div class="notification-wrapper" style="margin-right: 20px; cursor: pointer;" @click="handleNotificationClick">
-                        <el-badge :value="unreadCount" :max="99" :hidden="unreadCount === 0" class="item">
-                            <el-icon :size="20" style="color: var(--text-primary);"><bell /></el-icon>
-                        </el-badge>
+                    <div class="notification-wrapper" style="margin-right: 20px; cursor: pointer;">
+                        <el-popover
+                            placement="bottom-end"
+                            :width="350"
+                            trigger="click"
+                            popper-class="notification-popover"
+                            @show="() => { fetchRecentAlerts(); popoverVisible = true; }"
+                            @hide="() => { popoverVisible = false; }"
+                        >
+                            <template #reference>
+                                <el-badge :value="unreadCount" :max="99" :hidden="unreadCount === 0" class="item notification-badge" :class="{ active: popoverVisible }">
+                                    <el-icon :size="20" class="bell-icon"><bell /></el-icon>
+                                </el-badge>
+                            </template>
+                            
+                            <div class="notification-list-container">
+                                <div class="notification-header">
+                                    <span class="title">消息通知</span>
+                                    <el-button v-if="unreadCount > 0" link type="primary" size="small" @click="handleMarkAllRead">全部已读</el-button>
+                                </div>
+                                
+                                <div v-if="recentAlerts.length === 0" class="notification-empty">
+                                    <el-empty description="暂无新消息" :image-size="60"></el-empty>
+                                </div>
+                                
+                                <div v-else class="notification-list">
+                                    <div v-for="item in recentAlerts" :key="item.id" class="notification-item" @click="viewAlertDetail(item)">
+                                        <div class="item-icon" :class="item.level">
+                                            <el-icon><warning /></el-icon>
+                                        </div>
+                                        <div class="item-content">
+                                            <div class="item-title">
+                                                <el-tag :type="getLevelTagType(item.level)" size="small" effect="dark" class="level-tag" :class="item.level">
+                                                    {{ getLevelLabel(item.level) }}
+                                                </el-tag>
+                                                <span class="time">{{ formatAlertTime(item.alerts_time || item.time) }}</span>
+                                            </div>
+                                            <div class="item-text">
+                                                您制定的"{{ item.type }}"任务已达到预警条件：{{ item.content }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="notification-footer">
+                                    <el-button class="cyber-btn-history" @click="handleNotificationClick">
+                                        <div class="ui-prefix"><span></span><span></span><span></span></div>
+                                        查看全部预警历史
+                                        <el-icon style="margin-left: 8px;"><right /></el-icon>
+                                    </el-button>
+                                </div>
+                            </div>
+                        </el-popover>
                     </div>
 
                     <div class="user-profile">
@@ -690,7 +739,7 @@
                                         link 
                                         class="cyber-btn-detail" 
                                         size="small" 
-                                        @click="viewArticleContent(scope.row)"
+                                        @click="viewArticle(scope.row)"
                                     >
                                         文章
                                     </el-button>
@@ -867,7 +916,7 @@
                 <el-dialog v-model="detailsDialogVisible" title="舆情风险评估详情" width="500px" class="tech-dialog">
                     <div class="alert-details-view" v-if="currentAlertDetails">
                         <div class="risk-score-circle" :class="getRiskClass(currentAlertDetails.risk_level)">
-                            <div class="score-value">{{ currentAlertDetails.cri ? currentAlertDetails.cri.toFixed(2) : 'N/A' }}</div>
+                            <div class="score-value">{{ (currentAlertDetails.cri !== undefined && currentAlertDetails.cri !== null) ? currentAlertDetails.cri.toFixed(2) : (currentAlertDetails.cri_score !== undefined && currentAlertDetails.cri_score !== null ? currentAlertDetails.cri_score.toFixed(2) : 'N/A') }}</div>
                             <div class="score-label">CRI指数</div>
                         </div>
                         
@@ -987,11 +1036,13 @@
 
         const app = createApp({
             setup() {
-                const username = ref(localStorage.getItem('username') || 'Admin');
-                const userRole = ref(localStorage.getItem('role') || 'user');
+                const username = ref(localStorage.getItem('username') || '管理员');
+                const userRole = ref(localStorage.getItem('role') || 'admin');
                 const isCollapse = ref(false);
 
                 const unreadCount = ref(0);
+                const recentAlerts = ref([]);
+                const popoverVisible = ref(false);
                 const profileDialogVisible = ref(false);
                 const profileSaving = ref(false);
                 const profileForm = ref({
@@ -1009,6 +1060,65 @@
                     } catch (e) {
                         console.error('Failed to fetch unread count', e);
                     }
+                };
+
+                const fetchRecentAlerts = async () => {
+                    try {
+                        const res = await axios.get('/api/alerts/list?page=1&page_size=5');
+                        if (res.data && res.data.data) {
+                            recentAlerts.value = res.data.data;
+                        }
+                    } catch (e) {
+                        console.error('Failed to fetch recent alerts', e);
+                    }
+                };
+
+                const getLevelTagType = (level) => {
+                    if (!level) return 'info';
+                    const map = {
+                        'red': 'danger',
+                        'high': 'danger',
+                        'orange': 'warning',
+                        'medium': 'warning',
+                        'yellow': 'warning',
+                        'green': 'success',
+                        'low': 'success'
+                    };
+                    return map[level.toLowerCase()] || 'info';
+                };
+
+                const getLevelLabel = (level) => {
+                    if (!level) return '常规预警';
+                    const map = {
+                        'red': '严重风险',
+                        'high': '严重风险',
+                        'orange': '高风险',
+                        'medium': '关注风险',
+                        'yellow': '关注风险',
+                        'green': '低风险',
+                        'low': '低风险'
+                    };
+                    return map[level.toLowerCase()] || '常规预警';
+                };
+
+                const formatAlertTime = (timeStr) => {
+                    if (!timeStr) return '';
+                    const date = new Date(timeStr.replace(/-/g, '/'));
+                    const now = new Date();
+                    
+                    if (date.toDateString() === now.toDateString()) {
+                        return date.getHours().toString().padStart(2, '0') + ':' + 
+                               date.getMinutes().toString().padStart(2, '0');
+                    }
+                    return (date.getMonth() + 1) + '-' + date.getDate() + ' ' + 
+                           date.getHours().toString().padStart(2, '0') + ':' + 
+                           date.getMinutes().toString().padStart(2, '0');
+                };
+
+                const viewAlertDetail = (alert) => {
+                    popoverVisible.value = false;
+                    warningActiveTab.value = 'history';
+                    // Optional: If you want to jump to specific alert, you can scroll or filter
                 };
 
                 const fetchProfile = async () => {
@@ -1180,6 +1290,8 @@
                         window.location.href = routes[index];
                     }
                 };
+
+                const currentLevelFilter = ref('all');
 
                 const fetchAlerts = async () => {
                     console.log('Fetching alerts with timeRange:', timeRange.value, 'customDateRange:', customDateRange.value);
@@ -1549,8 +1661,6 @@
                     return level;
                 };
 
-                const currentLevelFilter = ref('all');
-
                 const levelFilters = [
                     { text: '高危', value: 'high' },
                     { text: '高风险', value: 'orange' },
@@ -1619,78 +1729,88 @@
                 };
                 
                 const viewArticleContent = async (row) => {
-                    if (!row.reference_id) return;
+                    // Try to extract reference_id and meta_data
+                    let refId = row.reference_id;
+                    let meta = row.meta_data || {};
                     
-                    // Show loading state (could add a loading spinner to dialog content)
+                    if (typeof meta === 'string') {
+                        try { meta = JSON.parse(meta); } catch(e) { meta = {}; }
+                    }
+
+                    // If no reference_id on row, check meta_data (supports crisis_list and single_article)
+                    if (!refId) {
+                        if (meta.article && meta.article.note_id) refId = meta.article.note_id;
+                        else if (meta.articles && meta.articles.length > 0) refId = meta.articles[0].note_id;
+                    }
+
+                    // Show loading dialog
                     articleDialogVisible.value = true;
                     currentArticle.value = {
                         title: row.title || '加载中...',
                         content: '正在加载完整内容...',
-                        id: row.reference_id,
+                        id: refId,
                         comments: []
                     };
                     
-                    try {
-                        // Fetch full details from API (which queries Transformers/processed_ids.db)
-                        const response = await axios.get(`/api/alerts/details/${row.reference_id}`);
-                        const data = response.data;
-                        
-                        currentArticle.value = {
-                            title: data.title || row.title,
-                            content: data.content || '暂无文章内容',
-                            id: row.reference_id,
-                            comments: data.comments || []
-                        };
-                    } catch (error) {
-                        console.error("Failed to fetch full details:", error);
-                        // Fallback to meta_data if API fails
-                        let content = '';
-                        let title = row.title;
-                        let comments = [];
-                        let meta = {};
-
-                        if (row.meta_data) {
-                            try {
-                                meta = typeof row.meta_data === 'string' ? JSON.parse(row.meta_data) : row.meta_data;
-                            } catch (e) {
-                                // Silently fail parsing
-                                meta = {};
-                            }
-
-                            if (meta.article_content) content = meta.article_content;
-                            if (meta.article_title) title = meta.article_title;
+                    // Try to fetch from API if we have an ID
+                    if (refId) {
+                        try {
+                            const response = await axios.get(`/api/alerts/details/${refId}`);
+                            const data = response.data;
                             
-                            // Extract comments: prioritize top_negative_comments
-                            if (meta.top_negative_comments && meta.top_negative_comments.length > 0) {
-                                comments = meta.top_negative_comments;
-                            } else if (meta.comments && meta.comments.length > 0) {
-                                comments = meta.comments;
-                            }
-                        } 
-                        
-                        if (!content && row.content) {
-                             // Fallback to row.content if no meta_data content
-                             content = row.content;
+                            currentArticle.value = {
+                                title: data.title || row.title,
+                                content: data.content || '暂无文章内容',
+                                id: refId,
+                                comments: data.comments || []
+                            };
+                            return; // Success
+                        } catch (error) {
+                            console.error("Failed to fetch full details:", error);
                         }
-                        
-                        // If no title from meta, use row title
-                        if (!title || title === '无标题') title = row.title;
-
-                        currentArticle.value = {
-                            title: title,
-                            content: content || '暂无文章内容 (加载失败，显示摘要)',
-                            id: row.reference_id,
-                            comments: comments
-                        };
                     }
+
+                    // Fallback to meta_data or row content if API fails or no refId
+                    let content = row.content || '';
+                    let title = row.title || '无标题';
+                    let comments = [];
+
+                    // Try to extract from meta
+                    if (meta.article_content) content = meta.article_content;
+                    else if (meta.article && meta.article.content) content = meta.article.content;
+                    else if (meta.articles && meta.articles.length > 0) content = meta.articles[0].content;
+
+                    if (meta.article_title) title = meta.article_title;
+                    else if (meta.article && meta.article.title) title = meta.article.title;
+                    else if (meta.articles && meta.articles.length > 0) title = meta.articles[0].title;
+                    
+                    // Extract comments: prioritize top_negative_comments or article specific comments
+                    if (meta.top_negative_comments && meta.top_negative_comments.length > 0) {
+                        comments = meta.top_negative_comments;
+                    } else if (meta.article && meta.article.comments) {
+                        comments = meta.article.comments;
+                    } else if (meta.articles && meta.articles.length > 0 && meta.articles[0].comments) {
+                        comments = meta.articles[0].comments;
+                    } else if (meta.comments) {
+                        comments = meta.comments;
+                    }
+                    
+                    if (!title || title === '无标题') title = row.title;
+
+                    currentArticle.value = {
+                        title: title,
+                        content: content || '暂无文章内容 (加载失败，显示摘要)',
+                        id: refId,
+                        comments: comments
+                    };
                 };
 
                 const viewArticle = (row) => {
-                    // If it has meta_data, it's a full alert row -> Show full details
-                    if (row.meta_data) {
+                    // Always try to view content through viewArticleContent first as it has better logic
+                    if (row.meta_data || row.reference_id) {
                         viewArticleContent(row);
                     } 
-                    // If it has content/title directly (e.g. from threshold list), show article content
+                    // Fallback for simple rows with direct content
                     else if (row.content || row.title) {
                         currentArticle.value = {
                             title: row.title || '无标题',
@@ -1881,12 +2001,19 @@
                         formatKeywords,
                         // Notifications & Profile
                         unreadCount,
+                        recentAlerts,
                         profileDialogVisible,
                         profileForm,
                         saveProfile,
                         profileSaving,
                         handleNotificationClick,
-                        handleMarkAllRead
+                        handleMarkAllRead,
+                        fetchRecentAlerts,
+                        popoverVisible,
+                        getLevelTagType,
+                        getLevelLabel,
+                        formatAlertTime,
+                        viewAlertDetail
                     };
             }
         });

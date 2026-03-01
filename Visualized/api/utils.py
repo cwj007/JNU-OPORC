@@ -1,5 +1,6 @@
 import re
 import smtplib
+import pytz
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
@@ -68,7 +69,19 @@ def _send_email_sync(to_email: str, subject: str, content: str, level: str = "in
         # 提取 meta_data 信息
         meta = meta_data or {}
         triggered_rule = meta.get('triggered_rule', '达到预设阈值条件')
-        heat_summary = meta.get('heat_summary', f"当前已发现相关信息约 {meta.get('count', 'XX')} 条，声量仍在波动中。")
+        
+        # 修复热度摘要：优先使用 count 字段，如果缺失则显示为 1（通常单贴预警也是 1 条）
+        article_count = meta.get('count')
+        if article_count is None:
+            # 尝试从 article 结构中获取
+            if 'article' in meta or 'article_id' in meta or 'article_title' in meta:
+                article_count = 1
+            elif 'articles' in meta:
+                article_count = len(meta['articles'])
+            else:
+                article_count = "XX"
+        
+        heat_summary = meta.get('heat_summary', f"当前已发现相关信息约 {article_count} 条，声量仍在波动中。")
         core_focus = meta.get('core_focus', '用户对该话题的讨论热度持续上升。')
         possible_impact = meta.get('possible_impact', '可能对产品口碑或品牌形象造成一定影响。')
         suggested_actions = meta.get('suggested_actions', [
@@ -89,13 +102,13 @@ def _send_email_sync(to_email: str, subject: str, content: str, level: str = "in
                 <!-- Header -->
                 <div style="background-color: {color}; color: white; padding: 30px 20px; text-align: center;">
                     <h1 style="margin: 0; font-size: 24px; letter-spacing: 2px;">舆情预警通知</h1>
-                    <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">{datetime.now().strftime('%Y年%m月%d日 %H:%M')}</p>
+                    <p style="margin: 10px 0 0 0; opacity: 0.9; font-size: 16px;">{datetime.now(pytz.timezone('Asia/Shanghai')).strftime('%Y年%m月%d日 %H:%M')}</p>
                 </div>
                 
                 <!-- Body -->
                 <div style="padding: 30px 40px;">
                     <p style="font-size: 16px; font-weight: bold;">尊敬的{username}，您好：</p>
-                    <p style="color: #666;">舆情监测系统发现您关注的议题已触发预设预警规则，具体信息如下：</p>
+                    <p style="color: #666;">JNU-OPORC 舆情哨兵发现您关注的议题已触发预设预警规则，具体信息如下：</p>
                     
                     <div style="margin: 25px 0; border-left: 4px solid {color}; padding-left: 20px;">
                         <p style="margin: 10px 0;"><strong style="color: #444; width: 80px; display: inline-block;">预警等级：</strong> <span style="color: {color}; font-weight: bold;">[{level_text}]</span></p>

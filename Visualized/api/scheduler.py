@@ -58,6 +58,9 @@ async def run_crawler_script():
     log_file = LOG_DIR / f"scheduler_run_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
     media_crawler_dir = PROJECT_ROOT / "MediaCrawler"
     env = os.environ.copy()
+    # 强制子进程使用 UTF-8 编码，防止 Windows 下输出乱码
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     
     try:
         f = open(log_file, "w", encoding="utf-8")

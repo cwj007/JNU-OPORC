@@ -147,12 +147,27 @@ def calculate_cri(article, comments, config=None):
     except:
         burst_factor = 0
     
-    # Calculate CRI
-    cri = (weights['w1'] * a_neg + 
-           weights['w2'] * c_ratio + 
-           weights['w3'] * c_intensity + 
-           weights['w4'] * k_hit + 
-           weights['w5'] * burst_factor)
+    # Calculate CRI with dynamic weight redistribution if no comments
+    total_comments = len(comments)
+    if total_comments == 0:
+        # Redistribution: If no comments, weights are shifted to article sentiment and keyword hits
+        # Current applicable weights: w1 (0.2) + w4 (0.3) = 0.5
+        # Normalized: w1_norm = 0.2/0.5 = 0.4, w4_norm = 0.3/0.5 = 0.6
+        w_sum = weights['w1'] + weights['w4']
+        w1_norm = weights['w1'] / w_sum if w_sum > 0 else 1.0
+        w4_norm = weights['w4'] / w_sum if w_sum > 0 else 0.0
+        
+        cri = (w1_norm * a_neg + w4_norm * k_hit)
+        c_ratio = 0
+        c_intensity = 0
+        burst_factor = 0
+    else:
+        # Standard calculation with comments
+        cri = (weights['w1'] * a_neg + 
+               weights['w2'] * c_ratio + 
+               weights['w3'] * c_intensity + 
+               weights['w4'] * k_hit + 
+               weights['w5'] * burst_factor)
            
     details = {
         "a_neg": round(a_neg, 2),
