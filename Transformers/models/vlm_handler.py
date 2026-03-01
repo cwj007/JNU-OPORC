@@ -208,7 +208,15 @@ class VLMHandler:
             )
             # 增加详细日志输出 API 得到的数据
             for i, res in enumerate(decoded_results):
-                utils.logger.info(f"[VLMHandler.analyze_batch] DEBUG: API 响应结果 [{i+1}/{len(decoded_results)}]: {res[:200]}...")
+                # 获取对应的 ID 用于日志追踪
+                item = batch_data[i] if i < len(batch_data) else {}
+                note_id = item.get("note_id", "Unknown")
+                comment_id = item.get("comment_id")
+                
+                # 如果有评论 ID，则显示为 note_id_comment_id，否则仅显示 note_id
+                target_id = f"{note_id}_{comment_id}" if comment_id else f"{note_id}"
+                
+                utils.logger.info(f"[VLMHandler.analyze_batch] DEBUG: API 响应结果 [ID: {target_id}] [{i+1}/{len(decoded_results)}]:\n{res}")
         except torch.cuda.OutOfMemoryError as e:
             utils.logger.error(f"\n  [VLMHandler.analyze_batch] [❗ 严重警告] 显存溢出 (OOM): {str(e)}")
             utils.logger.warning("  [VLMHandler.analyze_batch] 原因: 当前批次 (Batch Size) 过大或文本过长，导致显存请求超出 GPU 限制。")

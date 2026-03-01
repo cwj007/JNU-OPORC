@@ -194,9 +194,16 @@ class WeiboJSONLoader(BaseDataLoader):
         else:
             raise ValueError(f"Invalid path: {json_path}")
             
+        # Use sets to track seen content hashes and IDs for deduplication
+        seen_post_hashes = set()
+        seen_comment_hashes = set()
+        seen_post_ids = set()
+        seen_comment_ids = set()
+
+        import hashlib
+
         for content_file in files_to_process:
             try:
-                # Load posts
                 with open(content_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     
@@ -209,10 +216,24 @@ class WeiboJSONLoader(BaseDataLoader):
                 
                 # Standardize fields if necessary (Weibo JSON seems to match well, but let's be safe)
                 for post in current_posts:
-                    # Ensure note_id is string
-                    if 'note_id' in post:
-                        post['note_id'] = str(post['note_id'])
+                    note_id = str(post.get('note_id', ''))
+                    if not note_id:
+                        continue
+                    
+                    # Deduplicate by ID
+                    if note_id in seen_post_ids:
+                        continue
+                    
+                    # Deduplicate by content hash
+                    content = post.get('content', '')
+                    content_hash = hashlib.md5(str(content).encode('utf-8')).hexdigest()
+                    if content_hash in seen_post_hashes:
+                        continue
+                    
+                    post['note_id'] = note_id
                     posts_data.append(post)
+                    seen_post_ids.add(note_id)
+                    seen_post_hashes.add(content_hash)
                 
                 # Try to find corresponding comments.json
                 # Usually in the same directory
@@ -228,15 +249,29 @@ class WeiboJSONLoader(BaseDataLoader):
                         current_comments = [c_data]
                         
                     for comment in current_comments:
-                        # Ensure IDs are strings
-                        if 'comment_id' in comment:
-                            comment['comment_id'] = str(comment['comment_id'])
+                        comment_id = str(comment.get('comment_id', ''))
+                        if not comment_id:
+                            continue
+                            
+                        # Deduplicate by ID
+                        if comment_id in seen_comment_ids:
+                            continue
+                            
+                        # Deduplicate by content hash
+                        content = comment.get('content', '')
+                        content_hash = hashlib.md5(str(content).encode('utf-8')).hexdigest()
+                        if content_hash in seen_comment_hashes:
+                            continue
+                            
+                        comment['comment_id'] = comment_id
                         if 'note_id' in comment:
                             comment['note_id'] = str(comment['note_id'])
                         if 'parent_comment_id' in comment and comment['parent_comment_id']:
                             comment['parent_comment_id'] = str(comment['parent_comment_id'])
                             
                         comments_data.append(comment)
+                        seen_comment_ids.add(comment_id)
+                        seen_comment_hashes.add(content_hash)
                         
             except Exception as e:
                 utils.logger.error(f"[WeiboJSONLoader] Error loading {content_file}: {e}")

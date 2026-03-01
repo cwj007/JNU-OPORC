@@ -455,7 +455,9 @@ class MultimodalAnalyzer:
                             "images": current_images, 
                             "item_idx": b_idx,
                             "sig": sig,
-                            "is_downgraded": can_downgrade_to_text
+                            "is_downgraded": can_downgrade_to_text,
+                            "note_id": item.get("note_id"),
+                            "comment_id": item.get("comment_id")
                         })
                     
                     preprocessed_inputs = None
@@ -745,7 +747,7 @@ class MultimodalAnalyzer:
             "emotional_venting": "吐槽/不满",
             "emotional venting": "吐槽/不满",
             "complaint": "投诉/反馈",
-            "praise": "欣慰/欢喜",
+            "praise": "赞赏",
             "questioning": "吐槽/不满",
             "humor": "其他",
             "irony": "其他",
@@ -755,8 +757,9 @@ class MultimodalAnalyzer:
             "marketing": "其他",
             "gratitude": "欣慰/欢喜",
             "thanks": "欣慰/欢喜",
-            "expectation": "其他",
-            "wish": "其他",
+            "expectation": "期待",
+            "wish": "欣慰/欢喜",
+            "hope": "期待",
             "daily_life": "其他",
             "daily life": "其他",
             "others": "其他",
@@ -850,23 +853,32 @@ class MultimodalAnalyzer:
         # 归一化主情感
         result["sentiment"] = clean_val(result.get("sentiment"), SENTIMENT_CATEGORIES, "中性")
         
-        # 归一化细粒度情感
+        # 归一化细粒度情感 (放宽限制：允许模型自由发挥，只要长度合适且不含英文)
         main_sentiment = result["sentiment"]
-        allowed_fg = FINE_GRAINED_SENTIMENT_MAPPING.get(main_sentiment, ["中立"])
-        result["fine_grained_sentiment"] = clean_val(result.get("fine_grained_sentiment"), FINE_GRAINED_SENTIMENT_CATEGORIES, allowed_fg[0])
+        # 获取该大类下的默认参考词
+        allowed_fg_examples = FINE_GRAINED_SENTIMENT_MAPPING.get(main_sentiment, ["中立"])
         
-        # 再次确保细粒度情感属于主情感下属 (如果之前的 clean_val 选了其他主情感下的词)
-        if result["fine_grained_sentiment"] not in allowed_fg:
-            # 如果不属于，尝试纠正：如果该细粒度词在其他主情感下，则强制设为主情感的第一个词
-            result["fine_grained_sentiment"] = allowed_fg[0]
+        raw_fg = result.get("fine_grained_sentiment", "Unknown")
+        # 这里的 clean_val 传入所有已知类别是为了做翻译和模糊匹配
+        cleaned_fg = clean_val(raw_fg, FINE_GRAINED_SENTIMENT_CATEGORIES, "Unknown")
+        
+        if cleaned_fg == "Unknown" or len(cleaned_fg) > 10:
+            # 如果清理失败或太长，使用该大类下的第一个示例词作为兜底
+            result["fine_grained_sentiment"] = allowed_fg_examples[0]
+        else:
+            # 只要不是 Unknown 且长度合适，就接受模型自由发挥的结果
+            result["fine_grained_sentiment"] = cleaned_fg
 
-        # 归一化意图
-        allowed_intents = INTENT_CATEGORIES_MAPPING.get(main_sentiment, ["其他"])
-        result["intent"] = clean_val(result.get("intent"), INTENT_CATEGORIES, allowed_intents[0])
+        # 归一化意图 (同上，放宽限制)
+        allowed_intent_examples = INTENT_CATEGORIES_MAPPING.get(main_sentiment, ["其他"])
         
-        # 再次确保意图属于主情感下属
-        if result["intent"] not in allowed_intents:
-             result["intent"] = allowed_intents[0]
+        raw_intent = result.get("intent", "Unknown")
+        cleaned_intent = clean_val(raw_intent, INTENT_CATEGORIES, "Unknown")
+        
+        if cleaned_intent == "Unknown" or len(cleaned_intent) > 10:
+            result["intent"] = allowed_intent_examples[0]
+        else:
+            result["intent"] = cleaned_intent
 
         return result
 

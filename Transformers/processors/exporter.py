@@ -146,15 +146,17 @@ class Exporter:
         conn.close()
 
     def get_existing_ids(self) -> set:
-        """从 SQLite 数据库中获取所有已处理的 ID (note_id 和 comment_id)。"""
+        """从 SQLite 数据库中获取所有已处理的 ID，格式为 note_id_comment_id。"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
+        # 文章 ID 格式为 note_id_0
         cursor.execute('SELECT note_id FROM content')
-        note_ids = {row[0] for row in cursor.fetchall()}
+        note_ids = {f"{row[0]}_0" for row in cursor.fetchall()}
         
-        cursor.execute('SELECT comment_id FROM comments')
-        comment_ids = {row[0] for row in cursor.fetchall()}
+        # 评论 ID 格式为 note_id_comment_id
+        cursor.execute('SELECT note_id, comment_id FROM comments')
+        comment_ids = {f"{row[0]}_{row[1]}" for row in cursor.fetchall()}
         
         conn.close()
         return note_ids.union(comment_ids)

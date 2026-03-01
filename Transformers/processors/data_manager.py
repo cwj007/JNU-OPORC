@@ -137,19 +137,27 @@ class DataManager:
         # --- 核心优化：文章处理策略 ---
         # 建立无效文章 ID 集合，记录既无文本又无图片的文章 ID
         invalid_note_ids = set()
-        # 线程安全锁，用于更新 invalid_note_ids
-        invalid_ids_lock = threading.Lock()
+        # 线程安全锁，用于更新 invalid_note_ids 和 seen_ids_this_run
+        data_lock = threading.Lock()
+        seen_ids_this_run = set()
         
         post_processed_count = 0
         def process_post(row_tuple):
             nonlocal post_processed_count
             idx, row = row_tuple
             note_id = str(row['note_id'])
+            full_id = f"{note_id}_0"
             
-            # --- 逻辑去重 (根据已存在文件) ---
-            if existing_ids and f"{note_id}_0" in existing_ids:
+            # --- 逻辑去重 (根据已存在文件或本轮已处理) ---
+            if (existing_ids and full_id in existing_ids) or (full_id in seen_ids_this_run):
                 post_processed_count += 1
                 return None
+            
+            with data_lock:
+                if full_id in seen_ids_this_run:
+                    post_processed_count += 1
+                    return None
+                seen_ids_this_run.add(full_id)
                 
             content = row.get('content')
             # 确保内容不只是空白字符
@@ -159,7 +167,7 @@ class DataManager:
             
             # 优化：如果文字和图片配置同时为空，标记为无效并剔除
             if not clean_content and not pictures_str:
-                with invalid_ids_lock:
+                with data_lock:
                     invalid_note_ids.add(note_id)
                 return None
             
@@ -167,7 +175,7 @@ class DataManager:
             
             # 如果图片查找失败（物理文件不存在）且内容也为空，则无法分析，标记为无效并剔除
             if not clean_content and not images:
-                with invalid_ids_lock:
+                with data_lock:
                     invalid_note_ids.add(note_id)
                 return None
 
@@ -241,15 +249,22 @@ class DataManager:
             idx, row = row_tuple
             note_id = str(row['note_id'])
             comment_id = str(row['comment_id'])
+            full_id = f"{note_id}_{comment_id}"
             
             # 优化：如果所属文章是无效文章（无图无文），则直接剔除评论训练
             if note_id in invalid_note_ids:
                 return None
 
-            # --- 逻辑去重 (根据已存在文件) ---
-            if existing_ids and f"{note_id}_{comment_id}" in existing_ids:
+            # --- 逻辑去重 (根据已存在文件或本轮已处理) ---
+            if (existing_ids and full_id in existing_ids) or (full_id in seen_ids_this_run):
                 comment_processed_count += 1
                 return None
+            
+            with data_lock:
+                if full_id in seen_ids_this_run:
+                    comment_processed_count += 1
+                    return None
+                seen_ids_this_run.add(full_id)
                 
             content = row.get('content')
             # 确保内容不只是空白字符
@@ -461,14 +476,25 @@ class DataManager:
         utils.logger.info(f"[DataManager.load_zhihu_data] Processing posts...")
         
         post_processed_count = 0
+        data_lock = threading.Lock()
+        seen_ids_this_run = set()
+
         def process_post(row_tuple):
             nonlocal post_processed_count
             idx, row = row_tuple
             note_id = str(row['note_id'])
+            full_id = f"{note_id}_0"
             
-            if existing_ids and f"{note_id}_0" in existing_ids:
+            # --- 逻辑去重 (根据已存在文件或本轮已处理) ---
+            if (existing_ids and full_id in existing_ids) or (full_id in seen_ids_this_run):
                 post_processed_count += 1
                 return None
+            
+            with data_lock:
+                if full_id in seen_ids_this_run:
+                    post_processed_count += 1
+                    return None
+                seen_ids_this_run.add(full_id)
                 
             content = row.get('content')
             title = row.get('title', '')
@@ -535,10 +561,18 @@ class DataManager:
             idx, row = row_tuple
             note_id = str(row['note_id'])
             comment_id = str(row['comment_id'])
+            full_id = f"{note_id}_{comment_id}"
             
-            if existing_ids and f"{note_id}_{comment_id}" in existing_ids:
+            # --- 逻辑去重 (根据已存在文件或本轮已处理) ---
+            if (existing_ids and full_id in existing_ids) or (full_id in seen_ids_this_run):
                 comment_processed_count += 1
                 return None
+            
+            with data_lock:
+                if full_id in seen_ids_this_run:
+                    comment_processed_count += 1
+                    return None
+                seen_ids_this_run.add(full_id)
                 
             content = row.get('content')
             clean_content = str(content).strip() if content else ""

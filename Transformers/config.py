@@ -57,104 +57,92 @@ PLATFORM_PATHS = {
 # Sentiment categories
 SENTIMENT_CATEGORIES = ["正面", "中性", "负面"]
 
-# 细粒度情感类别映射 (层级结构)
-FINE_GRAINED_SENTIMENT_MAPPING = {
-    "正面": ["惊喜", "赞赏", "期待", "愉快"],
-    "中性": ["中立"],
-    "负面": ["愤怒", "失望", "焦虑", "厌恶", "悲伤"]
+# 细粒度情感类别参考 (仅作为 Prompt 示例，不限制模型输出)
+FINE_GRAINED_SENTIMENT_EXAMPLES = {
+    "正面": ["惊喜", "赞赏", "期待", "愉快", "欣慰", "欢喜", "感动"],
+    "中性": ["中立", "客观", "围观"],
+    "负面": ["愤怒", "失望", "焦虑", "厌恶", "悲伤", "吐槽", "不满", "投诉"]
 }
 
-# 意图类别映射 (层级结构)
-INTENT_CATEGORIES_MAPPING = {
-    "正面": ["推荐/安利", "炫耀/分享"],
-    "中性": ["咨询/询问", "吃瓜/围观", "其他"],
-    "负面": ["投诉/反馈", "吐槽/不满"]
+# 意图类别参考 (仅作为 Prompt 示例，不限制模型输出)
+INTENT_CATEGORIES_EXAMPLES = {
+    "正面": ["推荐/安利", "炫耀/分享", "表达喜爱"],
+    "中性": ["咨询/询问", "吃瓜/围观", "日常记录"],
+    "负面": ["投诉/反馈", "吐槽/不满", "情绪宣泄"]
 }
 
-# 扁平化列表供 Prompt 使用
-FINE_GRAINED_SENTIMENT_CATEGORIES = [item for sublist in FINE_GRAINED_SENTIMENT_MAPPING.values() for item in sublist]
-INTENT_CATEGORIES = [item for sublist in INTENT_CATEGORIES_MAPPING.values() for item in sublist]
+# 扁平化列表 (用于向后兼容和模糊匹配参考)
+FINE_GRAINED_SENTIMENT_CATEGORIES = [item for sublist in FINE_GRAINED_SENTIMENT_EXAMPLES.values() for item in sublist]
+INTENT_CATEGORIES = [item for sublist in INTENT_CATEGORIES_EXAMPLES.values() for item in sublist]
 
-# 提示词：引导模型进行图文消解、情感识别和反讽判定
-# Sentiment categories 
-SENTIMENT_CATEGORIES = ["正面", "中性", "负面"] 
-
-# 细粒度情感类别映射 (层级结构) 
-FINE_GRAINED_SENTIMENT_MAPPING = { 
-    "正面": ["惊喜", "赞赏", "期待", "愉快"], 
-    "中性": ["中立"], 
-    "负面": ["愤怒", "失望", "焦虑", "厌恶", "悲伤"] 
-} 
-
-# 意图类别映射 (层级结构) 
-INTENT_CATEGORIES_MAPPING = { 
-    "正面": ["推荐/安利", "炫耀/分享", "欣慰/欢喜"], 
-    "中性": ["咨询/询问", "吃瓜/围观", "其他"], 
-    "负面": ["投诉/反馈", "吐槽/不满"] 
-} 
-
-# 扁平化列表供 Prompt 使用 
-FINE_GRAINED_SENTIMENT_CATEGORIES = [item for sublist in FINE_GRAINED_SENTIMENT_MAPPING.values() for item in sublist] 
-INTENT_CATEGORIES = [item for sublist in INTENT_CATEGORIES_MAPPING.values() for item in sublist] 
+# 保持变量名兼容
+FINE_GRAINED_SENTIMENT_MAPPING = FINE_GRAINED_SENTIMENT_EXAMPLES
+INTENT_CATEGORIES_MAPPING = INTENT_CATEGORIES_EXAMPLES
 
 # 微博提示词：侧重情绪与反讽判定
 WEIBO_ANALYSIS_PROMPT = """你是一个专业的**微博多模态舆情专家**。请分析“目标”内容的情感与意图。
 
-### 分类标准 (必须严格遵守)：
-- **正面**: 情感必须选自 [{fg_pos}]，意图必须选自 [{intent_pos}]
-- **中性**: 情感必须选自 [{fg_neu}]，意图必须选自 [{intent_neu}]
-- **负面**: 情感必须选自 [{fg_neg}]，意图必须选自 [{intent_neg}]
+### 分类要求：
+1. **sentiment**: 必须从 ["正面", "中性", "负面"] 中选一。
+2. **fine_grained_sentiment**: 自由发挥，给出最精准的情感标签（1-4个字）。
+3. **intent**: 自由发挥，给出最精准的意图标签（1-6个字）。
 
 ### 核心指南：
-1. **情绪识别**：识别文本中的情绪极性。严禁输出数字索引（如 0, 1），严禁输出“必须选自...”等提示词，严禁在分类字段中输出长句子或内容描述。
-2. **反讽判定**：仅当文本明显表扬但实际指向明确的负面事实（如“欠薪半年真是好公司”）或图文存在直接且强烈的事实冲突时，才判定为反讽。
-3. **内容优先**：严格基于“目标”内容分析，严禁编造背景。
-
-### 核心约束：
-1. **严禁输出数字索引**：分类字段（sentiment, fine_grained_sentiment, intent）必须是上述列表中的文字，不能是数字。
-2. **严禁输出元指令**：严禁在输出中包含“请根据...”、“必须选自...”等引导词或指令文本。
-3. **字段长度限制**：fine_grained_sentiment 和 intent 字段必须是单个标签词（1-6个字），严禁输出长句子。
-4. **JSON 格式**：仅输出合法 JSON，严禁其他文字。
+1. **情感一致性**: fine_grained_sentiment 和 intent 必须与 sentiment 的极性保持语义一致。
+   - 正面示例: {fg_pos} | {intent_pos}
+   - 中性示例: {fg_neu} | {intent_neu}
+   - 负面示例: {fg_neg} | {intent_neg}
+2. **背景权重分配**: 
+   - **文章背景**仅供参考，用于理解讨论主题。
+   - **目标内容**的情感应基于其自身表达。**严禁**仅因背景负面就将目标的正面表达判定为负面。
+   - 特别注意：在负面事件背景下的“加油”、“祝好”、“希望上岸”等祝福/鼓励语，应判定为**正面**，而非反讽。
+3. **反讽判定**: 
+   - 仅当文本带有明显的嘲讽语气（如“真是一场‘精彩’的表演”且背景为失败）或图文严重冲突时判定为 true。
+   - 正常的祝福、期待、客观陈述不属于反讽。
+4. **严禁输出数字索引或引导词**，仅输出 JSON。
 
 ### 字段要求：
-- sentiment: 正面/中性/负面
-- fine_grained_sentiment: 细粒度标签词
-- intent: 意图标签词
+- sentiment: "正面"/"中性"/"负面"
+- fine_grained_sentiment: 标签词
+- intent: 标签词
 - irony_detected: true/false
-- reasoning: 简短理由 (严禁编造事实)
-- keywords: 关键词列表 (3-5个)
+- reasoning: 简短理由
+- keywords: 关键词列表
 - objects: 视觉对象列表 (无图则为空 [])
 - ocr_text: OCR 文字 (无图则为空 "")
+
+**注意: 必须且仅输出一个合法的 JSON 块，严禁包含任何其他文字。**
 """
 
 # 知乎提示词：侧重观点与逻辑分析
 ZHIHU_ANALYSIS_PROMPT = """你是一个专业的**知乎多模态舆情专家**。请分析“目标”内容的观点与逻辑。
 
-### 分类标准 (必须严格遵守)：
-- **正面**: 情感必须选自 [{fg_pos}]，意图必须选自 [{intent_pos}]
-- **中性**: 情感必须选自 [{fg_neu}]，意图必须选自 [{intent_neu}]
-- **负面**: 情感必须选自 [{fg_neg}]，意图必须选自 [{intent_neg}]
+### 分类要求：
+1. **sentiment**: 必须从 ["正面", "中性", "负面"] 中选一。
+2. **fine_grained_sentiment**: 自由发挥，给出最精准的情感标签（1-4个字）。
+3. **intent**: 自由发挥，给出最精准的意图标签（1-6个字）。
 
 ### 核心指南：
-1. **观点提炼**：重点提炼文本中的核心论点，分析立场。
-2. **理性优先**：知乎内容通常较为理性，侧重逻辑而非单纯情绪。
-3. **严禁幻觉**：严禁输出数字索引，严禁输出元指令（如“必须选自...”），严禁在分类字段中输出内容描述。
-
-### 核心约束：
-1. **严禁输出数字索引**：分类字段必须是文字标签。
-2. **严禁输出元指令**：严禁在字段内容中包含指令文本。
-3. **字段长度限制**：分类标签必须简短，严禁输出长句子。
-4. **JSON 格式**：仅输出合法 JSON，严禁其他文字。
+1. **情感一致性**: 细粒度标签必须与 sentiment 极性一致。
+   - 正面示例: {fg_pos} | {intent_pos}
+   - 中性示例: {fg_neu} | {intent_neu}
+   - 负面示例: {fg_neg} | {intent_neg}
+2. **背景与独立判断**: 
+   - **文章背景**仅供参考，用于理解讨论主题。
+   - 目标内容的立场不应被背景强行绑架。负面事件背景下的正面建议、祝福或理性探讨应判定为**正面**或**中性**。
+3. **理性优先**: 知乎侧重逻辑分析，严禁输出非 JSON 内容。
 
 ### 字段要求：
-- sentiment: 正面/中性/负面
-- fine_grained_sentiment: 细粒度标签词
-- intent: 意图标签词
+- sentiment: "正面"/"中性"/"负面"
+- fine_grained_sentiment: 标签词
+- intent: 标签词
 - irony_detected: true/false
 - reasoning: 简短理由 (必须说明观点提炼过程和逻辑链条)
-- keywords: 关键词列表 (3-5个)
+- keywords: 关键词列表
 - objects: 视觉对象列表 (无图则为空 [])
 - ocr_text: OCR 文字 (无图则为空 "")
+
+**注意: 必须且仅输出一个合法的 JSON 块，严禁包含任何其他文字。**
 """
 
 # 平台提示词映射
