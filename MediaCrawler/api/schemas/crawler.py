@@ -70,6 +70,22 @@ class CrawlerStartRequest(BaseModel):
     save_option: SaveDataOptionEnum = SaveDataOptionEnum.JSON
     cookies: str = ""
     headless: bool = False
+    
+    # New configuration fields
+    enable_ip_proxy: bool = False
+    ip_proxy_pool_count: int = 5
+    enable_validate_ip: bool = False
+    ip_proxy_provider_name: str = "kuaidaili"
+    wandou_app_key: str = ""
+    kdl_secret_id: str = ""
+    kdl_signature: str = ""
+    kdl_user_name: str = ""
+    kdl_user_pwd: str = ""
+    crawler_max_notes_count: int = 15
+    max_concurrency_num: int = 1
+    crawler_max_comments_count_singlenotes: int = 100
+    weibo_search_type: str = "default"
+    visualized_user_id: Optional[str] = None
 
 
 class CrawlerStatusResponse(BaseModel):

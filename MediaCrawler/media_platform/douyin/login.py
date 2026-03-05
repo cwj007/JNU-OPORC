@@ -20,6 +20,7 @@
 
 import asyncio
 import functools
+import os
 import sys
 from typing import Optional
 
@@ -32,6 +33,7 @@ import config
 from base.base_crawler import AbstractLogin
 from cache.cache_factory import CacheFactory
 from tools import utils
+from tools.cookie_cache import save_cookie_cache
 
 
 class DouYinLogin(AbstractLogin):
@@ -49,6 +51,44 @@ class DouYinLogin(AbstractLogin):
         self.login_phone = login_phone
         self.scan_qrcode_time = 60
         self.cookie_str = cookie_str
+
+    async def save_logged_in_cookie(self):
+        """Save logged-in cookies for next time's autofill."""
+        try:
+            current_cookie = await self.browser_context.cookies()
+            cookie_str, _ = utils.convert_cookies(current_cookie)
+            
+            # Try to get user ID and name from the page
+            user_id = "unknown"
+            user_name = "未知用户"
+            
+            # Douyin user info might be in the sidebar or header
+            try:
+                # Common selectors for Douyin user name
+                name_selectors = [
+                    "xpath=//div[contains(@class, 'user-info')]//h1",
+                    "xpath=//span[contains(@class, 'user-name')]",
+                    "xpath=//p[contains(@class, 'name')]"
+                ]
+                for selector in name_selectors:
+                    element = await self.context_page.query_selector(selector)
+                    if element:
+                        user_name = await element.inner_text()
+                        break
+                
+                # Try to get user ID from the URL if we are on the profile page
+                current_url = self.context_page.url
+                if "/user/" in current_url:
+                    user_id = current_url.split("/user/")[-1].split("?")[0]
+            except Exception:
+                pass
+            
+            # 从环境变量获取 Visualized 用户 ID
+            visualized_user_id = os.getenv("VISUALIZED_USER_ID")
+            save_cookie_cache("dy", user_id, user_name, cookie_str, visualized_user_id)
+            utils.logger.info(f"[DouYinLogin.save_logged_in_cookie] Saved cookie for user: {user_name} ({user_id})")
+        except Exception as e:
+            utils.logger.error(f"[DouYinLogin.save_logged_in_cookie] Failed to save cookie cache: {e}")
 
     async def begin(self):
         """
@@ -87,6 +127,7 @@ class DouYinLogin(AbstractLogin):
         wait_redirect_seconds = 5
         utils.logger.info(f"[DouYinLogin.begin] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
         await asyncio.sleep(wait_redirect_seconds)
+        await self.save_logged_in_cookie()
 
     @retry(stop=stop_after_attempt(600), wait=wait_fixed(1), retry=retry_if_result(lambda value: value is False))
     async def check_login_state(self):

@@ -3,16 +3,19 @@ import sys
 import json
 import subprocess
 from pathlib import Path
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 # Add project root and Visualized to sys.path
 BASE_DIR = Path(__file__).parent.parent
 sys.path.append(str(BASE_DIR))
 sys.path.append(str(BASE_DIR / "Visualized"))
+sys.path.append(str(BASE_DIR / "MediaCrawler"))
 
 # --- MediaCrawler 集成相关导入 ---
 try:
@@ -30,7 +33,6 @@ except ImportError as e:
 # --- MediaCrawler 额外配置路由 (Config/Env/Health) ---
 # 这些路由在 MediaCrawler 的 api/main.py 中直接定义，没有包含在 routers 中
 # 我们在这里重新定义它们以确保 Visualized 系统能够提供这些接口
-
 from fastapi import APIRouter
 from scheduler_manager import router as task_scheduler_router
 
@@ -134,9 +136,29 @@ from Visualized.api.hotsearch import router as hotsearch_router, check_and_sync_
 from Visualized.api.rank import router as rank_router
 from Visualized.api.scheduler import router as workflow_scheduler_router, start_scheduler
 from Visualized.api.auth import router as auth_router
+from Visualized.api.crawler_ext import router as crawler_ext_router
 import asyncio
 
-app = FastAPI(title="JNU-OPORC 舆情监测系统 API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 1. 检查缺失数据
+    try:
+        asyncio.create_task(check_and_sync_missing_data())
+    except Exception as e:
+        print(f"Error during initial data check: {e}")
+    
+    # 2. 启动后台定时同步任务
+    asyncio.create_task(start_periodic_sync())
+    
+    # 3. 启动自定义任务调度器 (微博 ID 提取等)
+    start_scheduler()
+    
+    yield
+
+app = FastAPI(title="JNU-OPORC 舆情监测系统 API", lifespan=lifespan)
+
+# 启用 Gzip 压缩以提高传输效率
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # 允许跨域
 app.add_middleware(
@@ -146,11 +168,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 优化请求日志：仅在非静态资源请求时记录，且可选性开启
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    print(f"Request: {request.method} {request.url}")
+    # 跳过静态文件和媒体文件的日志
+    path = request.url.path
+    if path.startswith(("/static", "/media", "/logos", "/assets")):
+        return await call_next(request)
+        
+    # print(f"Request: {request.method} {request.url}")
     response = await call_next(request)
-    print(f"Response: {response.status_code}")
+    # print(f"Response: {response.status_code}")
     return response
 
 # Mount static files for images
@@ -172,22 +200,6 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "Visualized" / "templates")
 # 初始化数据库
 init_db()
 
-# 启动时检查并补全热搜数据
-@app.on_event("startup")
-async def startup_event():
-    # 1. 检查缺失数据
-    try:
-        # check_and_sync_missing_data()
-        pass
-    except Exception as e:
-        print(f"Error during initial data check: {e}")
-    
-    # 2. 启动后台定时同步任务
-    # asyncio.create_task(start_periodic_sync())
-    
-    # 3. 启动自定义任务调度器 (微博 ID 提取等)
-    start_scheduler()
-
 # --- 挂载 API 路由 ---
 app.include_router(dashboard_router, prefix="/api")
 app.include_router(monitoring_router, prefix="/api")
@@ -197,6 +209,7 @@ app.include_router(hotsearch_router, prefix="/api")
 app.include_router(rank_router, prefix="/api")
 app.include_router(workflow_scheduler_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+app.include_router(crawler_ext_router, prefix="/api")
 
 # --- 挂载 MediaCrawler 静态资源 ---
 MC_WEBUI_DIR = BASE_DIR / "MediaCrawler" / "api" / "webui"

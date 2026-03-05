@@ -31,7 +31,6 @@ import config
 from proxy.providers import (
     new_kuai_daili_proxy,
     new_wandou_http_proxy,
-    new_scdn_proxy,
 )
 from tools import utils
 
@@ -153,7 +152,6 @@ class ProxyIpPool:
 IpProxyProvider: Dict[str, ProxyProvider] = {
     ProviderNameEnum.KUAI_DAILI_PROVIDER.value: new_kuai_daili_proxy(),
     ProviderNameEnum.WANDOU_HTTP_PROVIDER.value: new_wandou_http_proxy(),
-    ProviderNameEnum.SCDN_PROVIDER.value: new_scdn_proxy(),
 }
 
 

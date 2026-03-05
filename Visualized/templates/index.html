@@ -106,9 +106,15 @@
                     </template>
                             
                             <div class="notification-list-container">
-                                <div class="notification-header">
-                                    <span class="title">消息通知</span>
-                                    <el-button v-if="unreadCount > 0" link type="primary" size="small" @click="markAllRead">全部已读</el-button>
+                                <div class="notification-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid rgba(0, 240, 255, 0.1); background: rgba(0, 240, 255, 0.02);">
+                                    <span class="title" style="font-size: 16px; font-weight: 600; color: var(--text-primary);">消息通知</span>
+                                    <el-button 
+                                        v-if="unreadCount > 0" 
+                                        class="cyber-btn-mark-read"
+                                        @click="markAllRead"
+                                    >
+                                        全部已读
+                                    </el-button>
                                 </div>
                                 
                                 <div v-if="recentAlerts.length === 0" class="notification-empty">

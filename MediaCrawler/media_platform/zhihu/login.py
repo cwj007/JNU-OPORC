@@ -21,6 +21,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import functools
+import os
 import sys
 from typing import Optional
 
@@ -31,6 +32,7 @@ from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
 import config
 from base.base_crawler import AbstractLogin
 from tools import utils
+from tools.cookie_cache import save_cookie_cache
 
 
 class ZhiHuLogin(AbstractLogin):
@@ -111,6 +113,35 @@ class ZhiHuLogin(AbstractLogin):
         utils.logger.info(
             f"[ZhiHu.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
         await asyncio.sleep(wait_redirect_seconds)
+        await self.save_logged_in_cookie()
+
+    async def save_logged_in_cookie(self):
+        """Save logged-in cookies for next time's autofill."""
+        try:
+            current_cookie = await self.browser_context.cookies()
+            cookie_str, _ = utils.convert_cookies(current_cookie)
+            
+            # Try to get user ID and name from the page or cookies
+            user_id = "unknown"
+            user_name = "未知用户"
+            
+            try:
+                # Try to get user name from UI
+                # Zhihu header has profile name
+                user_name_element = await self.context_page.query_selector(".AppHeader-profileName") or \
+                                   await self.context_page.query_selector(".UserItem-name")
+                if user_name_element:
+                    user_name = await user_name_element.inner_text()
+                    user_name = user_name.strip()
+            except Exception:
+                pass
+            
+            # 从环境变量获取 Visualized 用户 ID
+            visualized_user_id = os.getenv("VISUALIZED_USER_ID")
+            save_cookie_cache("zhihu", user_id, user_name, cookie_str, visualized_user_id)
+            utils.logger.info(f"[ZhiHu.save_logged_in_cookie] Saved cookie for user: {user_name}")
+        except Exception as e:
+            utils.logger.error(f"[ZhiHu.save_logged_in_cookie] Failed to save cookie cache: {e}")
 
     async def login_by_cookies(self):
         """login zhihu website by cookies"""

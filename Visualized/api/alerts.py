@@ -26,14 +26,15 @@ class AlertRuleSchema(BaseModel):
 LAST_CHECK_TIME = None
 
 async def ensure_default_rules():
-    """Ensure default global CRI rule exists"""
+    """Ensure default global rules exist (CRI and Article Burst)"""
     try:
-        # Check if default rule exists
-        sql = "SELECT id FROM alert_rules WHERE name = '全网负面内容监测'"
-        existing = await query_db(sql, one=True)
+        # 策略：只有当全局规则表（user_id IS NULL）完全为空时，才进行初始化。
+        # 如果用户删除了预设规则但保留了其他规则，则不再自动生成，以尊重用户的自定义选择。
+        check_all_sql = "SELECT id FROM alert_rules WHERE user_id IS NULL LIMIT 1"
+        has_any_global_rule = await query_db(check_all_sql, one=True)
         
-        if not existing:
-            print("[Init] Creating default global CRI rule...")
+        if not has_any_global_rule:
+            print("[Init] Global rules table empty, creating default global CRI rule...")
             insert_sql = """
                 INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, config)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -50,6 +51,7 @@ async def ensure_default_rules():
                 "cri_trend",
                 "{}"
             ))
+            
     except Exception as e:
         print(f"Error ensuring default rules: {e}")
 
@@ -74,7 +76,7 @@ async def sync_monitor_tasks_to_rules():
         existing_rules = await query_db(existing_rules_sql)
         existing_rules_map = {row['name']: row['id'] for row in existing_rules} if existing_rules else {}
 
-        # 3. 同步：添加、更新或删除规则
+        # 3. 同步：添加、更新或停用规则
         # 记录本次同步涉及的规则名，用于最后清理已删除的任务
         processed_rule_names = set()
 
@@ -82,20 +84,20 @@ async def sync_monitor_tasks_to_rules():
             task_name = f"【监测任务】{task['name']}"
             is_active = task['warning_enabled']
             user_id = task.get('user_id')
+            processed_rule_names.add(task_name)
             
-            # 只有开启预警的任务才同步
+            keyword = task['warning_keywords'] if task['warning_keywords'] else task['keywords']
+            time_window = freq_to_window.get(task.get('frequency'), 1)
+            
+            # 如果规则已存在，同步状态和参数
+            if task_name in existing_rules_map:
+                rule_id = existing_rules_map[task_name]
+                update_sql = "UPDATE alert_rules SET keyword = ?, is_active = ?, user_id = ?, time_window = ?, notify_methods = ?, rule_type = ? WHERE id = ?"
+                await execute_db(update_sql, (keyword, 1 if is_active else 0, user_id, time_window, task['notify_methods'] or 'system', 'threshold', rule_id))
+                continue
+            
+            # 只有开启预警的任务才新建规则
             if is_active:
-                processed_rule_names.add(task_name)
-                keyword = task['warning_keywords'] if task['warning_keywords'] else task['keywords']
-                time_window = freq_to_window.get(task.get('frequency'), 1)
-                
-                # 如果规则已存在，更新
-                if task_name in existing_rules_map:
-                    rule_id = existing_rules_map[task_name]
-                    update_sql = "UPDATE alert_rules SET keyword = ?, is_active = 1, user_id = ?, time_window = ?, notify_methods = ? WHERE id = ?"
-                    await execute_db(update_sql, (keyword, user_id, time_window, task['notify_methods'] or 'system', rule_id))
-                    continue
-                    
                 # 插入新规则
                 sql = """
                     INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, user_id)
@@ -114,16 +116,11 @@ async def sync_monitor_tasks_to_rules():
                     user_id
                 ))
                 print(f"[Sync] Created alert rule for task: {task['name']}")
-            else:
-                # 如果任务未开启预警，但规则存在，则删除规则
-                if task_name in existing_rules_map:
-                    print(f"[Sync] Deleting disabled alert rule: {task_name}")
-                    await execute_db("DELETE FROM alert_rules WHERE id = ?", (existing_rules_map[task_name],))
 
-        # 4. 同步：清理已在监测任务中删除的规则
+        # 4. 同步：清理已在监测任务中被彻底删除的任务所对应的规则
         for rule_name, rule_id in existing_rules_map.items():
             if rule_name not in processed_rule_names:
-                # 只有当对应的任务不存在时才删除
+                # 检查是否真的删除了任务
                 task_exists = False
                 for t in tasks:
                     if f"【监测任务】{t['name']}" == rule_name:
@@ -235,11 +232,15 @@ async def get_alerts(
 
     # --- 权限控制 ---
     if not current_user:
-        # 未登录用户：只能看到公共预警 (全网负面内容监测)
-        where_clause += " AND (type = '全网负面内容监测' OR user_id IS NULL)"
-    elif current_user.role != 'admin':
-        # 普通用户：只能看到 (自己的预警) OR (全网负面内容监测)
-        where_clause += f" AND (user_id = {current_user.id} OR type = '全网负面内容监测')"
+        # 未登录用户：只能看到公共预警 (user_id IS NULL)
+        where_clause += " AND user_id IS NULL"
+    elif current_user.role == 'admin':
+        # 管理员：看到系统预警 (user_id IS NULL) 和 自己的预警
+        # 过滤掉其他普通用户的重复预警
+        where_clause += f" AND (user_id IS NULL OR user_id = {current_user.id})"
+    else:
+        # 普通用户：只能看到自己的预警
+        where_clause += f" AND user_id = {current_user.id}"
 
     # 计算总数
     count_sql = f"SELECT COUNT(*) as total FROM alerts WHERE {where_clause}"
@@ -285,7 +286,7 @@ async def get_unread_count(current_user: User = Depends(get_current_user)):
     where_clause = "status = 'unread'"
     params = []
     if current_user.role != 'admin':
-        where_clause += " AND (user_id = ? OR type = '全网负面内容监测')"
+        where_clause += " AND user_id = ?"
         params.append(current_user.id)
         
     sql = f"SELECT COUNT(*) as count FROM alerts WHERE {where_clause}"
@@ -295,9 +296,9 @@ async def get_unread_count(current_user: User = Depends(get_current_user)):
 @router.post("/read/{alert_id}")
 async def mark_as_read(alert_id: int, current_user: User = Depends(get_current_user)):
     """标记预警为已读"""
-    # 检查权限：非管理员只能标记自己的或公共的
+    # 检查权限：非管理员只能标记自己的
     if current_user.role != 'admin':
-        check_sql = "SELECT id FROM alerts WHERE id = ? AND (user_id = ? OR type = '全网负面内容监测')"
+        check_sql = "SELECT id FROM alerts WHERE id = ? AND user_id = ?"
         existing = await query_db(check_sql, (alert_id, current_user.id), one=True)
         if not existing:
             raise HTTPException(status_code=403, detail="Permission denied")
@@ -310,9 +311,9 @@ async def mark_as_read(alert_id: int, current_user: User = Depends(get_current_u
 @router.post("/process/{alert_id}")
 async def mark_as_processed(alert_id: int, current_user: User = Depends(get_current_user)):
     """标记预警为已处理（同时设为已读）"""
-    # 检查权限：非管理员只能标记自己的或公共的
+    # 检查权限：非管理员只能标记自己的
     if current_user.role != 'admin':
-        check_sql = "SELECT id FROM alerts WHERE id = ? AND (user_id = ? OR type = '全网负面内容监测')"
+        check_sql = "SELECT id FROM alerts WHERE id = ? AND user_id = ?"
         existing = await query_db(check_sql, (alert_id, current_user.id), one=True)
         if not existing:
             raise HTTPException(status_code=403, detail="Permission denied")
@@ -328,7 +329,7 @@ async def mark_all_read(current_user: User = Depends(get_current_user)):
     where_clause = "status = 'unread'"
     params = []
     if current_user.role != 'admin':
-        where_clause += " AND (user_id = ? OR type = '全网负面内容监测')"
+        where_clause += " AND user_id = ?"
         params.append(current_user.id)
         
     sql = f"UPDATE alerts SET status = 'read' WHERE {where_clause}"
@@ -450,14 +451,44 @@ async def get_alert_details(reference_id: str):
 
 @router.get("/rules", response_model=List[dict])
 async def get_rules(current_user: User = Depends(get_current_user)):
-    """获取预警规则列表"""
+    """获取预警规则列表 (支持用户特定规则隔离)"""
     if current_user.role == 'admin':
         sql = "SELECT * FROM alert_rules ORDER BY created_at DESC"
         results = await query_db(sql)
     else:
-        # Users see their own rules OR system rules (user_id IS NULL or specific name)
-        sql = "SELECT * FROM alert_rules WHERE user_id = ? OR name = '全网负面内容监测' ORDER BY created_at DESC"
+        # 1. 检查该用户是否已经有过任何预警规则
+        # 如果用户已经有过规则（哪怕被删除了，但只要表里有属于该用户的其他记录，或者我们只在表为空时初始化）
+        # 策略：只有当该用户的规则表完全为空时，才为他初始化默认规则。
+        # 这样如果用户删除了默认规则但保留了自定义规则，或者删除了所有规则，系统在下一次“彻底清空”前不会再骚扰他。
+        check_all_sql = "SELECT id FROM alert_rules WHERE user_id = ? LIMIT 1"
+        has_any_rule = await query_db(check_all_sql, (current_user.id,), one=True)
+        
+        if not has_any_rule:
+            print(f"[Init] User rules empty, creating default CRI rule for user {current_user.username}...")
+            # 尝试从全局获取模板（user_id IS NULL）
+            template_sql = "SELECT * FROM alert_rules WHERE name = '全网负面内容监测' AND user_id IS NULL LIMIT 1"
+            template = await query_db(template_sql, one=True)
+            
+            insert_sql = """
+                INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, config, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            if template:
+                await execute_db(insert_sql, (
+                    template['name'], template['keyword'], template['threshold'], template['time_window'], 
+                    template['sentiment'], template['is_crisis'], template['notify_methods'], 
+                    template['is_active'], template['rule_type'], template['config'], current_user.id
+                ))
+            else:
+                # 备选硬编码默认值
+                await execute_db(insert_sql, (
+                    "全网负面内容监测", "", 1, 24, "负面", 0, "system", 1, "cri_trend", "{}", current_user.id
+                ))
+        
+        # 3. 返回该用户的所有规则（不再包含 user_id IS NULL 的规则，实现隔离）
+        sql = "SELECT * FROM alert_rules WHERE user_id = ? ORDER BY created_at DESC"
         results = await query_db(sql, (current_user.id,))
+    
     return [dict(row) for row in results] if results else []
 
 # 时间窗口与预警频率映射
@@ -596,11 +627,11 @@ async def get_alert_report(
 
     # --- 权限控制 ---
     if not current_user:
-        # 未登录用户：只能看到公共预警 (全网负面内容监测)
-        time_condition += " AND (type = '全网负面内容监测' OR user_id IS NULL)"
+        # 未登录用户：只能看到公共预警 (user_id IS NULL)
+        time_condition += " AND user_id IS NULL"
     elif current_user.role != 'admin':
-        # 普通用户：只能看到 (自己的预警) OR (全网负面内容监测)
-        time_condition += f" AND (user_id = {current_user.id} OR type = '全网负面内容监测')"
+        # 普通用户：只能看到自己的预警
+        time_condition += f" AND user_id = {current_user.id}"
 
     # 1. 按级别统计
     level_sql = f"SELECT level, COUNT(*) as count FROM alerts WHERE {time_condition} GROUP BY level"

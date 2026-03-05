@@ -122,26 +122,37 @@ class WeiboClient(ProxyRefreshMixin):
             # 使用 httpx 发送异步请求
             response = await client.request(method, url, timeout=self.timeout, **kwargs)
 
+        # 统一处理常见的封禁或重定向状态码
+        if response.status_code in [403, 418, 302] or (response.status_code == 200 and not response.text.strip()):
+            utils.logger.warning(f"[WeiboClient.request] Possible block or empty response, status code: {response.status_code}")
+            
+            # 尝试切换 Cookie
+            if await self.switch_cookie():
+                raise CookieInvalidError("Cookie may be blocked, switched to next one")
+            
+            # 如果没有更多 Cookie 可切换，尝试在浏览器中访问主页以刷新状态
+            if self.playwright_page:
+                utils.logger.info(f"[WeiboClient.request] Trying to refresh session by visiting {self._host}")
+                await self.playwright_page.goto(self._host)
+                await asyncio.sleep(2)
+                await self.update_cookies(browser_context=self.playwright_page.context)
+            
+            if response.status_code == 302:
+                utils.logger.error("[WeiboClient.request] 302 Redirect detected (to login page).")
+            
+            if not response.text.strip():
+                raise DataFetchError(f"get empty response, code: {response.status_code}")
+            
+            raise DataFetchError(f"get response code error: {response.status_code}")
+
         if enable_return_response:
             return response
 
         try:
             data: Dict = response.json()  # 尝试解析 JSON 响应
         except json.decoder.JSONDecodeError:
-            # 处理搜索接口返回 432 错误等异常情况，重试并更新 H5 Cookie
-            utils.logger.error(f"[WeiboClient.request] request {method}:{url} err code: {response.status_code} res:{response.text}")
-            if response.status_code in [403, 418, 302]: # 常见的封禁状态码
-                if response.status_code == 302:
-                    utils.logger.error("[WeiboClient.request] 302 Redirect detected (to login page). Your cookie is expired or invalid. Please update it in config.")
-                utils.logger.warning(f"[WeiboClient.request] Possible IP block or Cookie invalid, status code: {response.status_code}")
-                # 尝试切换 Cookie
-                if await self.switch_cookie():
-                    raise CookieInvalidError("Cookie may be blocked, switched to next one")
-            
-            await self.playwright_page.goto(self._host)  # 跳转到主页尝试刷新状态
-            await asyncio.sleep(2)
-            await self.update_cookies(browser_context=self.playwright_page.context)  # 更新 Cookie
-            raise DataFetchError(f"get response code error: {response.status_code}")
+            utils.logger.error(f"[WeiboClient.request] request {method}:{url} json decode err code: {response.status_code} res:{response.text[:100]}...")
+            raise DataFetchError(f"json decode error, code: {response.status_code}")
 
         ok_code = data.get("ok")  # 微博 API 通常使用 ok 字段表示状态
         if ok_code == -100 and "captcha" in data.get("url", ""):
@@ -376,20 +387,26 @@ class WeiboClient(ProxyRefreshMixin):
         """
         url = f"/detail/{note_id}"
         # 使用 self.request 以支持重试和自动更新 Cookie
+        # 内部已经处理了 status_code != 200 和空响应的情况
         response_text = await self.request(method="GET", url=f"{self._host}{url}", headers=self.headers, return_response=True)
-        if response_text.status_code != 200:
-            raise DataFetchError(f"get weibo detail err: {response_text.text}")
         
         # 使用正则从页面 HTML 中提取渲染数据
         match = re.search(r'var \$render_data = (\[.*?\])\[0\]', response_text.text, re.DOTALL)
         if match:
-            render_data_json = match.group(1)
-            render_data_dict = json.loads(render_data_json)
-            note_detail = render_data_dict[0].get("status")  # 提取帖子状态信息
-            note_item = {"mblog": note_detail}
-            return note_item
+            try:
+                render_data_json = match.group(1)
+                render_data_dict = json.loads(render_data_json)
+                note_detail = render_data_dict[0].get("status")  # 提取帖子状态信息
+                note_item = {"mblog": note_detail}
+                return note_item
+            except (json.JSONDecodeError, IndexError, KeyError) as e:
+                utils.logger.error(f"[WeiboClient.get_note_info_by_id] Parse $render_data failed: {e}")
+                return dict()
         else:
-            utils.logger.info(f"[WeiboClient.get_note_info_by_id] $render_data value not found")
+            # 如果没找到渲染数据，可能是被重定向到了登录页或其他错误页
+            utils.logger.warning(f"[WeiboClient.get_note_info_by_id] $render_data value not found for note_id: {note_id}")
+            # 记录部分响应内容以便调试
+            utils.logger.debug(f"[WeiboClient.get_note_info_by_id] Response preview: {response_text.text[:200]}...")
             return dict()
 
     async def get_note_image(self, image_url: str) -> bytes:

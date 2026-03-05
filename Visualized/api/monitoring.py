@@ -592,9 +592,9 @@ async def create_task(task: dict = Body(...), current_user: User = Depends(get_c
                     # 更新现有规则 (同时更新名称以保持同步)
                     await execute_db("""
                         UPDATE alert_rules 
-                        SET name=?, threshold=?, is_crisis=?, notify_methods=?, is_active=1, keyword=?, time_window=?, user_id=?
+                        SET name=?, threshold=?, is_crisis=?, notify_methods=?, is_active=1, keyword=?, time_window=?, user_id=?, rule_type=?
                         WHERE id=?
-                    """, (rule_name, threshold, is_crisis, notify_methods, warning_keywords if warning_keywords else keywords, time_window, current_user.id, existing_rule['id']))
+                    """, (rule_name, threshold, is_crisis, notify_methods, warning_keywords if warning_keywords else keywords, time_window, current_user.id, "threshold", existing_rule['id']))
                 else:
                     # 创建新规则
                     await execute_db("""
@@ -602,9 +602,9 @@ async def create_task(task: dict = Body(...), current_user: User = Depends(get_c
                         VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
                     """, (rule_name, threshold, is_crisis, notify_methods, warning_keywords if warning_keywords else keywords, time_window, current_user.id, "threshold"))
             else:
-                # 如果未开启预警，删除对应的规则
+                # 如果未开启预警，不再删除规则，而是将其设为非活跃状态
                 if existing_rule:
-                    await execute_db("DELETE FROM alert_rules WHERE id = ?", (existing_rule['id'],))
+                    await execute_db("UPDATE alert_rules SET is_active = 0 WHERE id = ?", (existing_rule['id'],))
 
         return {"status": "success", "message": "Task saved", "id": task_id}
             
@@ -624,6 +624,7 @@ async def delete_task(task_id: int, current_user: User = Depends(get_current_use
                 
             # 同时删除对应的预警规则
             rule_name = f"【监测任务】{existing['name']}"
+            # 优先通过名称删除，以防万一
             await execute_db("DELETE FROM alert_rules WHERE name = ?", (rule_name,))
             
             await execute_db("DELETE FROM monitoring_tasks WHERE id = ?", (task_id,))
@@ -750,101 +751,11 @@ async def get_monitoring_list(
         where_clauses = []
         params = []
 
-        # --- 权限控制：普通用户只能看到自己任务范围内的数据 ---
-        user_tasks = []
-        if current_user.role != 'admin':
-            user_tasks = await query_db("SELECT id, keywords, exclude_words, platforms, warning_keywords FROM monitoring_tasks WHERE user_id = ?", (current_user.id,))
-            if not user_tasks:
-                # 如果没有任何任务，直接返回空
-                return {
-                    "items": [],
-                    "total": 0,
-                    "page": page,
-                    "size": size,
-                    "pages": 0
-                }
-
-        def build_user_scope_filter(alias, tasks):
-            """构造用户任务范围的SQL过滤条件"""
-            if not tasks:
-                return "", []
-            
-            or_groups = []
-            all_params = []
-            
-            for t in tasks:
-                # 每个任务是一个 (Keywords AND Platforms AND Exclude) 组合
-                task_clauses = []
-                task_params = []
-                
-                # 1. Keywords
-                if t['keywords']:
-                    # 暂时禁用 FTS5，因为其对中文分词支持不佳，改用 LIKE
-                    k_sql, k_params = parse_keyword_expr(t['keywords'], mode="full", table_alias=alias, use_fts=False)
-                    if k_sql:
-                        task_clauses.append(k_sql)
-                        task_params.extend(k_params)
-                
-                # 2. Platforms
-                if t['platforms']:
-                    p_clauses = []
-                    p_list = t['platforms'].split(',')
-                    for p in p_list:
-                        if not p.strip(): continue
-                        p_str = p.strip()
-                        search_terms = [p_str]
-                        if p_str in PLATFORM_MAP:
-                            search_terms.append(PLATFORM_MAP[p_str])
-                        
-                        p_or = []
-                        for term in search_terms:
-                            p_or.append(f"{alias}.source LIKE ?")
-                            task_params.append(f"%{term}%")
-                        p_clauses.append(f"({' OR '.join(p_or)})")
-                    
-                    if p_clauses:
-                        task_clauses.append(f"({' OR '.join(p_clauses)})")
-                
-                # 3. Exclude
-                if t['exclude_words']:
-                    excludes = t['exclude_words'].replace(',', ' ').split()
-                    for ew in excludes:
-                        if not ew.strip(): continue
-                        ew_wild = f"%{ew.strip()}%"
-                        # Use top_topics check for content table 'c'
-                        if alias == "c":
-                            task_clauses.append(f"NOT ({alias}.title LIKE ? OR {alias}.content LIKE ? OR EXISTS (SELECT 1 FROM top_topics tt WHERE tt.top_id = {alias}.top_id AND tt.top_name LIKE ?))")
-                            task_params.extend([ew_wild, ew_wild, ew_wild])
-                        else:
-                            # For subquery T, top_name is already available
-                            task_clauses.append(f"NOT ({alias}.title LIKE ? OR {alias}.content LIKE ? OR IFNULL({alias}.top_name, '') LIKE ?)")
-                            task_params.extend([ew_wild, ew_wild, ew_wild])
-
-                # 只有当任务有具体的约束条件时才加入（避免空任务匹配所有）
-                if task_clauses:
-                    or_groups.append(f"({' AND '.join(task_clauses)})")
-                    all_params.extend(task_params)
-            
-            if not or_groups:
-                return "1=0", [] # 如果没有有效任务规则，不显示任何内容
-                
-            final_sql = f"({' OR '.join(or_groups)})"
-            return final_sql, all_params
-
-        # 应用权限过滤到主查询 params (Alias T)
-        if current_user.role != 'admin':
-            scope_sql, scope_params = build_user_scope_filter("T", user_tasks)
-            if scope_sql:
-                where_clauses.append(scope_sql)
-                params.extend(scope_params)
-            else:
-                 # Should theoretically catch empty tasks case above, but double check
-                 if not user_tasks:
-                     pass # handled above
-                 else:
-                     # tasks exist but produced no SQL? (e.g. empty keywords)
-                     # Treat as no access
-                     where_clauses.append("1=0")
+        # --- 权限控制 ---
+        # 舆情列表数据本身是公开采集的，不应对非管理员用户做硬性隔离。
+        # 用户定义的“监控任务”主要用于预警触发和快速过滤。
+        # 因此，允许所有用户查看全局数据（与 root 保持一致）。
+        # 当用户选择特定任务时，前端会带上对应的关键词参数，后端按需过滤即可。
 
         if sentiment:
             # Support multiple sentiment values (comma separated)
@@ -960,13 +871,7 @@ async def get_monitoring_list(
                 c_params = []
 
                 # --- 权限控制：Merge Query ---
-                if current_user.role != 'admin':
-                    c_scope_sql, c_scope_params = build_user_scope_filter("c", user_tasks)
-                    if c_scope_sql:
-                        c_where_clauses.append(c_scope_sql)
-                        c_params.extend(c_scope_params)
-                    else:
-                        c_where_clauses.append("1=0")
+                # 同主查询逻辑，允许所有用户查看全局聚合数据。
 
                 if sentiment:
                     s_list = sentiment.split(',')

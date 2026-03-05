@@ -20,6 +20,7 @@
 
 import asyncio
 import functools
+import os
 import sys
 from typing import Optional
 
@@ -31,6 +32,7 @@ import config
 from base.base_crawler import AbstractLogin
 from cache.cache_factory import CacheFactory
 from tools import utils
+from tools.cookie_cache import save_cookie_cache
 
 
 class XiaoHongShuLogin(AbstractLogin):
@@ -83,6 +85,37 @@ class XiaoHongShuLogin(AbstractLogin):
             return True
 
         return False
+
+    async def save_logged_in_cookie(self):
+        """Save logged-in cookies for next time's autofill."""
+        try:
+            current_cookie = await self.browser_context.cookies()
+            cookie_str, _ = utils.convert_cookies(current_cookie)
+            
+            # Try to get user ID and name from the page
+            user_id = "unknown"
+            user_name = "未知用户"
+            
+            # Selector for elements containing "/user/profile/" link
+            profile_link_selector = "xpath=//a[contains(@href, '/user/profile/')]"
+            profile_link_element = await self.context_page.query_selector(profile_link_selector)
+            if profile_link_element:
+                href = await profile_link_element.get_attribute("href")
+                # e.g. /user/profile/5f...
+                if href and "/user/profile/" in href:
+                    user_id = href.split("/")[-1]
+                
+                # Try to get user name from the text
+                user_name_element = await profile_link_element.query_selector("span")
+                if user_name_element:
+                    user_name = await user_name_element.inner_text()
+            
+            # 从环境变量获取 Visualized 用户 ID
+            visualized_user_id = os.getenv("VISUALIZED_USER_ID")
+            save_cookie_cache("xhs", user_id, user_name, cookie_str, visualized_user_id)
+            utils.logger.info(f"[XiaoHongShuLogin.save_logged_in_cookie] Saved cookie for user: {user_name} ({user_id})")
+        except Exception as e:
+            utils.logger.error(f"[XiaoHongShuLogin.save_logged_in_cookie] Failed to save cookie cache: {e}")
 
     async def begin(self):
         """Start login xiaohongshu"""
@@ -163,6 +196,7 @@ class XiaoHongShuLogin(AbstractLogin):
         wait_redirect_seconds = 5
         utils.logger.info(f"[XiaoHongShuLogin.login_by_mobile] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
         await asyncio.sleep(wait_redirect_seconds)
+        await self.save_logged_in_cookie()
 
     async def login_by_qrcode(self):
         """login xiaohongshu website and keep webdriver login state"""
@@ -209,6 +243,7 @@ class XiaoHongShuLogin(AbstractLogin):
         wait_redirect_seconds = 5
         utils.logger.info(f"[XiaoHongShuLogin.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
         await asyncio.sleep(wait_redirect_seconds)
+        await self.save_logged_in_cookie()
 
     async def login_by_cookies(self):
         """login xiaohongshu website by cookies"""
@@ -222,3 +257,30 @@ class XiaoHongShuLogin(AbstractLogin):
                 'domain': ".xiaohongshu.com",
                 'path': "/"
             }])
+
+    async def save_logged_in_cookie(self):
+        """Save logged-in cookies for next time's autofill."""
+        try:
+            current_cookie = await self.browser_context.cookies()
+            cookie_str, _ = utils.convert_cookies(current_cookie)
+            
+            # Try to get user ID and name from the page or cookies
+            user_id = "unknown"
+            user_name = "未知用户"
+            
+            try:
+                # Get user name from UI
+                user_name_element = await self.context_page.query_selector(".name-detail") or \
+                                   await self.context_page.query_selector(".user-name")
+                if user_name_element:
+                    user_name = await user_name_element.inner_text()
+                    user_name = user_name.strip()
+            except Exception:
+                pass
+            
+            # 从环境变量获取 Visualized 用户 ID
+            visualized_user_id = os.getenv("VISUALIZED_USER_ID")
+            save_cookie_cache("xhs", user_id, user_name, cookie_str, visualized_user_id)
+            utils.logger.info(f"[XiaoHongShuLogin.save_logged_in_cookie] Saved cookie for user: {user_name}")
+        except Exception as e:
+            utils.logger.error(f"[XiaoHongShuLogin.save_logged_in_cookie] Failed to save cookie cache: {e}")

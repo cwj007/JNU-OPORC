@@ -43,28 +43,36 @@ class NotificationService:
             if m == 'system':
                 # 系统消息去重（基于 alerts 表，保持向后兼容）
                 if reference_id:
+                    # 改进去重逻辑：同一篇文章（reference_id）对于同一个用户，在一定时间内（例如24小时）只发送一个预警
+                    # 除非是完全不同的标题（为了兼容风险等级变更等情况）
+                    # 但对于“单贴高危预警”，我们希望它更严格地去重
+                    
                     if user_id is not None:
+                        # 检查是否已存在针对该用户的该文章预警
+                        # 优先匹配标题完全一致的
                         existing = await query_db(
-                            "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id = ?", 
-                            (reference_id, title, user_id), 
+                            "SELECT id, title FROM alerts WHERE reference_id = ? AND user_id = ? ORDER BY id DESC LIMIT 1", 
+                            (reference_id, user_id), 
                             one=True
                         )
                     else:
                         existing = await query_db(
-                            "SELECT id FROM alerts WHERE reference_id = ? AND title = ? AND user_id IS NULL", 
-                            (reference_id, title), 
+                            "SELECT id, title FROM alerts WHERE reference_id = ? AND user_id IS NULL ORDER BY id DESC LIMIT 1", 
+                            (reference_id,), 
                             one=True
                         )
+                    
                     if existing:
-                        print(f"[Skip System Msg] Duplicate alert for {reference_id}")
-                        # 虽然跳过了发送，但我们也记录到日志中，防止后续循环再次尝试
-                        if user_id is not None and rule_id is not None:
-                            await execute_db(
-                                "INSERT OR IGNORE INTO notifications_log (user_id, rule_id, reference_id, type) VALUES (?, ?, ?, ?)",
-                                (user_id, rule_id, log_reference_id, 'system')
-                            )
-                        continue
-
+                        # 如果标题完全一致，或者是“单贴高危预警”且已经存在任何类型的预警，则跳过
+                        if existing['title'] == title:
+                            print(f"[Skip System Msg] Exact duplicate alert for {reference_id}")
+                            continue
+                        
+                        # 如果当前是“单贴高危预警”，且已经有其他类型的预警了，通常不需要再发
+                        if "单贴高危" in title or "单贴高危" in existing['title']:
+                            print(f"[Skip System Msg] Redundant article-level alert for {reference_id} (Existing: {existing['title']})")
+                            continue
+                
                 await NotificationService._send_system_msg(title, content, level, reference_id, meta_str, timestamp, rule_name, user_id)
                 
                 # 记录通知日志
@@ -143,6 +151,32 @@ class NotificationService:
 class AlertEngine:
     def __init__(self):
         self.rules = []
+        self._article_cache = {} # time_window -> articles
+        self._comment_cache = {} # note_id -> comments
+        self._cri_cache = {} # note_id -> (cri, details)
+
+    async def _get_articles(self, start_time: str, time_window: int):
+        """获取文章（带缓存）"""
+        cache_key = f"{start_time}_{time_window}"
+        if cache_key in self._article_cache:
+            return self._article_cache[cache_key]
+        
+        sql = "SELECT * FROM content WHERE created_at >= ?"
+        articles = await query_db(sql, (start_time,))
+        results = [dict(a) for a in articles] if articles else []
+        self._article_cache[cache_key] = results
+        return results
+
+    async def _get_comments(self, note_id: str):
+        """获取评论（带缓存）"""
+        if note_id in self._comment_cache:
+            return self._comment_cache[note_id]
+        
+        c_sql = "SELECT * FROM comments WHERE note_id = ?"
+        comments = await query_db(c_sql, (note_id,))
+        results = [dict(c) for c in comments] if comments else []
+        self._comment_cache[note_id] = results
+        return results
 
     async def load_rules(self):
         """加载所有启用的预警规则"""
@@ -155,6 +189,11 @@ class AlertEngine:
         执行预警检查
         override_days: 如果提供，强制检查过去 N 天内的文章（覆盖规则配置的 time_window）
         """
+        # 每一轮检查清空缓存
+        self._article_cache = {}
+        self._comment_cache = {}
+        self._cri_cache = {}
+
         await self.load_rules()
         for rule in self.rules:
             try:
@@ -187,41 +226,40 @@ class AlertEngine:
         time_window = rule.get('time_window', 24)
         start_time = (datetime.now() - timedelta(hours=time_window)).strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. Fetch recent articles
-        # Instead of strict "sentiment='负面'", check all and filter by score if possible
-        # Or fetch articles with any negative indication
-        sql = "SELECT * FROM content WHERE created_at >= ?"
-        articles = await query_db(sql, (start_time,))
+        # 1. Fetch recent articles (cached)
+        articles = await self._get_articles(start_time, time_window)
         
         if not articles:
             return
 
-        for article in articles:
-            # Check article sentiment first
-            # Convert to dict to avoid sqlite3.Row issues
-            article_dict = dict(article)
+        for article_dict in articles:
+            # 预检：如果该文章已经由该规则发送过通知，则跳过
+            note_id = article_dict['note_id']
+            user_id = rule.get('user_id')
+            rule_id = rule.get('id')
             
+            if user_id is not None and rule_id is not None:
+                # 检查 notifications_log
+                existing = await query_db(
+                    "SELECT id FROM notifications_log WHERE user_id = ? AND rule_id = ? AND reference_id = ?",
+                    (user_id, rule_id, str(note_id)),
+                    one=True
+                )
+                if existing:
+                    continue
+
+            # Check article sentiment first
             sentiment_val = article_dict.get('sentiment', '')
             score = get_sentiment_score(sentiment_val) if get_sentiment_score else 0.5
             
-            # If strictly neutral/positive, skip (unless user wants to catch turning tides)
-            # User requirement: "if an article is judged as negative public opinion"
-            # We assume score >= 0.6 is negative enough, or label is '负面'
+            # If strictly neutral/positive, skip
             is_article_negative = (sentiment_val == '负面') or (score >= 0.6)
             
             if not is_article_negative:
                 continue
 
-            note_id = article_dict['note_id']
-            
-            # 2. Fetch comments
-            c_sql = "SELECT * FROM comments WHERE note_id = ?"
-            comments = await query_db(c_sql, (note_id,))
-            if not comments:
-                comments = []
-            
-            # Convert comments to dicts
-            comments_list = [dict(c) for c in comments]
+            # 2. Fetch comments (cached)
+            comments_list = await self._get_comments(note_id)
             
             total_comments = len(comments_list)
             
@@ -242,18 +280,21 @@ class AlertEngine:
             neg_count = len(negative_comments)
             
             # 4. Check Thresholds
-            # User requirement: "comments count is high, and negative comments also high"
             if total_comments >= min_comments and neg_count >= min_negative_comments:
                 # Trigger Alert
                 title = f"【单贴高危预警】{article_dict['title'][:20]}..."
                 
-                # Content now stores the article snippet for direct display in the list
                 article_snippet = article_dict['content'][:200] + "..." if article_dict.get('content') else ""
                 stats_info = f" [评论激增: 总{total_comments}/负{neg_count}]"
                 content = article_snippet + stats_info
                 
-                # Calculate CRI to provide risk score even for burst alerts
-                cri, details_cri = calculate_cri(article_dict, comments_list)
+                # Use cached CRI if available (with default config weights)
+                cri_cache_key = f"{note_id}_{json.dumps({}, sort_keys=True)}"
+                if cri_cache_key in self._cri_cache:
+                    cri, details_cri = self._cri_cache[cri_cache_key]
+                else:
+                    cri, details_cri = calculate_cri(article_dict, comments_list)
+                    self._cri_cache[cri_cache_key] = (cri, details_cri)
                 
                 # Prepare details for frontend
                 details = details_cri.copy() if details_cri else {}
@@ -266,21 +307,21 @@ class AlertEngine:
                     'top_negative_comments': [],
                     'alert_type': 'article_burst',
                     'publish_time': article_dict.get('created_at'),
-                    'cri': cri # Explicitly set CRI for frontend
+                    'cri': cri
                 })
                 
                 # Sort negative comments by sentiment score
                 try:
-                    # Pre-calculate scores for sorting to avoid repeated calls and handling
                     for c in negative_comments:
-                        c['score'] = get_sentiment_score(c.get('sentiment', '')) if get_sentiment_score else 0
+                        if 'score' not in c:
+                            c['score'] = get_sentiment_score(c.get('sentiment', '')) if get_sentiment_score else 0
                     
                     negative_comments.sort(key=lambda x: x.get('score', 0), reverse=True)
                 except Exception as e:
                     print(f"Error sorting comments: {e}")
                 
-                # Format for frontend - Store ALL negative comments into hotsearch.db
-                for c in negative_comments: 
+                # Format for frontend - Limit to top 50 comments to reduce DB size
+                for c in negative_comments[:50]: 
                     details['top_negative_comments'].append({
                         'content': c['content'],
                         'sentiment': c.get('sentiment', '负面'),
@@ -313,41 +354,44 @@ class AlertEngine:
         # Calculate start time for article scanning
         start_time = (datetime.now() - timedelta(hours=time_window)).strftime("%Y-%m-%d %H:%M:%S")
         
-        # 1. Fetch recent articles from Transformers DB
-        # Use query_db which handles DB routing. "content" table is in Transformers DB.
-        sql = "SELECT * FROM content WHERE created_at >= ?"
-        articles = await query_db(sql, (start_time,))
+        # 1. Fetch recent articles (cached)
+        articles = await self._get_articles(start_time, time_window)
         
         if not articles:
             return
 
-        # 2. Get Dynamic Threshold Baseline (Group Stats)
-        # For now, we calculate global stats from these articles as a baseline
-        # In a real system, this should be pre-calculated per group (topic/source)
-        # Simplified: Use default (0.3, 0.15) or calculate from current batch
-        
-        for article in articles:
-            note_id = article['note_id']
+        for article_dict in articles:
+            note_id = article_dict['note_id']
+            user_id = rule.get('user_id')
+            rule_id = rule.get('id')
             
-            # 3. Fetch comments for this article
-            # "comments" table is in Transformers DB
-            c_sql = "SELECT * FROM comments WHERE note_id = ?"
-            comments = await query_db(c_sql, (note_id,))
-            if not comments:
-                comments = []
+            # 预检：如果该文章已经由该规则发送过通知，则跳过
+            if user_id is not None and rule_id is not None:
+                existing = await query_db(
+                    "SELECT id FROM notifications_log WHERE user_id = ? AND rule_id = ? AND reference_id = ?",
+                    (user_id, rule_id, str(note_id)),
+                    one=True
+                )
+                if existing:
+                    continue
+
+            # 2. Fetch comments (cached)
+            comments_list = await self._get_comments(note_id)
             
-            # Convert Row objects to dicts
-            article_dict = dict(article)
-            comments_list = [dict(c) for c in comments]
+            # 3. Calculate CRI (cached by note_id and weights)
+            weights = config.get('weights', {})
+            weights_str = json.dumps(weights, sort_keys=True)
+            cri_cache_key = f"{note_id}_{weights_str}"
             
-            # 4. Calculate CRI
-            cri, details_cri = calculate_cri(article_dict, comments_list, config)
+            if cri_cache_key in self._cri_cache:
+                cri, details_cri = self._cri_cache[cri_cache_key]
+            else:
+                cri, details_cri = calculate_cri(article_dict, comments_list, config)
+                self._cri_cache[cri_cache_key] = (cri, details_cri)
             
             # --- Enrich details for frontend display ---
-            # Create a new dictionary to avoid modifying the one returned by calculate_cri if needed
             details = details_cri.copy() if details_cri else {}
             details['article_title'] = article_dict.get('title', '')
-            # Store full content into hotsearch.db (no truncation)
             details['article_content'] = article_dict.get('content', '')
             details['article_id'] = article_dict['note_id']
             details['publish_time'] = article_dict['created_at']
@@ -356,23 +400,24 @@ class AlertEngine:
             neg_comments_list = []
             for c in comments_list:
                 try:
-                    score = get_sentiment_score(c.get('sentiment'))
-                    # Filter for negative comments
-                    if score >= 0.6: 
+                    if 'score' not in c:
+                        c['score'] = get_sentiment_score(c.get('sentiment'))
+                    
+                    if c['score'] >= 0.6: 
                         neg_comments_list.append({
                             'content': c['content'],
                             'sentiment': c.get('sentiment', '负面'),
-                            'score': score,
+                            'score': c['score'],
                             'created_at': c['created_at']
                         })
-                except Exception as e:
+                except Exception:
                     pass
             
-            # Sort by score descending
+            # Sort by score descending and limit to top 50
             neg_comments_list.sort(key=lambda x: x['score'], reverse=True)
-            details['top_negative_comments'] = neg_comments_list
+            details['top_negative_comments'] = neg_comments_list[:50]
             
-            # 5. Check Veto Rules (Highest Priority)
+            # 4. Check Veto Rules (Highest Priority)
             veto_triggered, veto_reason, veto_level = check_veto_rules(article_dict, comments_list, details)
             
             if veto_triggered:

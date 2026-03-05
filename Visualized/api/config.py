@@ -83,6 +83,9 @@ PLATFORM_NAMES = [
     {"id": "thepaper", "name": "澎湃"},
 ]
 
+# 优先抓取的平台 ID (用于快速获取热榜)
+PRIORITY_PLATFORMS = ["weibo", "zhihu", "bilibili", "douyin", "hupu", "baidu", "thepaper", "toutiao"]
+
 # 所有可用平台 (用于“更多”选择)
 ALL_PLATFORMS = [
     {"id": "weibo", "name": "微博"},

@@ -398,7 +398,6 @@ class ZhihuContent(Base):
     content_url = Column(Text)
     question_id = Column(String(255))
     title = Column(Text)
-    top_id = Column(Text, default='')
     desc = Column(Text)
     created_time = Column(String(32), index=True)
     updated_time = Column(Text)

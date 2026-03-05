@@ -20,8 +20,17 @@ from fastapi import APIRouter, HTTPException
 
 from ..schemas import CrawlerStartRequest, CrawlerStatusResponse
 from ..services import crawler_manager
+from tools.cookie_cache import get_cookie_cache, get_all_cookie_cache
 
 router = APIRouter(prefix="/crawler", tags=["crawler"])
+
+
+@router.get("/cookie-cache")
+async def get_cookies(platform: str = None, visualized_user_id: str = None):
+    """Get cached cookies"""
+    if platform:
+        return {"cookies": get_cookie_cache(platform, visualized_user_id)}
+    return {"cookies": get_all_cookie_cache(visualized_user_id)}
 
 
 @router.post("/start")

@@ -119,6 +119,10 @@ class CrawlerManager:
 
             try:
                 # Start subprocess
+                env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
+                if config.visualized_user_id:
+                    env["VISUALIZED_USER_ID"] = str(config.visualized_user_id)
+
                 self.process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
@@ -127,7 +131,7 @@ class CrawlerManager:
                     encoding='utf-8',
                     bufsize=1,
                     cwd=str(self._project_root),
-                    env={**os.environ, "PYTHONUNBUFFERED": "1"}
+                    env=env
                 )
 
                 self.status = "running"
@@ -230,6 +234,27 @@ class CrawlerManager:
             cmd.extend(["--cookies", config.cookies])
 
         cmd.extend(["--headless", "true" if config.headless else "false"])
+
+        # New configuration parameters
+        if config.enable_ip_proxy:
+            cmd.extend(["--enable_ip_proxy", "true"])
+            cmd.extend(["--ip_proxy_pool_count", str(config.ip_proxy_pool_count)])
+            cmd.extend(["--enable_validate_ip", "true" if config.enable_validate_ip else "false"])
+            cmd.extend(["--ip_proxy_provider_name", config.ip_proxy_provider_name])
+            cmd.extend(["--wandou_app_key", config.wandou_app_key])
+            cmd.extend(["--kdl_secret_id", config.kdl_secret_id])
+            cmd.extend(["--kdl_signature", config.kdl_signature])
+            cmd.extend(["--kdl_user_name", config.kdl_user_name])
+            cmd.extend(["--kdl_user_pwd", config.kdl_user_pwd])
+        else:
+            cmd.extend(["--enable_ip_proxy", "false"])
+
+        cmd.extend(["--crawler_max_notes_count", str(config.crawler_max_notes_count)])
+        cmd.extend(["--max_concurrency_num", str(config.max_concurrency_num)])
+        cmd.extend(["--max_comments_count_singlenotes", str(config.crawler_max_comments_count_singlenotes)])
+        
+        if config.platform.value == "wb" and config.crawler_type.value == "search":
+            cmd.extend(["--weibo_search_type", config.weibo_search_type])
 
         return cmd
 

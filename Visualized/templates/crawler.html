@@ -254,6 +254,104 @@
             min-width: 0; /* Prevent flex item from overflowing */
         }
 
+        /* 5. Tech Drawer Customization */
+        .tech-drawer {
+            background: rgba(6, 10, 15, 0.98) !important;
+            backdrop-filter: blur(25px) !important;
+            border-left: 2px solid rgba(0, 243, 255, 0.3) !important;
+            box-shadow: -15px 0 40px rgba(0, 0, 0, 0.7) !important;
+        }
+        .tech-drawer .el-drawer__header {
+            margin-bottom: 0 !important;
+            padding: 24px !important;
+            border-bottom: 1px solid rgba(0, 243, 255, 0.2) !important;
+            background: linear-gradient(90deg, rgba(0, 243, 255, 0.1), transparent) !important;
+        }
+        .tech-drawer .el-drawer__title {
+            color: #00f3ff !important;
+            font-family: 'Orbitron', sans-serif !important;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            font-weight: 700 !important;
+            text-shadow: 0 0 15px rgba(0, 243, 255, 0.6);
+        }
+        .tech-drawer .el-drawer__close-btn {
+            color: #00f3ff !important;
+            transition: all 0.3s;
+        }
+        .tech-drawer .el-drawer__close-btn:hover {
+            transform: rotate(90deg);
+            text-shadow: 0 0 10px #00f3ff;
+        }
+        .tech-drawer .el-drawer__body {
+            padding: 0 !important;
+            background: transparent !important;
+        }
+
+        /* 6. Tech Table Customization */
+        .tech-table {
+            background-color: transparent !important;
+            --el-table-border-color: rgba(0, 243, 255, 0.1) !important;
+            --el-table-header-bg-color: rgba(0, 243, 255, 0.08) !important;
+            --el-table-row-hover-bg-color: rgba(0, 243, 255, 0.12) !important;
+            --el-table-tr-bg-color: transparent !important;
+            --el-table-text-color: #e0e0e0 !important;
+        }
+        .tech-table .el-table__inner-wrapper::before {
+            display: none !important;
+        }
+        .tech-table th.el-table__cell {
+            background-color: rgba(0, 243, 255, 0.15) !important;
+            color: #00f3ff !important;
+            font-family: 'Orbitron', sans-serif !important;
+            text-transform: uppercase;
+            font-size: 13px;
+            letter-spacing: 1px;
+            border-bottom: 2px solid rgba(0, 243, 255, 0.4) !important;
+            padding: 15px 0 !important;
+        }
+        .tech-table td.el-table__cell {
+            border-bottom: 1px solid rgba(0, 243, 255, 0.1) !important;
+            padding: 12px 0 !important;
+        }
+        .tech-table .el-table__row {
+            transition: all 0.3s;
+        }
+        .tech-table .el-table__row:hover > td {
+            background-color: rgba(0, 243, 255, 0.08) !important;
+            box-shadow: inset 0 0 15px rgba(0, 243, 255, 0.05) !important;
+        }
+
+        /* Table Status Tags */
+        .tech-tag-success {
+            background: rgba(78, 201, 176, 0.1) !important;
+            border: 1px solid rgba(78, 201, 176, 0.4) !important;
+            color: #4ec9b0 !important;
+            text-shadow: 0 0 5px rgba(78, 201, 176, 0.3);
+        }
+        .tech-tag-info {
+            background: rgba(128, 128, 128, 0.1) !important;
+            border: 1px solid rgba(128, 128, 128, 0.4) !important;
+            color: #a0a0a0 !important;
+        }
+        .tech-tag-danger {
+            background: rgba(244, 71, 71, 0.1) !important;
+            border: 1px solid rgba(244, 71, 71, 0.4) !important;
+            color: #f44747 !important;
+            text-shadow: 0 0 5px rgba(244, 71, 71, 0.3);
+        }
+
+        /* Button tweaks in table */
+        .btn-mini-tech {
+            padding: 5px 12px !important;
+            font-size: 11px !important;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-family: 'Orbitron', sans-serif !important;
+            border-radius: 4px !important;
+        }
+
+
         .column-title {
             font-family: 'Orbitron', sans-serif;
             font-size: 1.0rem;
@@ -784,8 +882,8 @@
         </el-dialog>
 
         <!-- Task List Drawer -->
-        <el-drawer v-model="taskListVisible" title="定时任务列表" size="50%">
-            <el-table :data="tasks" style="width: 100%">
+        <el-drawer v-model="taskListVisible" title="定时任务列表" size="50%" class="tech-drawer">
+            <el-table :data="tasks" style="width: 100%" class="tech-table">
                 <el-table-column prop="name" label="任务名称"></el-table-column>
                 <el-table-column label="调度规则">
                     <template #default="scope">
@@ -795,17 +893,26 @@
                 </el-table-column>
                 <el-table-column label="下次运行">
                     <template #default="scope">
-                        {{ formatTimestamp(scope.row.next_run) }}
+                        <span v-if="scope.row.schedule.enabled">{{ formatTimestamp(scope.row.next_run) }}</span>
+                        <el-tag v-else class="tech-tag-info" size="small">已暂停</el-tag>
                     </template>
                 </el-table-column>
                 <el-table-column label="上次状态">
                      <template #default="scope">
-                        <el-tag :type="scope.row.status === 'success' ? 'success' : (scope.row.status === 'failed' ? 'danger' : 'info')">{{ scope.row.status }}</el-tag>
+                        <el-tag :class="scope.row.status === 'success' ? 'tech-tag-success' : (scope.row.status === 'failed' ? 'tech-tag-danger' : 'tech-tag-info')">{{ scope.row.status }}</el-tag>
                     </template>
                 </el-table-column>
-                <el-table-column label="操作" width="100">
+                <el-table-column label="操作" width="160">
                     <template #default="scope">
-                        <el-button type="danger" size="small" @click="deleteTask(scope.row.id)">删除</el-button>
+                        <el-button 
+                            :type="scope.row.schedule.enabled ? 'warning' : 'success'" 
+                            size="small" 
+                            class="btn-mini-tech"
+                            @click="toggleTask(scope.row)"
+                        >
+                            {{ scope.row.schedule.enabled ? '停止' : '启动' }}
+                        </el-button>
+                        <el-button type="danger" size="small" class="btn-mini-tech" @click="deleteTask(scope.row.id)">删除</el-button>
                     </template>
                 </el-table-column>
             </el-table>
@@ -903,6 +1010,9 @@
                 const fetchProfile = async () => {
                     try {
                         const res = await axios.get('/api/auth/profile');
+                        if (res.data && res.data.id) {
+                            form.value.visualized_user_id = String(res.data.id);
+                        }
                         profileForm.value = {
                             email: res.data.email || '',
                             email_notify_enabled: res.data.email_notify_enabled === 0 ? 0 : 1,
@@ -1014,6 +1124,45 @@
                 };
 
                 const openAddTaskDialog = () => {
+                    // --- 检查参数是否为空 ---
+                    if (form.value.crawler_type === 'search') {
+                        if (!form.value.keywords || form.value.keywords.trim() === '') {
+                            ElementPlus.ElMessage.warning('搜索关键词不能为空');
+                            return;
+                        }
+                    } else if (form.value.crawler_type === 'detail') {
+                        if (!raw_specified_ids.value || raw_specified_ids.value.trim() === '') {
+                            ElementPlus.ElMessage.warning('帖子/视频 ID 列表不能为空');
+                            return;
+                        }
+                    } else if (form.value.crawler_type === 'creator') {
+                        if (!raw_creator_ids.value || raw_creator_ids.value.trim() === '') {
+                            ElementPlus.ElMessage.warning('创作者 ID 列表不能为空');
+                            return;
+                        }
+                    }
+
+                    // --- 扫码登录提示 ---
+                    if (form.value.login_type === 'qrcode') {
+                        ElementPlus.ElMessageBox.confirm(
+                            '你当前选择了【扫码登录】模式。定时任务运行时，需要你实时扫码登录，否则任务会运行失败。确定要加入定时任务吗？',
+                            '扫码登录风险提示',
+                            {
+                                confirmButtonText: '确定',
+                                cancelButtonText: '取消',
+                                type: 'warning',
+                            }
+                        ).then(() => {
+                            showAddTaskDialog();
+                        }).catch(() => {
+                            // 取消操作
+                        });
+                    } else {
+                        showAddTaskDialog();
+                    }
+                };
+
+                const showAddTaskDialog = () => {
                     newTask.value.name = `Task-${new Date().toLocaleString()}`;
                     newTask.value.schedule = {
                         mode: 'interval',
@@ -1023,6 +1172,14 @@
                     };
                     // Deep copy form config
                     newTask.value.crawler_config = JSON.parse(JSON.stringify(form.value));
+                    
+                    // 特殊处理 ID 列表，确保同步到 crawler_config 中
+                    if (form.value.crawler_type === 'detail') {
+                        newTask.value.crawler_config.specified_ids = parsed_specified_ids.value.join(',');
+                    } else if (form.value.crawler_type === 'creator') {
+                        newTask.value.crawler_config.creator_ids = parsed_creator_ids.value.join(',');
+                    }
+                    
                     addTaskDialogVisible.value = true;
                 };
 
@@ -1067,6 +1224,24 @@
                     }
                 };
 
+                const toggleTask = async (task) => {
+                    try {
+                        const newStatus = !task.schedule.enabled;
+                        await axios.patch(`/api/scheduler/tasks/${task.id}/toggle`, null, { 
+                            params: { 
+                                username: username.value,
+                                enabled: newStatus
+                            } 
+                        });
+                        ElementPlus.ElMessage.success(newStatus ? '任务已启动' : '任务已停止');
+                        fetchTasks();
+                    } catch (e) {
+                        console.error('Toggle task failed', e);
+                        const msg = e.response?.data?.detail || e.message || '操作失败';
+                        ElementPlus.ElMessage.error('操作失败: ' + msg);
+                    }
+                };
+
                 // Configuration Form
                 const form = ref({
                     platform: 'wb',
@@ -1094,7 +1269,39 @@
                     crawler_max_notes_count: 15,
                     max_concurrency_num: 1,
                     crawler_max_comments_count_singlenotes: 100,
-                    weibo_search_type: 'default'
+                    weibo_search_type: 'default',
+                    visualized_user_id: null
+                });
+
+                // Cookie Auto-fill Logic
+                const fetchMyCookies = async () => {
+                    if (form.value.login_type !== 'cookie') return;
+                    
+                    try {
+                        const res = await axios.get('/api/crawler-ext/my-cookies', {
+                            params: { platform: form.value.platform }
+                        });
+                        
+                        if (res.data && res.data.cookies && res.data.cookies.length > 0) {
+                            // Pick the latest cookie (assuming the list is sorted or we just pick the first one)
+                            const latestCookie = res.data.cookies[0];
+                            form.value.cookies = latestCookie.cookie_str;
+                            ElementPlus.ElMessage.success(`已自动填充 ${form.value.platform} 的历史 Cookie (${latestCookie.user_name})`);
+                        } else {
+                            // Clear if no cookies found
+                            // form.value.cookies = ''; 
+                            // ElementPlus.ElMessage.info(`未找到 ${form.value.platform} 的历史 Cookie`);
+                        }
+                    } catch (e) {
+                        console.error("Fetch cookies failed", e);
+                    }
+                };
+
+                // Watch for login type or platform changes to trigger auto-fill
+                watch([() => form.value.login_type, () => form.value.platform], ([newLoginType, newPlatform], [oldLoginType, oldPlatform]) => {
+                    if (newLoginType === 'cookie') {
+                        fetchMyCookies();
+                    }
                 });
 
                 // Platform Warning Watcher
@@ -1352,12 +1559,16 @@
 
 
 
-                onMounted(() => {
+                onMounted(async () => {
                     if (!['admin', 'root', 'user'].includes(userRole.value)) {
                         ElementPlus.ElMessage.error('Access Denied: Admin Only');
                         setTimeout(() => { window.location.href = '/'; }, 1000);
                         return;
                     }
+
+                    // Fetch profile to get current user ID for crawler
+                    fetchProfile();
+
                     // Initial fetch
                     fetchStatus();
                     fetchLogs();
@@ -1412,6 +1623,7 @@
                     openTaskList,
                     confirmAddTask,
                     deleteTask,
+                    toggleTask,
                     formatTimestamp,
                     profileDialogVisible,
                     profileForm,

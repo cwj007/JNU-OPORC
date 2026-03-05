@@ -266,12 +266,104 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
                 rich_help_panel="性能配置",
             ),
         ] = config.MAX_CONCURRENCY_NUM,
+        enable_ip_proxy: Annotated[
+            str,
+            typer.Option(
+                "--enable_ip_proxy",
+                help="是否启用 IP 代理，支持 yes/true/t/y/1 或 no/false/f/n/0",
+                rich_help_panel="代理配置",
+                show_default=True,
+            ),
+        ] = str(config.ENABLE_IP_PROXY),
+        ip_proxy_pool_count: Annotated[
+            int,
+            typer.Option(
+                "--ip_proxy_pool_count",
+                help="代理 IP 池数量",
+                rich_help_panel="代理配置",
+            ),
+        ] = config.IP_PROXY_POOL_COUNT,
+        enable_validate_ip: Annotated[
+            str,
+            typer.Option(
+                "--enable_validate_ip",
+                help="是否开启 IP 代理验证，支持 yes/true/t/y/1 或 no/false/f/n/0",
+                rich_help_panel="代理配置",
+                show_default=True,
+            ),
+        ] = str(config.ENABLE_VALIDATE_IP),
+        ip_proxy_provider_name: Annotated[
+            str,
+            typer.Option(
+                "--ip_proxy_provider_name",
+                help="代理 IP 提供商名称 (kuaidaili | wandouhttp)",
+                rich_help_panel="代理配置",
+            ),
+        ] = config.IP_PROXY_PROVIDER_NAME,
+        wandou_app_key: Annotated[
+            str,
+            typer.Option(
+                "--wandou_app_key",
+                help="豌豆代理 App Key",
+                rich_help_panel="代理配置",
+            ),
+        ] = config.WANDOU_APP_KEY,
+        kdl_secret_id: Annotated[
+            str,
+            typer.Option(
+                "--kdl_secret_id",
+                help="快代理 Secret ID",
+                rich_help_panel="代理配置",
+            ),
+        ] = config.KDL_SECRET_ID,
+        kdl_signature: Annotated[
+            str,
+            typer.Option(
+                "--kdl_signature",
+                help="快代理 Signature",
+                rich_help_panel="代理配置",
+            ),
+        ] = config.KDL_SIGNATURE,
+        kdl_user_name: Annotated[
+            str,
+            typer.Option(
+                "--kdl_user_name",
+                help="快代理用户名",
+                rich_help_panel="代理配置",
+            ),
+        ] = config.KDL_USER_NAME,
+        kdl_user_pwd: Annotated[
+            str,
+            typer.Option(
+                "--kdl_user_pwd",
+                help="快代理密码",
+                rich_help_panel="代理配置",
+            ),
+        ] = config.KDL_USER_PWD,
+        crawler_max_notes_count: Annotated[
+            int,
+            typer.Option(
+                "--crawler_max_notes_count",
+                help="爬取视频/帖子的数量控制",
+                rich_help_panel="基础配置",
+            ),
+        ] = config.CRAWLER_MAX_NOTES_COUNT,
+        weibo_search_type: Annotated[
+            str,
+            typer.Option(
+                "--weibo_search_type",
+                help="微博搜索类型 (default | real_time | popular | video)",
+                rich_help_panel="微博配置",
+            ),
+        ] = config.WEIBO_SEARCH_TYPE,
     ) -> SimpleNamespace:
         """MediaCrawler 命令行入口"""
 
         enable_comment = _to_bool(get_comment)
         enable_sub_comment = _to_bool(get_sub_comment)
         enable_headless = _to_bool(headless)
+        enable_ip_proxy_bool = _to_bool(enable_ip_proxy)
+        enable_validate_ip_bool = _to_bool(enable_validate_ip)
         init_db_value = init_db.value if init_db else None
 
         # Parse specified_id and creator_id into lists
@@ -292,6 +384,19 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
         config.COOKIES = cookies
         config.CRAWLER_MAX_COMMENTS_COUNT_SINGLENOTES = max_comments_count_singlenotes
         config.MAX_CONCURRENCY_NUM = max_concurrency_num
+        
+        # New configuration overrides
+        config.ENABLE_IP_PROXY = enable_ip_proxy_bool
+        config.IP_PROXY_POOL_COUNT = ip_proxy_pool_count
+        config.ENABLE_VALIDATE_IP = enable_validate_ip_bool
+        config.IP_PROXY_PROVIDER_NAME = ip_proxy_provider_name
+        config.WANDOU_APP_KEY = wandou_app_key
+        config.KDL_SECRET_ID = kdl_secret_id
+        config.KDL_SIGNATURE = kdl_signature
+        config.KDL_USER_NAME = kdl_user_name
+        config.KDL_USER_PWD = kdl_user_pwd
+        config.CRAWLER_MAX_NOTES_COUNT = crawler_max_notes_count
+        config.WEIBO_SEARCH_TYPE = weibo_search_type
 
         # Set platform-specific ID lists for detail/creator mode
         config.IS_CLI_SPECIFIED_ID = bool(specified_id_list)

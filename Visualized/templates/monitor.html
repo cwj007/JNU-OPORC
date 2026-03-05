@@ -444,6 +444,7 @@
             margin-right: 0;
             color: var(--text-secondary);
         }
+
         .detail-keyword-group {
             margin: 15px 0;
             padding: 10px;
@@ -456,7 +457,8 @@
             border-radius: 4px;
             padding: 5px;
         }
-        
+    </style>
+    <style>
         /* 优化 Table Filter 弹窗布局 - 已迁移至 style.css */
         
         /* 评论列表悬停效果 */
@@ -1259,14 +1261,20 @@
                         >
                             <template #reference>
                                 <el-badge :value="unreadCount" :max="99" :hidden="unreadCount === 0" class="item notification-badge" :class="{ active: popoverVisible }">
-                                    <el-icon :size="20" class="bell-icon"><bell /></el-icon>
+                                    <el-icon :size="20" class="bell-icon"><Bell /></el-icon>
                                 </el-badge>
                             </template>
                             
                             <div class="notification-list-container">
-                                <div class="notification-header">
-                                    <span class="title">消息通知</span>
-                                    <el-button v-if="unreadCount > 0" link type="primary" size="small" @click="handleMarkAllRead">全部已读</el-button>
+                                <div class="notification-header" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid rgba(0, 240, 255, 0.1); background: rgba(0, 240, 255, 0.02);">
+                                    <span class="title" style="font-size: 16px; font-weight: 600; color: var(--text-primary);">消息通知</span>
+                                    <el-button 
+                                        v-if="unreadCount > 0" 
+                                        class="cyber-btn-mark-read"
+                                        @click="markAllRead"
+                                    >
+                                        全部已读
+                                    </el-button>
                                 </div>
                                 
                                 <div v-if="recentAlerts.length === 0" class="notification-empty">
@@ -1276,7 +1284,7 @@
                                 <div v-else class="notification-list">
                                     <div v-for="item in recentAlerts" :key="item.id" class="notification-item" @click="viewAlertDetail(item)">
                                         <div class="item-icon" :class="item.level">
-                                            <el-icon><warning /></el-icon>
+                                            <el-icon><Warning /></el-icon>
                                         </div>
                                         <div class="item-content">
                                             <div class="item-title">
@@ -2466,7 +2474,7 @@
                     return timeStr.split(' ')[0];
                 };
 
-                const handleMarkAllRead = async () => {
+                const markAllRead = async () => {
                     try {
                         await axios.post('/api/alerts/mark_all_read');
                         unreadCount.value = 0;
@@ -2474,6 +2482,20 @@
                         ElMessage.success('已全部标记为已读');
                     } catch (e) {
                         console.error('Failed to mark all read', e);
+                    }
+                };
+
+                const markAsRead = async (alertId) => {
+                    try {
+                        const res = await axios.post(`/api/alerts/mark-read/${alertId}`);
+                        if (res.data.status === 'success') {
+                            recentAlerts.value = recentAlerts.value.filter(item => item.id !== alertId);
+                            unreadCount.value = Math.max(0, unreadCount.value - 1);
+                            ElMessage.success('已标记为已读');
+                        }
+                    } catch (err) {
+                        console.error('标记已读失败:', err);
+                        ElMessage.error('操作失败');
                     }
                 };
 
@@ -4183,7 +4205,8 @@
                     getLevelTagType,
                     getLevelLabel,
                     formatAlertTime,
-                    handleMarkAllRead,
+                    markAllRead,
+                    markAsRead,
                     handleNotificationClick,
                     viewAlertDetail,
                     handleCommand,

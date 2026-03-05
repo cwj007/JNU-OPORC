@@ -220,21 +220,6 @@ def init_db():
                  INSERT INTO alert_rules (name, rule_type, config, notify_methods, keyword, threshold, time_window, sentiment, is_crisis)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
              ''', ('文章舆情趋势预警', 'cri_trend', json.dumps(default_config), 'system', '', 0, 720, '负面', 0))
-
-        # Check for Article Burst rule (new request)
-        cur.execute("SELECT COUNT(*) FROM alert_rules WHERE rule_type = 'article_burst'")
-        if cur.fetchone()[0] == 0:
-            # Default thresholds: 20 comments total, 10 negative comments
-            burst_config = {
-                "min_comments": 20,
-                "min_negative_comments": 10,
-                "negative_ratio": 0.3
-            }
-            # Default time_window set to 720 hours (30 days) to cover history by default
-            cur.execute('''
-                 INSERT INTO alert_rules (name, rule_type, config, notify_methods, keyword, threshold, time_window, sentiment, is_crisis)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ''', ('单贴高危负面预警', 'article_burst', json.dumps(burst_config), 'system', '', 20, 720, '负面', 0))
             
         # 索引优化：提高查询性能
         cur.execute("CREATE INDEX IF NOT EXISTS idx_alerts_time ON alerts(time)")
@@ -244,6 +229,8 @@ def init_db():
         cur.execute("CREATE INDEX IF NOT EXISTS idx_alert_rules_user_id ON alert_rules(user_id)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_hotsearch_fetch_time ON hot_search_data(fetch_time)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_hotsearch_platform_rank ON hot_search_data(platform, rank)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_hotsearch_platform_fetch_rank ON hot_search_data(platform, fetch_time, rank)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_hotsearch_platform_fetch ON hot_search_data(platform, fetch_time)")
         
         conn.commit()
         conn.close()
@@ -451,24 +438,51 @@ def init_db():
     if not TRANSFORMERS_DB_PATH.exists():
         print(f"Warning: Transformers database not found at {TRANSFORMERS_DB_PATH}")
 
+# 数据库连接缓存
+_connections = {}
+
+async def get_db_connection(db_path: Path):
+    """获取或创建一个数据库连接"""
+    if db_path not in _connections:
+        # aiosqlite.connect 是一个异步上下文管理器，不能直接放入字典
+        # 我们这里使用 aiosqlite.connect 直接创建连接
+        conn = await aiosqlite.connect(db_path, timeout=30)
+        # 开启 WAL 模式提高并发
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA synchronous=NORMAL")
+        _connections[db_path] = conn
+    return _connections[db_path]
+
+async def close_all_connections():
+    """关闭所有缓存的数据库连接"""
+    for conn in _connections.values():
+        await conn.close()
+    _connections.clear()
+
 async def query_db(query: str, args: tuple = (), one: bool = False):
     """
     异步智能查询：根据查询表名选择数据库
     """
     target_db = get_target_db(query)
     
-    # print(f"DEBUG: async query_db: {query[:100]}... target_db={target_db}")
-
     try:
-        async with aiosqlite.connect(target_db, timeout=30) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(query, args) as cursor:
-                rv = await cursor.fetchall()
-                if one:
-                    return dict(rv[0]) if rv else None
-                return [dict(row) for row in rv] if rv else []
+        # 使用连接缓存以提高性能
+        db = await get_db_connection(target_db)
+        db.row_factory = aiosqlite.Row
+        async with db.execute(query, args) as cursor:
+            rv = await cursor.fetchall()
+            if one:
+                return dict(rv[0]) if rv else None
+            return [dict(row) for row in rv] if rv else []
     except Exception as e:
         print(f"Async query error on {target_db}: {e}")
+        # 如果连接失效，尝试清除缓存并重试一次
+        if target_db in _connections:
+            try:
+                await _connections[target_db].close()
+            except:
+                pass
+            del _connections[target_db]
         return None
 
 async def execute_db(query: str, args: tuple = ()):
@@ -478,12 +492,20 @@ async def execute_db(query: str, args: tuple = ()):
     target_db = get_target_db(query)
 
     try:
-        async with aiosqlite.connect(target_db, timeout=30) as db:
-            await db.execute(query, args)
-            await db.commit()
-            return True
+        # 使用连接缓存以提高性能
+        db = await get_db_connection(target_db)
+        await db.execute(query, args)
+        await db.commit()
+        return True
     except Exception as e:
         print(f"Async execute error on {target_db}: {e}")
+        # 如果连接失效，尝试清除缓存并重试一次
+        if target_db in _connections:
+            try:
+                await _connections[target_db].close()
+            except:
+                pass
+            del _connections[target_db]
         return False
 
 def query_db_sync(query: str, args: tuple = (), one: bool = False):

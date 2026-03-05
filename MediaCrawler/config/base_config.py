@@ -22,12 +22,12 @@ PLATFORM = "wb"  # 平台，xhs | dy | ks | bili | wb | tieba | zhihu
 KEYWORDS = ""  # 关键词搜索配置，以英文逗号分隔
 LOGIN_TYPE = "qrcode"  # qrcode or phone or cookie
 # 单个 Cookie 配置（保留兼容性）
-COOKIES = "SUBP=0033WrSXqPxfM725Ws9jqgMF55529P9D9W55lCRX8Okq4eqd-bmIvsSA5JpX5KMhUgL.FoqXeKBRSo.71K-2dJLoIXnLxK.L1hML12BLxK-LB.2L1hqLxK-L12-L1-qLxKnLBo5L1h-LxK-LBonLB.BLxKBLB.zLBKeLxKML1K5L1hqLxK-L1K-L1hqt;SCF=AsYpOAzeATcz7NJD7KLvxkhmJ1ASVh8W-IaV0jaoUTDzt2CmM9MMmszDqcEUTw1LDprU2F88DcBkzgqknZhztzQ.;UOR=,,cn.bing.com;SUB=_2A25EnTQrDeRhGeBK6lYZ9ifMwjmIHXVn08njrDV8PUJbkNAbLXnukW1NR__iUnjwhRVVLMY8N0YDZ4G_ls-54o_8;ALF=1774244220;PC_TOKEN=631950dc88;SINAGLOBAL=7870282119182.806.1770385034653;ULV=1771564208737:11:11:5:2002203881344.8962.1771564208736:1771411296805;WBPSESS=o8fzQpsypNxgQRPsC05w7Tsprp6C4HlEAkjENKZczMvZF8pUx3oYYWMl6E_AVvcgxKONOxl3dJo4My2FyhrV6By0pFkCTtCn0db5xFp5xMW3Bjin-OmaLY_q6J8ZkAzPhB4pGd8wLCuJD3wXrwWSNw==;XSRF-TOKEN=-Hf9enXxa9IQfdanYi_o5zaa"
+COOKIES = ""
 
 # ==================== 多 Cookie 轮询配置 ====================
 # 每个 Cookie 包含 id (用于识别) 和 value (Cookie 字符串)
 WEIBO_COOKIES_LIST = [
-    {"id": "user_01", "value": COOKIES},
+    # {"id": "user_01", "value": "COOKIE_VALUE"},
     # 可以继续添加更多...
 ]
 # ==========================================================
@@ -44,11 +44,16 @@ IP_PROXY_POOL_COUNT = 5
 ENABLE_VALIDATE_IP = False
 
 # 代理IP提供商名称
-IP_PROXY_PROVIDER_NAME = "scdn"  # kuaidaili | wandouhttp | scdn
+IP_PROXY_PROVIDER_NAME = "kuaidaili"  # kuaidaili | wandouhttp
 
-# SCDN 代理配置
-SCDN_PROXY_PROTOCOL = "https"  # socks4 | http | https | all
-SCDN_PROXY_COUNTRY_CODE = "CN"  # CN | all
+# 豌豆代理配置
+WANDOU_APP_KEY = ""
+
+# 快代理配置
+KDL_SECRET_ID = ""
+KDL_SIGNATURE = ""
+KDL_USER_NAME = ""
+KDL_USER_PWD = ""
 
 # 设置为True不会打开浏览器（无头浏览器）
 # 设置False会打开一个浏览器

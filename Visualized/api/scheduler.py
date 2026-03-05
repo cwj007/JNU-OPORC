@@ -19,7 +19,7 @@ LOG_DIR = PROJECT_ROOT / "Visualized" / "logs"
 if not LOG_DIR.exists():
     LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-router = APIRouter(prefix="/scheduler", tags=["scheduler"], dependencies=[Depends(get_current_admin)])
+router = APIRouter(prefix="/workflow", tags=["workflow"], dependencies=[Depends(get_current_admin)])
 
 class SchedulerConfig(BaseModel):
     enabled: bool = False

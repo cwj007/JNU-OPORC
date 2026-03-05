@@ -25,6 +25,7 @@
 
 import asyncio
 import functools
+import os
 import sys
 from typing import Optional
 
@@ -35,6 +36,7 @@ from tenacity import (RetryError, retry, retry_if_result, stop_after_attempt,
 import config
 from base.base_crawler import AbstractLogin
 from tools import utils
+from tools.cookie_cache import save_cookie_cache
 
 
 class WeiboLogin(AbstractLogin):
@@ -136,6 +138,40 @@ class WeiboLogin(AbstractLogin):
         utils.logger.info(
             f"[WeiboLogin.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
         await asyncio.sleep(wait_redirect_seconds)  # 等待页面重定向完成
+        await self.save_logged_in_cookie()
+
+    async def save_logged_in_cookie(self):
+        """Save logged-in cookies for next time's autofill."""
+        try:
+            current_cookie = await self.browser_context.cookies()
+            cookie_str, _ = utils.convert_cookies(current_cookie)
+            
+            # Try to get user ID and name from the page or cookies
+            user_id = "unknown"
+            user_name = "未知用户"
+            
+            try:
+                _, cookie_dict = utils.convert_cookies(current_cookie)
+                # Weibo user id is often in 'uid' cookie
+                user_id = cookie_dict.get("uid", "unknown")
+                
+                # Try to get user name from UI
+                # Weibo new UI has nick name in several places
+                user_name_element = await self.context_page.query_selector(".woo-box-flex.woo-box-alignCenter.ALink_none_1_3S_") or \
+                                   await self.context_page.query_selector(".gn_name") or \
+                                   await self.context_page.query_selector(".name")
+                if user_name_element:
+                    user_name = await user_name_element.inner_text()
+                    user_name = user_name.strip()
+            except Exception:
+                pass
+            
+            # 从环境变量获取 Visualized 用户 ID
+            visualized_user_id = os.getenv("VISUALIZED_USER_ID")
+            save_cookie_cache("wb", user_id, user_name, cookie_str, visualized_user_id)
+            utils.logger.info(f"[WeiboLogin.save_logged_in_cookie] Saved cookie for user: {user_name} ({user_id})")
+        except Exception as e:
+            utils.logger.error(f"[WeiboLogin.save_logged_in_cookie] Failed to save cookie cache: {e}")
 
     async def login_by_mobile(self):
         """

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from .database import DB_PATH, CACHE_DIR, query_db, execute_db, get_target_db
 from .auth import get_current_user, User
-from .config import SOURCE1_PLATFORMS, SOURCE2_PLATFORMS, PLATFORM_NAMES, ALL_PLATFORMS, HOTSEARCH_SOURCES
+from .config import SOURCE1_PLATFORMS, SOURCE2_PLATFORMS, PLATFORM_NAMES, ALL_PLATFORMS, HOTSEARCH_SOURCES, PRIORITY_PLATFORMS
 
 # 将 TrendRadar 项目根目录添加到 sys.path
 TRENDRADAR_ROOT = Path(__file__).parent.parent.parent / "Trendradar"
@@ -67,28 +67,56 @@ async def sync_platform_data_from_trendradar(p_id, now_str):
 
 async def start_periodic_sync():
     """启动周期性数据同步任务"""
+    counter = 0
     while True:
         try:
-            print(f"[{datetime.now()}] Starting scheduled background sync for all platforms...")
-            await sync_all_platforms()
+            # 默认每 10 分钟同步一次优先平台
+            # 每 30 分钟同步一次所有平台 (即每 3 个 10 分钟周期)
+            if counter % 3 == 0:
+                print(f"[{datetime.now()}] Starting scheduled background sync for ALL platforms...")
+                await sync_all_platforms()
+            else:
+                print(f"[{datetime.now()}] Starting scheduled background sync for PRIORITY platforms...")
+                # 通过 only_priority 参数仅同步重要平台
+                await sync_all_platforms(only_priority=True)
+            
             print(f"[{datetime.now()}] Scheduled background sync completed.")
         except Exception as e:
             print(f"Error in background sync: {e}")
         
-        # 每 30 分钟同步一次
-        await asyncio.sleep(30 * 60)
+        counter += 1
+        # 调整为每 10 分钟运行一次
+        await asyncio.sleep(10 * 60)
 
-async def sync_all_platforms():
+# 并行任务限制：控制并发抓取的数量
+MAX_CONCURRENT_SYNC = 8  # 增加并发数以提高抓取效率
+sync_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SYNC)
+
+async def sync_all_platforms(only_priority=False):
     """同步所有平台的数据 (两个 API 源的所有平台)"""
     now_dt = datetime.now()
     now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
     
-    # 使用 ALL_PLATFORMS 确保同步两个 API 的所有平台
-    platforms = ALL_PLATFORMS
+    # 根据 priority 参数过滤平台
+    if only_priority:
+        # 只包含在 PRIORITY_PLATFORMS 中的平台
+        platforms = [p for p in ALL_PLATFORMS if p["id"] in PRIORITY_PLATFORMS]
+    else:
+        # 同步所有平台，但把优先平台排在前面
+        priority = [p for p in ALL_PLATFORMS if p["id"] in PRIORITY_PLATFORMS]
+        others = [p for p in ALL_PLATFORMS if p["id"] not in PRIORITY_PLATFORMS]
+        platforms = priority + others
     
-    print(f"Syncing {len(platforms)} platforms in background...")
-    # 使用 asyncio.gather 并行执行抓取任务
-    tasks = [sync_platform_data(p["id"], now_str, skip_sleep=True) for p in platforms]
+    print(f"Syncing {len(platforms)} platforms in background (only_priority={only_priority}, concurrency={MAX_CONCURRENT_SYNC})...")
+    
+    async def limited_sync(p):
+        async with sync_semaphore:
+            # 优先平台不进行随机等待，实现“快速获取”
+            is_priority = p["id"] in PRIORITY_PLATFORMS
+            return await sync_platform_data(p["id"], now_str, skip_sleep=is_priority)
+
+    # 使用 asyncio.gather 并行执行抓取任务，但受信号量限制
+    tasks = [limited_sync(p) for p in platforms]
     await asyncio.gather(*tasks, return_exceptions=True)
 
 def clean_title(t):
@@ -154,10 +182,14 @@ async def sync_platform_data_live(p_id, now_str, preferred_source=None):
             ("source2", source2_url, s2_api_p_id)
         ]
 
+    # 针对优先平台使用更短的超时时间，以实现“快速获取”
+    is_priority = p_id in PRIORITY_PLATFORMS
+    current_timeout = 8.0 if is_priority else 15.0
+
     for source_name, url, api_p_id in sources_to_try:
         try:
-            print(f"Fetching from {source_name} for {p_id}")
-            res = await async_http_client.get(url, headers=headers, timeout=15)
+            print(f"Fetching from {source_name} for {p_id} (timeout={current_timeout}s)")
+            res = await async_http_client.get(url, headers=headers, timeout=current_timeout)
             if res.status_code == 200:
                 data = res.json()
                 items = []
@@ -387,9 +419,15 @@ async def get_all_hotsearch_data(background_tasks: BackgroundTasks, refresh: boo
     all_platforms: True 则返回所有平台(ALL_PLATFORMS)，False 则仅返回默认平台(PLATFORM_NAMES)
     """
     if all_platforms:
-        platforms = ALL_PLATFORMS
+        # 获取所有平台，但优先把 PRIORITY_PLATFORMS 排在前面
+        priority = [p for p in ALL_PLATFORMS if p["id"] in PRIORITY_PLATFORMS]
+        others = [p for p in ALL_PLATFORMS if p["id"] not in PRIORITY_PLATFORMS]
+        platforms = priority + others
     else:
-        platforms = PLATFORM_NAMES
+        # 默认展示平台也按照优先级排序
+        priority = [p for p in PLATFORM_NAMES if p["id"] in PRIORITY_PLATFORMS]
+        others = [p for p in PLATFORM_NAMES if p["id"] not in PRIORITY_PLATFORMS]
+        platforms = priority + others
     
     now_dt = datetime.now()
     now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
@@ -398,9 +436,14 @@ async def get_all_hotsearch_data(background_tasks: BackgroundTasks, refresh: boo
     
     # 如果是强制刷新，同步并行执行所有平台的抓取
     if refresh:
-        print(f"Starting async parallel refresh for all {len(platforms)} platforms using source: {source}...")
-        # 并行执行抓取任务 (跳过随机延迟)
-        tasks = [sync_platform_data(p["id"], now_str, source, skip_sleep=True) for p in platforms]
+        print(f"Starting async parallel refresh for all {len(platforms)} platforms using source: {source} (concurrency={MAX_CONCURRENT_SYNC})...")
+        
+        async def limited_sync(p):
+            async with sync_semaphore:
+                return await sync_platform_data(p["id"], now_str, source, skip_sleep=True)
+
+        # 并行执行抓取任务 (受信号量限制)
+        tasks = [limited_sync(p) for p in platforms]
         # 等待所有任务完成
         await asyncio.gather(*tasks, return_exceptions=True)
         print(f"Parallel refresh completed.")
@@ -450,6 +493,10 @@ async def get_all_hotsearch_data(background_tasks: BackgroundTasks, refresh: boo
     for p_id in target_p_ids:
         p_name = platform_map[p_id]["name"]
         
+        # 针对优先平台设置更短的缓存有效期 (10分钟)，非优先平台维持 30分钟
+        is_priority = p_id in PRIORITY_PLATFORMS
+        current_cache_threshold = (now_dt - timedelta(minutes=10 if is_priority else 30)).strftime("%Y-%m-%d %H:%M:%S")
+        
         platform_result = {
             "id": p_id,
             "name": p_name,
@@ -475,16 +522,16 @@ async def get_all_hotsearch_data(background_tasks: BackgroundTasks, refresh: boo
                 } for r in platform_rows
             ]
             platform_result["fetch_time"] = last_time
-            platform_result["status"] = "cached" if last_time > cache_threshold else "history"
+            platform_result["status"] = "cached" if last_time > current_cache_threshold else "history"
             
             # Check if stale
-            if not refresh and last_time <= cache_threshold:
-                background_tasks.add_task(sync_platform_data, p_id, now_str, source)
+            if not refresh and last_time <= current_cache_threshold:
+                background_tasks.add_task(sync_platform_data, p_id, now_str, source, skip_sleep=is_priority)
                 platform_result["status"] = "refreshing"
         else:
             # No data found
              if not refresh:
-                background_tasks.add_task(sync_platform_data, p_id, now_str, source)
+                background_tasks.add_task(sync_platform_data, p_id, now_str, source, skip_sleep=is_priority)
                 platform_result["status"] = "loading"
              else:
                 platform_result["status"] = "error"
@@ -499,28 +546,33 @@ async def check_and_sync_missing_data():
     print("Checking data integrity for all platforms...")
     now_dt = datetime.now()
     now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
-    # 设置 30 分钟内的缓存为有效
-    cache_threshold = (now_dt - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
     
     platforms = ALL_PLATFORMS
     missing_platforms = []
     
     for p in platforms:
         p_id = p["id"]
-        # 检查是否有 10 分钟内的最新数据
-        row = await query_db('SELECT 1 FROM hot_search_data WHERE platform = ? AND fetch_time > ? LIMIT 1', (p_id, cache_threshold), one=True)
-        if not row:
-            missing_platforms.append(p_id)
+        is_priority = p_id in PRIORITY_PLATFORMS
+        # 优先平台 10 分钟缓存，普通平台 30 分钟
+        threshold = (now_dt - timedelta(minutes=10 if is_priority else 30)).strftime("%Y-%m-%d %H:%M:%S")
+        
+        row = await query_db('SELECT MAX(fetch_time) as max_time FROM hot_search_data WHERE platform = ?', (p_id, ), one=True)
+        if not row or not row['max_time'] or row['max_time'] <= threshold:
+            missing_platforms.append(p)
     
     if missing_platforms:
-        print(f"Detected {len(missing_platforms)} platforms with missing or stale data: {missing_platforms}")
-        print("Starting background async synchronization...")
-        # 并行执行缺失平台的抓取
-        tasks = [sync_platform_data(p_id, now_str) for p_id in missing_platforms]
+        print(f"Found {len(missing_platforms)} platforms with missing or stale data. Syncing...")
+        # 分批并行同步
+        async def limited_sync(p):
+            async with sync_semaphore:
+                is_priority = p["id"] in PRIORITY_PLATFORMS
+                return await sync_platform_data(p["id"], now_str, skip_sleep=is_priority)
+
+        tasks = [limited_sync(p) for p in missing_platforms]
         await asyncio.gather(*tasks, return_exceptions=True)
-        print("Data integrity check and synchronization completed.")
+        print("Initial data sync completed.")
     else:
-        print("All platforms have recent data. No synchronization needed.")
+        print("All platforms have up-to-date data.")
 
 @router.get("/refresh/{platform_id}")
 async def refresh_platform_data(platform_id: str, background_tasks: BackgroundTasks):

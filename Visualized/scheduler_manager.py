@@ -108,6 +108,21 @@ class SchedulerManager:
                 return True
             return False
 
+    async def toggle_task(self, task_id: str, owner: str, enabled: bool) -> bool:
+        print(f"[{datetime.now()}] Toggling task: id={task_id}, owner={owner}, enabled={enabled}")
+        async with self._lock:
+            for task in self.tasks:
+                if task.id == task_id and task.owner == owner:
+                    task.schedule.enabled = enabled
+                    if enabled:
+                        # Re-calculate next_run when enabled
+                        self._update_next_run(task)
+                    self.save_tasks()
+                    print(f"[{datetime.now()}] Task {task_id} toggled successfully")
+                    return True
+            print(f"[{datetime.now()}] Task {task_id} NOT found for owner {owner}")
+            return False
+
     async def get_user_tasks(self, owner: str) -> List[ScheduledTask]:
         return [t for t in self.tasks if t.owner == owner]
 
@@ -252,3 +267,10 @@ async def delete_task(task_id: str, username: str):
     if not success:
         raise HTTPException(status_code=404, detail="Task not found or permission denied")
     return {"status": "ok"}
+
+@router.patch("/tasks/{task_id}/toggle")
+async def toggle_task(task_id: str, username: str, enabled: bool):
+    success = await scheduler.toggle_task(task_id, username, enabled)
+    if not success:
+        raise HTTPException(status_code=404, detail="Task not found or permission denied")
+    return {"status": "ok", "enabled": enabled}
