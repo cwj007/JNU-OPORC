@@ -60,7 +60,13 @@ dependencies = [
     "qwen-vl-utils",
     "flash-attn; sys_platform == 'linux'",
     "jinja2",
+    "python-jose[cryptography]",
+    "passlib[bcrypt]",
+    "python-multipart",
 ]
+
+[tool.uv]
+python-downloads = "never"
 
 [[tool.uv.index]]
 url = "https://mirrors.aliyun.com/pypi/simple/"

@@ -16,7 +16,7 @@ if %errorlevel% neq 0 (
 )
 
 :: Use uv run main.py (no ./ for Windows CMD)
-uv run main.py
+uv run --frozen main.py
 if %errorlevel% neq 0 (
     echo.
     echo [ERROR] TrendRadar execution failed.
@@ -37,7 +37,7 @@ if %errorlevel% neq 0 (
 )
 
 :: Run as a module to handle imports correctly
-uv run python -m media_platform.weibo.get_specified_ids --lt cookie
+uv run --frozen python -m media_platform.weibo.get_specified_ids --lt cookie
 if %errorlevel% neq 0 (
     echo.
     echo [ERROR] MediaCrawler execution failed.
