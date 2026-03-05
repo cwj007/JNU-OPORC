@@ -422,11 +422,11 @@ class MultimodalAnalyzer:
                                 if p_objects: extra_info.append(f"视觉:{','.join(p_objects[:5])}")
                                 if p_ocr: extra_info.append(f"OCR:{p_ocr[:50]}...")
                                 
-                                context_parts.append(f"[文章背景 ({' '.join(extra_info)})]: {p_text[:200]}")
+                                context_parts.append(f"[原贴内容/上下文 ({' '.join(extra_info)})]: {p_text[:200]}")
                             else:
                                 # 降级：仅使用文本
                                 truncated_p = p_text[:150] + "..." if len(p_text) > 150 else p_text
-                                context_parts.append(f"[文章背景]: {truncated_p}")
+                                context_parts.append(f"[原贴内容/上下文]: {truncated_p}")
                         
                         if reply_to_content:
                             # 对话链上下文：子评论回复的对象内容，保留前 100 字
@@ -970,15 +970,22 @@ class MultimodalAnalyzer:
                 result[field] = re.sub(r'[^\w\u4e00-\u9fa5/]', '', result[field]).strip()
 
             # 5. 归一化处理
-            # 列表类字段归一化
+            # 列表类字段归一化 (去重、过滤、截断)
             for field in ["objects", "keywords"]:
                 if field in result and isinstance(result[field], list):
                     normalized = []
+                    seen = set()
                     for val in result[field]:
                         if isinstance(val, str):
-                            if not val.startswith("http") and not val.startswith("https"):
+                            val = val.strip()
+                            # 过滤空值、重复值、URL
+                            if val and val not in seen and not val.startswith("http"):
                                 normalized.append(val)
-                    result[field] = list(set(normalized))
+                                seen.add(val)
+                    
+                    # 限制数量：关键词最多 6 个，视觉对象最多 15 个 (防止模型幻觉或陷入死循环)
+                    limit = 6 if field == "keywords" else 15
+                    result[field] = normalized[:limit]
 
             # 6. 分类一致性自动修正
             result = self._normalize_categories(result)

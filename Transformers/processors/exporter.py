@@ -204,37 +204,45 @@ class Exporter:
 
     def _mark_ids_as_processed(self, content_entries: List[tuple], comment_entries: List[tuple]):
         """批量将内容和评论存入数据库。"""
-        conn = sqlite3.connect(self.db_path)
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
-        cursor = conn.cursor()
-        
-        if content_entries:
-            cursor.executemany('''
-                INSERT OR REPLACE INTO content (
-                    note_id, title, content, author, source, url, created_at, ip_location,
-                    image_paths, video_path, liked_count, comments_count, shared_count,
-                    collected_count, sentiment, fine_grained_sentiment, intent,
-                    irony_detected, reasoning, keywords, visual_objects, ocr_text,
-                    sync_date, sync_time, top_id
-                ) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', content_entries)
+        if not content_entries and not comment_entries:
+            return
             
-        if comment_entries:
-            cursor.executemany('''
-                INSERT OR REPLACE INTO comments (
-                    comment_id, note_id, content, author, source, url, created_at, ip_location,
-                    gender, parent_comment_id, comment_like_count, sub_comment_count,
-                    image_paths, sentiment, fine_grained_sentiment, intent,
-                    irony_detected, reasoning, labels, keywords, visual_objects, ocr_text,
-                    sync_date, sync_time
-                ) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', comment_entries)
+        conn = sqlite3.connect(self.db_path, timeout=60)
+        try:
+            # 启用 WAL 模式以支持并发读写
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            cursor = conn.cursor()
             
-        conn.commit()
-        conn.close()
+            if content_entries:
+                cursor.executemany('''
+                    INSERT OR REPLACE INTO content (
+                        note_id, title, content, author, source, url, created_at, ip_location,
+                        image_paths, video_path, liked_count, comments_count, shared_count,
+                        collected_count, sentiment, fine_grained_sentiment, intent,
+                        irony_detected, reasoning, keywords, visual_objects, ocr_text,
+                        sync_date, sync_time, top_id
+                    ) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', content_entries)
+                
+            if comment_entries:
+                cursor.executemany('''
+                    INSERT OR REPLACE INTO comments (
+                        comment_id, note_id, content, author, source, url, created_at, ip_location,
+                        gender, parent_comment_id, comment_like_count, sub_comment_count,
+                        image_paths, sentiment, fine_grained_sentiment, intent,
+                        irony_detected, reasoning, labels, keywords, visual_objects, ocr_text,
+                        sync_date, sync_time
+                    ) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', comment_entries)
+                
+            conn.commit()
+        except Exception as e:
+            utils.logger.error(f"Error marking IDs as processed: {e}")
+        finally:
+            conn.close()
 
     def export(self, analyzed_data: List[Dict[str, Any]], append: bool = False, use_lock: bool = True):
         """将数据丢入异步队列，立即返回，不阻塞 GPU。"""
@@ -282,10 +290,33 @@ class Exporter:
         data_date = analyzed_data[0].get("data_date")
         
         # 批量获取当前批次的所有 ID 状态，减少数据库连接开销
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=60)
         # 启用读性能优化
         conn.execute("PRAGMA query_only = ON")
+        conn.execute("PRAGMA journal_mode = WAL")
         cursor = conn.cursor()
+        
+        # 批量获取 ID 以便一次性检查
+        note_ids = [str(item.get('note_id')) for item in analyzed_data if not item.get('comment_id') or item.get('comment_id') == '0']
+        comment_ids = [str(item.get('comment_id')) for item in analyzed_data if item.get('comment_id') and item.get('comment_id') != '0']
+        
+        existing_note_ids = set()
+        if note_ids:
+            # 分批处理 note_ids 防止 SQL 语句过长
+            for i in range(0, len(note_ids), 999):
+                batch = note_ids[i:i+999]
+                placeholders = ','.join(['?'] * len(batch))
+                cursor.execute(f'SELECT note_id FROM content WHERE note_id IN ({placeholders})', batch)
+                existing_note_ids.update(row[0] for row in cursor.fetchall())
+                
+        existing_comment_ids = set()
+        if comment_ids:
+            # 分批处理 comment_ids 防止 SQL 语句过长
+            for i in range(0, len(comment_ids), 999):
+                batch = comment_ids[i:i+999]
+                placeholders = ','.join(['?'] * len(batch))
+                cursor.execute(f'SELECT comment_id FROM comments WHERE comment_id IN ({placeholders})', batch)
+                existing_comment_ids.update(row[0] for row in cursor.fetchall())
         
         for item in analyzed_data:
             # 兼容处理：如果 item 已经是格式化好的 entry，直接使用
@@ -297,14 +328,13 @@ class Exporter:
             note_id = str(entry.get('note_id'))
             comment_id = str(entry.get('comment_id', '0'))
             
-            # 检查 ID 是否已处理 (根据类型检查不同表)
+            # 使用内存中的 set 进行极速去重检查
             if comment_id == '0' or not comment_id:
-                cursor.execute('SELECT 1 FROM content WHERE note_id = ?', (note_id,))
+                if note_id in existing_note_ids:
+                    continue
             else:
-                cursor.execute('SELECT 1 FROM comments WHERE comment_id = ?', (comment_id,))
-                
-            if cursor.fetchone() is not None:
-                continue
+                if comment_id in existing_comment_ids:
+                    continue
                 
             valid_entries.append(entry)
             
@@ -400,23 +430,30 @@ class Exporter:
 
     def _update_top_topics(self, top_entries: Dict[str, str]):
         """批量更新 top_topics 表。"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        # 确保表存在
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS top_topics (
-                top_id TEXT PRIMARY KEY,
-                top_name TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        entries = [(tid, tname) for tid, tname in top_entries.items()]
-        cursor.executemany('''
-            INSERT OR REPLACE INTO top_topics (top_id, top_name) VALUES (?, ?)
-        ''', entries)
-        conn.commit()
-        conn.close()
+        conn = sqlite3.connect(self.db_path, timeout=60)
+        try:
+            # 启用 WAL 模式和性能优化
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+            cursor = conn.cursor()
+            # 确保表存在
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS top_topics (
+                    top_id TEXT PRIMARY KEY,
+                    top_name TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            entries = [(tid, tname) for tid, tname in top_entries.items()]
+            cursor.executemany('''
+                INSERT OR REPLACE INTO top_topics (top_id, top_name) VALUES (?, ?)
+            ''', entries)
+            conn.commit()
+        except Exception as e:
+            utils.logger.error(f"Error updating top_topics: {e}")
+        finally:
+            conn.close()
 
     def _write_to_jsonl(self, valid_entries, data_date, append, use_lock):
         """写入 JSONL 文件。"""

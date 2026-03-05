@@ -194,6 +194,7 @@ class VLMHandler:
                         **inputs,
                         max_new_tokens=320, # 缩短生成长度，直接提升 GPU 速度
                         do_sample=False, 
+                        repetition_penalty=1.2, # 强力惩罚重复，彻底杜绝关键词死循环
                         use_cache=True
                     )
             

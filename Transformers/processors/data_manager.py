@@ -218,7 +218,9 @@ class DataManager:
         comment_processed_count = 0
         
         # 构建文章内容缓存，确保即使是纯图片文章也能提供背景提示，而不是空字符串
-        full_posts_content_cache = {}
+        # [NEW] 修复：必须先从 context_cache (含磁盘缓存) 初始化，否则跨批次数据会丢失背景
+        full_posts_content_cache = context_cache.copy()
+        
         for r in posts_data:
             nid = str(r['note_id'])
             c = r.get('content')
@@ -228,7 +230,7 @@ class DataManager:
                 pics = r.get('pictures')
                 if pics:
                     full_posts_content_cache[nid] = "[图片内容]"
-                else:
+                elif nid not in full_posts_content_cache:
                     full_posts_content_cache[nid] = ""
             else:
                 full_posts_content_cache[nid] = clean_c
@@ -543,7 +545,8 @@ class DataManager:
         comment_processed_count = 0
         
         # Build context caches
-        full_posts_content_cache = {}
+        # [NEW] 修复：从磁盘缓存初始化
+        full_posts_content_cache = context_cache.copy()
         for r in posts_data:
             nid = str(r['note_id'])
             c = r.get('content')
