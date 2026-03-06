@@ -46,8 +46,8 @@
 
 ## 2. API 接口文档
 
-详细的 API 请求参数、返回结构及示例，请参阅：
-[JNU-OPORC API 接口文档 (API_DOC.md)](file:///e:/JNU-OPORC/API_DOC.md)
+详细的系统目录架构、操作手册及模块协作指南，请参阅：
+[JNU-OPORC 系统结构与操作手册 (SYSTEM_STRUCTURE.md)](file:///e:/JNU-OPORC/SYSTEM_STRUCTURE.md)
 
 ### 2.1 采集控制 API (MediaCrawler)
 | 接口地址 | 方法 | 功能描述 |
