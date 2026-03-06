@@ -1,35 +1,102 @@
 import argparse
 import sys
 from pathlib import Path
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 # Add project root to sys.path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from Transformers.config import WEIBO_POSTS_FILE, WEIBO_COMMENTS_FILE, LABELED_DATA_FILE, get_weibo_files_by_date, get_available_dates
-from Transformers.models.vlm_handler import VLMHandler
-from Transformers.processors.data_manager import DataManager
-from Transformers.processors.multimodal_analyzer import MultimodalAnalyzer
-from Transformers.processors.exporter import Exporter
-from Transformers import utils
+class CustomArgumentParser(argparse.ArgumentParser):
+    def print_help(self, file=None):
+        console = Console()
+        
+        # 标题面板
+        console.print(Panel(
+            Text("🚀 多模态情感分析流水线 (Multi-modal Sentiment Analysis Pipeline)", justify="center", style="bold magenta"),
+            subtitle="[bold cyan]JNU-OPORC Project[/bold cyan]",
+            border_style="bright_blue"
+        ))
+
+        # 用法
+        usage = self.format_usage().replace("usage: main.py", "[bold yellow]用法 (Usage):[/bold yellow] [white]main.py[/white]")
+        console.print(f"\n{usage.strip()}\n")
+
+        # 参数表格
+        table = Table(show_header=True, header_style="bold cyan", box=None, padding=(0, 2), expand=True)
+        table.add_column("参数 (Argument)", style="bold white", width=25)
+        table.add_column("描述 (Description)", style="green")
+        table.add_column("详情 (Details)", style="italic yellow", width=35)
+
+        for action in self._actions:
+            # 跳过帮助信息本身的显示，或者以不同样式显示
+            if action.dest == "help":
+                continue
+
+            opts = ", ".join(action.option_strings) if action.option_strings else action.dest
+            
+            # 详情信息：默认值 + 选项
+            details = []
+            if action.default != argparse.SUPPRESS and action.default is not None:
+                # 对于布尔开关，默认值通常不显示
+                if not isinstance(action.default, bool):
+                    details.append(f"默认: [bold white]{action.default}[/bold white]")
+            
+            if action.choices:
+                choices_str = f"选项: [bold white]{', '.join(map(str, action.choices))}[/bold white]"
+                details.append(choices_str)
+            
+            details_text = " | ".join(details)
+            help_text = action.help if action.help else ""
+            
+            table.add_row(opts, help_text, details_text)
+
+        console.print("\n[bold cyan]参数说明 (Arguments):[/bold cyan]")
+        console.print(table)
+        
+        # 底部提示
+        console.print(Panel(
+            "💡 [bold]提示:[/bold] 开启 [cyan]--stream[/cyan] 后将自动强制使用 [yellow]sqlite[/yellow] 作为数据源。\n"
+            "   多进程模式请确保 [cyan]--process_count[/cyan] 与 [cyan]--process_index[/cyan] 正确配对。",
+            border_style="dim",
+            title="[bold blue]Tips[/bold blue]",
+            title_align="left"
+        ))
+        console.print()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Multi-modal Sentiment Analysis Pipeline")
-    parser.add_argument("--date", type=str, help="Specify data date (YYYY-MM-DD)")
-    parser.add_argument("--platform", type=str, choices=["weibo", "zhihu"], help="Platform (weibo or zhihu). If not specified, processes both.")
-    parser.add_argument("--source_type", type=str, default="csv", choices=["csv", "sqlite", "json"], help="Data source type (csv, sqlite or json)")
-    parser.add_argument("--output_format", type=str, default="json", help="Output format (json, csv, sqlite). Multiple formats separated by comma.")
-    parser.add_argument("--weibo_posts", type=str)
-    parser.add_argument("--weibo_comments", type=str)
-    parser.add_argument("--json_file", type=str, help="Path to unlabelled JSON data")
-    parser.add_argument("--batch_size", type=int, default=16, help="Batch size for VLM inference (Recommended 16+ for text-only)")
-    parser.add_argument("--limit", type=int, help="Limit number of items to process")
-    parser.add_argument("--process_count", type=int, default=1, help="Total number of parallel processes")
-    parser.add_argument("--process_index", type=int, default=0, help="Index of current process (0 to process_count-1)")
-    parser.add_argument("--stream", action="store_true", help="Enable streaming mode to process data continuously as it is crawled (SQLite only)")
-    parser.add_argument("--stream_interval", type=int, default=60, help="Interval in seconds to check for new data in streaming mode")
-    parser.add_argument("--dry_run", action="store_true", help="Load data only, skip VLM processing")
+    # 强制标准输出使用 UTF-8 编码，防止 Windows 控制台下 Emoji 导致编码错误
+    if sys.stdout.encoding.lower() != 'utf-8':
+        import io
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
+    parser = CustomArgumentParser(description="多模态情感分析流水线")
+    parser.add_argument("--date", type=str, help="指定数据日期 (格式: YYYY-MM-DD)")
+    parser.add_argument("--platform", type=str, choices=["weibo", "zhihu"], help="指定平台 (weibo 或 zhihu)。若未指定，则同时处理两个平台。")
+    parser.add_argument("--source_type", type=str, default="csv", choices=["csv", "sqlite", "json"], help="数据源类型 (csv, sqlite 或 json)")
+    parser.add_argument("--output_format", type=str, default="json", help="输出格式 (json, csv, sqlite)。支持多种格式，用逗号分隔。")
+    parser.add_argument("--weibo_posts", type=str, help="微博博文 CSV 文件路径")
+    parser.add_argument("--weibo_comments", type=str, help="微博评论 CSV 文件路径")
+    parser.add_argument("--json_file", type=str, help="未标注的 JSON 数据文件路径")
+    parser.add_argument("--batch_size", type=int, default=16, help="VLM 推理的批次大小 (纯文本建议 16+)")
+    parser.add_argument("--limit", type=int, help="限制处理的数据条数")
+    parser.add_argument("--process_count", type=int, default=1, help="并行处理的总进程数")
+    parser.add_argument("--process_index", type=int, default=0, help="当前进程的索引 (从 0 到 process_count-1)")
+    parser.add_argument("--stream", action="store_true", help="启用流式模式以持续处理新爬取的数据 (仅支持 SQLite 数据源，开启后会自动将 source_type 设为 sqlite)")
+    parser.add_argument("--stream_interval", type=int, default=60, help="流式模式下检查新数据的间隔时间 (秒)")
+    parser.add_argument("--dry_run", action="store_true", help="空运行模式：仅加载数据，跳过 VLM 处理")
     
     args = parser.parse_args()
+    
+    # 重量级导入延迟到参数解析之后，显著提升 --help 的响应速度
+    from Transformers.config import WEIBO_POSTS_FILE, WEIBO_COMMENTS_FILE, LABELED_DATA_FILE, get_weibo_files_by_date
+    from Transformers.models.vlm_handler import VLMHandler
+    from Transformers.processors.data_manager import DataManager
+    from Transformers.processors.multimodal_analyzer import MultimodalAnalyzer
+    from Transformers.processors.exporter import Exporter
+    from Transformers import utils
     
     # Enforce SQLite for streaming mode
     if args.stream and args.source_type != "sqlite":
