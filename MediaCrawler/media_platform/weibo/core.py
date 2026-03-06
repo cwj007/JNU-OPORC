@@ -434,7 +434,7 @@ class WeiboCrawler(AbstractCrawler):
                 for section in target_sections:
                     # 提取 top_id (即 URL 中的 q 参数)
                     match = re.search(r'q=([^&]+)', section)
-                    top_id = match.group(1) if match else section
+                    top_id = (match.group(1) if match else section) or ""
                     for note_id in top_to_ids[section]:
                         selected_info.append((note_id, top_id))
                 
@@ -450,7 +450,7 @@ class WeiboCrawler(AbstractCrawler):
                             all_info = []
                             for section in target_sections:
                                 match = re.search(r'q=([^&]+)', section)
-                                top_id = match.group(1) if match else section
+                                top_id = (match.group(1) if match else section) or ""
                                 for note_id in top_to_ids[section][:limit]:
                                     all_info.append((note_id, top_id))
                         except:
@@ -472,7 +472,7 @@ class WeiboCrawler(AbstractCrawler):
 
         # 3. 顺序爬取：一个 ID 完成后再开始下一个
         for i, (note_id, top_id) in enumerate(all_info, 1):
-            top_id_var.set(top_id)  # 设置当前帖子的 top_id
+            top_id_var.set(top_id or "")  # 设置当前帖子的 top_id
             utils.logger.info(f"[WeiboCrawler.get_specified_notes] 正在处理第 {i}/{len(all_info)} 个帖子: {note_id}, top_id: {top_id}")
             
             # 检查帖子是否已存在

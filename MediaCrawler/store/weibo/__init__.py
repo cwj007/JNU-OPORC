@@ -146,8 +146,8 @@ async def update_weibo_note(note_item: Dict):
         "gender": user_info.get("gender", ""),
         "profile_url": user_info.get("profile_url", ""),
         "avatar": user_info.get("profile_image_url", ""),
-        "source_keyword": source_keyword_var.get(),
-        "top_id": top_id_var.get(),
+        "source_keyword": source_keyword_var.get() or "",
+        "top_id": top_id_var.get() or "",
     }
     utils.logger.info(f"[store.weibo.update_weibo_note] weibo note id:{note_id}, title:{save_content_item.get('content')[:24]} ...")
     store = WeibostoreFactory.create_store()
