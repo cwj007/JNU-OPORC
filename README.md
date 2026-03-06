@@ -44,7 +44,32 @@
   - **WebSocket**: 实现实时日志流推送。
   - **Image Server (8002 端口)**: 独立的静态资源与实时缩略图服务，确保前端图片加载的高性能。
 
-## 2. API 接口文档
+## 2. 快速部署 (Docker)
+
+本系统支持使用 Docker 进行快速一键部署。所有的 Docker 相关配置文件均位于 `docker` 文件夹中。
+
+### 2.1 部署步骤
+
+1. **环境准备**: 确保已安装 Docker 和 Docker Compose。
+2. **启动服务**:
+   ```bash
+   # 进入项目根目录
+   cd JNU-OPORC
+   # 使用 docker-compose 启动所有服务
+   docker compose -f docker/docker-compose.yml up -d
+   ```
+3. **访问系统**:
+   - **可视化控制台**: [http://localhost:8000](http://localhost:8000)
+   - **采集控制 API**: [http://localhost:8080](http://localhost:8080)
+   - **图片资源服务**: [http://localhost:8002](http://localhost:8002)
+
+### 2.2 服务说明
+
+- **visualized**: 主控制面板，整合了数据展示与任务调度。
+- **mediacrawler**: 核心采集服务，负责与社交媒体平台交互。
+- **redis**: 用于系统缓存与任务队列。
+
+## 3. API 接口文档
 
 详细的系统目录架构、操作手册及模块协作指南，请参阅：
 [JNU-OPORC 系统结构与操作手册 (SYSTEM_STRUCTURE.md)](file:///e:/JNU-OPORC/SYSTEM_STRUCTURE.md)
