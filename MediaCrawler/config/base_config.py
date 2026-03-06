@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/config/base_config.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -93,6 +93,9 @@ AUTO_CLOSE_BROWSER = True
 
 # 数据保存类型选项配置,支持六种类型：csv、db、json、sqlite、excel、postgres, 最好保存到DB，有排重的功能。
 SAVE_DATA_OPTION = "json"  # csv or db or json or sqlite or excel or postgres
+
+# 可视化平台关联用户 ID (用于多用户隔离)
+VISUALIZED_USER_ID = None
 
 # 用户浏览器缓存的浏览器文件配置
 USER_DATA_DIR = "%s_user_data_dir"  # %s will be replaced by platform name

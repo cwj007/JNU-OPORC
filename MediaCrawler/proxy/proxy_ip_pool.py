@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/proxy/proxy_ip_pool.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -18,7 +18,7 @@
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 # -*- coding: utf-8 -*-
-# @Author  : relakkes@gmail.com
+# @Author  : JJ_Superman
 # @Time    : 2023/12/2 13:45
 # @Desc    : IP proxy pool implementation
 import random

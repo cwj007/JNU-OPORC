@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/zhihu/core.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -147,8 +147,6 @@ class ZhihuCrawler(AbstractCrawler):
         """Search for notes and retrieve their comment information."""
         utils.logger.info("[ZhihuCrawler.search] Begin search zhihu keywords")
         zhihu_limit_count = 20  # zhihu limit page fixed value
-        if config.CRAWLER_MAX_NOTES_COUNT < zhihu_limit_count:
-            config.CRAWLER_MAX_NOTES_COUNT = zhihu_limit_count
         start_page = config.START_PAGE
         for keyword in config.KEYWORDS.split(","):
             source_keyword_var.set(keyword)
@@ -156,9 +154,9 @@ class ZhihuCrawler(AbstractCrawler):
                 f"[ZhihuCrawler.search] Current search keyword: {keyword}"
             )
             page = 1
-            while (
-                page - start_page + 1
-            ) * zhihu_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
+            # 记录当前关键词已爬取的数量
+            current_keyword_notes_count = 0
+            while current_keyword_notes_count < config.CRAWLER_MAX_NOTES_COUNT:
                 if page < start_page:
                     utils.logger.info(f"[ZhihuCrawler.search] Skip page {page}")
                     page += 1
@@ -188,8 +186,14 @@ class ZhihuCrawler(AbstractCrawler):
                     page += 1
                     for content in content_list:
                         await zhihu_store.update_zhihu_content(content)
+                        current_keyword_notes_count += 1
+                        if current_keyword_notes_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                            utils.logger.info(f"[ZhihuCrawler.search] Reach max notes count: {config.CRAWLER_MAX_NOTES_COUNT}")
+                            break
 
                     await self.batch_get_content_comments(content_list)
+                    if current_keyword_notes_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                        break
                 except DataFetchError:
                     utils.logger.error("[ZhihuCrawler.search] Search content error")
                     return
@@ -451,8 +455,9 @@ class ZhihuCrawler(AbstractCrawler):
         if config.SAVE_LOGIN_STATE:
             # feat issue #14
             # we will save login state to avoid login every time
+            user_id_suffix = f"_{config.VISUALIZED_USER_ID}" if config.VISUALIZED_USER_ID else ""
             user_data_dir = os.path.join(
-                os.getcwd(), "browser_data", config.USER_DATA_DIR % config.PLATFORM
+                os.getcwd(), "browser_data", (config.USER_DATA_DIR % config.PLATFORM) + user_id_suffix
             )  # type: ignore
             browser_context = await chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/weibo/client.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -18,7 +18,7 @@
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 # -*- coding: utf-8 -*-
-# @Author  : relakkes@gmail.com
+# @Author  : JJ_Superman
 # @Time    : 2023/12/23 15:40
 # @Desc    : Weibo crawler API request client
 
@@ -535,8 +535,7 @@ class WeiboClient(ProxyRefreshMixin):
         result = []
         notes_has_more = True  # 是否还有更多帖子
         since_id = ""  # 分页游标
-        crawler_total_count = 0  # 已爬取的累计数量
-        while notes_has_more:
+        while notes_has_more and len(result) < config.CRAWLER_MAX_NOTES_COUNT:
             notes_res = await self.get_notes_by_creator(creator_id, container_id, since_id)
             if not notes_res:
                 utils.logger.error(f"[WeiboClient.get_notes_by_creator] The current creator may have been banned by Weibo, so they cannot access the data.")
@@ -551,12 +550,18 @@ class WeiboClient(ProxyRefreshMixin):
             utils.logger.info(f"[WeiboClient.get_all_notes_by_creator] got user_id:{creator_id} notes len : {len(notes)}")
             # 过滤出 card_type 为 9 的项，这通常代表真实的微博帖子
             notes = [note for note in notes if note.get("card_type") == 9]
+            
+            # 限制数量
+            remaining = config.CRAWLER_MAX_NOTES_COUNT - len(result)
+            if remaining <= 0:
+                break
+            notes_to_add = notes[:remaining]
+            
             if callback:
-                await callback(notes)
+                await callback(notes_to_add)
             await asyncio.sleep(crawl_interval)
-            result.extend(notes)
-            crawler_total_count += 10  # 微博每页通常返回 10 条左右
+            result.extend(notes_to_add)
             # 根据接口返回的总数判断是否继续
-            notes_has_more = notes_res.get("cardlistInfo", {}).get("total", 0) > crawler_total_count
+            notes_has_more = notes_res.get("cardlistInfo", {}).get("total", 0) > len(result)
         return result
 

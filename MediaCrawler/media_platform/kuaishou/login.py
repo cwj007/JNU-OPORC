@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/kuaishou/login.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -136,10 +136,10 @@ class KuaishouLogin(AbstractLogin):
             except Exception:
                 pass
             
-            # 从环境变量获取 Visualized 用户 ID
-            visualized_user_id = os.getenv("VISUALIZED_USER_ID")
+            # 从配置获取 Visualized 用户 ID
+            visualized_user_id = config.VISUALIZED_USER_ID
             save_cookie_cache("ks", user_id, user_name, cookie_str, visualized_user_id)
-            utils.logger.info(f"[KuaishouLogin.save_logged_in_cookie] Saved cookie for user: {user_name} ({user_id})")
+            utils.logger.info(f"[KuaishouLogin.save_logged_in_cookie] Saved cookie for system user: {visualized_user_id}, platform user: {user_name} ({user_id})")
         except Exception as e:
             utils.logger.error(f"[KuaishouLogin.save_logged_in_cookie] Failed to save cookie cache: {e}")
 

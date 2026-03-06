@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/bilibili/core.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -18,7 +18,7 @@
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 # -*- coding: utf-8 -*-
-# @Author  : relakkes@gmail.com
+# @Author  : JJ_Superman
 # @Time    : 2023/12/2 18:44
 # @Desc    : Bilibili Crawler
 
@@ -183,14 +183,14 @@ class BilibiliCrawler(AbstractCrawler):
         """
         utils.logger.info("[BilibiliCrawler.search_by_keywords] Begin search bilibli keywords")
         bili_limit_count = 20  # bilibili limit page fixed value
-        if config.CRAWLER_MAX_NOTES_COUNT < bili_limit_count:
-            config.CRAWLER_MAX_NOTES_COUNT = bili_limit_count
         start_page = config.START_PAGE  # start page number
         for keyword in config.KEYWORDS.split(","):
             source_keyword_var.set(keyword)
             utils.logger.info(f"[BilibiliCrawler.search_by_keywords] Current search keyword: {keyword}")
             page = 1
-            while (page - start_page + 1) * bili_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
+            # 记录当前关键词已爬取的数量
+            current_keyword_notes_count = 0
+            while current_keyword_notes_count < config.CRAWLER_MAX_NOTES_COUNT:
                 if page < start_page:
                     utils.logger.info(f"[BilibiliCrawler.search_by_keywords] Skip page: {page}")
                     page += 1
@@ -225,7 +225,13 @@ class BilibiliCrawler(AbstractCrawler):
                         await bilibili_store.update_bilibili_video(video_item)
                         await bilibili_store.update_up_info(video_item)
                         await self.get_bilibili_video(video_item, semaphore)
+                        current_keyword_notes_count += 1
+                        if current_keyword_notes_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                            utils.logger.info(f"[BilibiliCrawler.search_by_keywords] Reach max notes count: {config.CRAWLER_MAX_NOTES_COUNT}")
+                            break
                 page += 1
+                if current_keyword_notes_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                    break
 
                 # Sleep after page navigation
                 await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
@@ -497,7 +503,8 @@ class BilibiliCrawler(AbstractCrawler):
         if config.SAVE_LOGIN_STATE:
             # feat issue #14
             # we will save login state to avoid login every time
-            user_data_dir = os.path.join(os.getcwd(), "browser_data", config.USER_DATA_DIR % config.PLATFORM)  # type: ignore
+            user_id_suffix = f"_{config.VISUALIZED_USER_ID}" if config.VISUALIZED_USER_ID else ""
+            user_data_dir = os.path.join(os.getcwd(), "browser_data", (config.USER_DATA_DIR % config.PLATFORM) + user_id_suffix)  # type: ignore
             browser_context = await chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,
                 accept_downloads=True,

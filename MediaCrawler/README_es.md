@@ -17,14 +17,14 @@
 <div align="center">
 
 <a href="https://trendshift.io/repositories/8291" target="_blank">
-  <img src="https://trendshift.io/api/badge/repositories/8291" alt="NanmiCoder%2FMediaCrawler | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
+  <img src="https://trendshift.io/api/badge/repositories/8291" alt="cwj007%2FJNU-OPORC | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
 </a>
 
-[![GitHub Stars](https://img.shields.io/github/stars/NanmiCoder/MediaCrawler?style=social)](https://github.com/NanmiCoder/MediaCrawler/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/NanmiCoder/MediaCrawler?style=social)](https://github.com/NanmiCoder/MediaCrawler/network/members)
-[![GitHub Issues](https://img.shields.io/github/issues/NanmiCoder/MediaCrawler)](https://github.com/NanmiCoder/MediaCrawler/issues)
-[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/NanmiCoder/MediaCrawler)](https://github.com/NanmiCoder/MediaCrawler/pulls)
-[![License](https://img.shields.io/github/license/NanmiCoder/MediaCrawler)](https://github.com/NanmiCoder/MediaCrawler/blob/main/LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/cwj007/JNU-OPORC?style=social)](https://github.com/cwj007/JNU-OPORC/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/cwj007/JNU-OPORC?style=social)](https://github.com/cwj007/JNU-OPORC/network/members)
+[![GitHub Issues](https://img.shields.io/github/issues/cwj007/JNU-OPORC)](https://github.com/cwj007/JNU-OPORC/issues)
+[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/cwj007/JNU-OPORC)](https://github.com/cwj007/JNU-OPORC/pulls)
+[![License](https://img.shields.io/github/license/cwj007/JNU-OPORC)](https://github.com/cwj007/JNU-OPORC/blob/master/LICENSE)
 [![中文](https://img.shields.io/badge/🇨🇳_中文-Available-blue)](README.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-Available-green)](README_en.md)
 [![Español](https://img.shields.io/badge/🇪🇸_Español-Current-green)](README_es.md)
@@ -250,7 +250,7 @@ MediaCrawler soporta múltiples métodos de almacenamiento de datos, incluyendo 
 
 ### 💰 Exhibición de Patrocinadores
 
-<a href="https://tikhub.io/?utm_source=github.com/NanmiCoder/MediaCrawler&utm_medium=marketing_social&utm_campaign=retargeting&utm_content=carousel_ad">
+<a href="https://tikhub.io/?utm_source=github.com/cwj007/JNU-OPORC&utm_medium=marketing_social&utm_campaign=retargeting&utm_content=carousel_ad">
 <img width="500" src="docs/static/images/tikhub_banner_zh.png">
 <br>
 TikHub.io proporciona 900+ interfaces de datos altamente estables, cubriendo 14+ plataformas principales nacionales e internacionales incluyendo TK, DY, XHS, Y2B, Ins, X, etc. Soporta APIs de datos públicos multidimensionales para usuarios, contenido, productos, comentarios, etc., con 40M+ conjuntos de datos estructurados limpios. Use el código de invitación <code>cfzyejV9</code> para registrarse y recargar, y obtenga $2 adicionales de bonificación.
@@ -273,20 +273,20 @@ Thordata: Proveedor de servicios de proxy confiable y rentable. Proporciona serv
 
 **Información de Contacto**:
 - WeChat: `relakkes`
-- Email: `relakkes@gmail.com`
+- Email: `JJ_Superman`
 ---
 
 ### 📚 Otros
 - **Preguntas Frecuentes**: [Documentación Completa de MediaCrawler](https://nanmicoder.github.io/MediaCrawler/)
-- **Tutorial de Rastreador para Principiantes**: [Tutorial Gratuito CrawlerTutorial](https://github.com/NanmiCoder/CrawlerTutorial)
-- **Proyecto de Código Abierto de Rastreador de Noticias**: [NewsCrawlerCollection](https://github.com/NanmiCoder/NewsCrawlerCollection)
+- **Tutorial de Rastreador para Principiantes**: [Tutorial Gratuito CrawlerTutorial](https://github.com/cwj007/CrawlerTutorial)
+- **Proyecto de Código Abierto de Rastreador de Noticias**: [NewsCrawlerCollection](https://github.com/cwj007/NewsCrawlerCollection)
 
 
 ## ⭐ Gráfico de Tendencia de Estrellas
 
 ¡Si este proyecto te ayuda, por favor da una ⭐ Estrella para apoyar y que más personas vean MediaCrawler!
 
-[![Star History Chart](https://api.star-history.com/svg?repos=NanmiCoder/MediaCrawler&type=Date)](https://star-history.com/#NanmiCoder/MediaCrawler&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=cwj007/JNU-OPORC&type=Date)](https://star-history.com/#cwj007/JNU-OPORC&Date)
 
 
 ## 📚 Referencias

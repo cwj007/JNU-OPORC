@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/tools/file_header_manager.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 # 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
@@ -32,9 +32,9 @@ import sys
 from typing import List, Tuple
 
 # Project configuration
-REPO_URL = "https://github.com/NanmiCoder/MediaCrawler"
-GITHUB_PROFILE = "https://github.com/NanmiCoder"
-EMAIL = "relakkes@gmail.com"
+REPO_URL = "https://github.com/cwj007/JNU-OPORC"
+GITHUB_PROFILE = "https://github.com/cwj007"
+EMAIL = "JJ_Superman"
 COPYRIGHT_YEAR = "2025"
 LICENSE_TYPE = "NON-COMMERCIAL LEARNING LICENSE 1.1"
 

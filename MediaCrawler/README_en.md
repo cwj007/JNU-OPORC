@@ -16,14 +16,14 @@
 <div align="center">
 
 <a href="https://trendshift.io/repositories/8291" target="_blank">
-  <img src="https://trendshift.io/api/badge/repositories/8291" alt="NanmiCoder%2FMediaCrawler | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
+  <img src="https://trendshift.io/api/badge/repositories/8291" alt="cwj007%2FJNU-OPORC | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
 </a>
 
-[![GitHub Stars](https://img.shields.io/github/stars/NanmiCoder/MediaCrawler?style=social)](https://github.com/NanmiCoder/MediaCrawler/stargazers)
-[![GitHub Forks](https://img.shields.io/github/forks/NanmiCoder/MediaCrawler?style=social)](https://github.com/NanmiCoder/MediaCrawler/network/members)
-[![GitHub Issues](https://img.shields.io/github/issues/NanmiCoder/MediaCrawler)](https://github.com/NanmiCoder/MediaCrawler/issues)
-[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/NanmiCoder/MediaCrawler)](https://github.com/NanmiCoder/MediaCrawler/pulls)
-[![License](https://img.shields.io/github/license/NanmiCoder/MediaCrawler)](https://github.com/NanmiCoder/MediaCrawler/blob/main/LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/cwj007/JNU-OPORC?style=social)](https://github.com/cwj007/JNU-OPORC/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/cwj007/JNU-OPORC?style=social)](https://github.com/cwj007/JNU-OPORC/network/members)
+[![GitHub Issues](https://img.shields.io/github/issues/cwj007/JNU-OPORC)](https://github.com/cwj007/JNU-OPORC/issues)
+[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/cwj007/JNU-OPORC)](https://github.com/cwj007/JNU-OPORC/pulls)
+[![License](https://img.shields.io/github/license/cwj007/JNU-OPORC)](https://github.com/cwj007/JNU-OPORC/blob/master/LICENSE)
 [![中文](https://img.shields.io/badge/🇨🇳_中文-Available-blue)](README.md)
 [![English](https://img.shields.io/badge/🇺🇸_English-Current-green)](README_en.md)
 [![Español](https://img.shields.io/badge/🇪🇸_Español-Available-green)](README_es.md)
@@ -249,7 +249,7 @@ MediaCrawler supports multiple data storage methods, including CSV, JSON, Excel,
 
 ### 💰 Sponsor Display
 
-<a href="https://tikhub.io/?utm_source=github.com/NanmiCoder/MediaCrawler&utm_medium=marketing_social&utm_campaign=retargeting&utm_content=carousel_ad">
+<a href="https://tikhub.io/?utm_source=github.com/cwj007/JNU-OPORC&utm_medium=marketing_social&utm_campaign=retargeting&utm_content=carousel_ad">
 <img width="500" src="docs/static/images/tikhub_banner_zh.png">
 <br>
 TikHub.io provides 900+ highly stable data interfaces, covering 14+ mainstream domestic and international platforms including TK, DY, XHS, Y2B, Ins, X, etc. Supports multi-dimensional public data APIs for users, content, products, comments, etc., with 40M+ cleaned structured datasets. Use invitation code <code>cfzyejV9</code> to register and recharge, and get an additional $2 bonus.
@@ -272,20 +272,20 @@ Become a sponsor and showcase your product here, getting massive exposure daily!
 
 **Contact Information**:
 - WeChat: `relakkes`
-- Email: `relakkes@gmail.com`
+- Email: `JJ_Superman`
 ---
 
 ### 📚 Other
 - **FAQ**: [MediaCrawler Complete Documentation](https://nanmicoder.github.io/MediaCrawler/)
-- **Crawler Beginner Tutorial**: [CrawlerTutorial Free Tutorial](https://github.com/NanmiCoder/CrawlerTutorial)
-- **News Crawler Open Source Project**: [NewsCrawlerCollection](https://github.com/NanmiCoder/NewsCrawlerCollection)
+- **Crawler Beginner Tutorial**: [CrawlerTutorial Free Tutorial](https://github.com/cwj007/CrawlerTutorial)
+- **News Crawler Open Source Project**: [NewsCrawlerCollection](https://github.com/cwj007/NewsCrawlerCollection)
 
 
 ## ⭐ Star Trend Chart
 
 If this project helps you, please give a ⭐ Star to support and let more people see MediaCrawler!
 
-[![Star History Chart](https://api.star-history.com/svg?repos=NanmiCoder/MediaCrawler&type=Date)](https://star-history.com/#NanmiCoder/MediaCrawler&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=cwj007/JNU-OPORC&type=Date)](https://star-history.com/#cwj007/JNU-OPORC&Date)
 
 
 ## 📚 References

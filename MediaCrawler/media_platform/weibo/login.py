@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/weibo/login.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -19,7 +19,7 @@
 
 
 # -*- coding: utf-8 -*-
-# @Author  : relakkes@gmail.com
+# @Author  : JJ_Superman
 # @Time    : 2023/12/23 15:42
 # @Desc    : Weibo login implementation
 
@@ -138,6 +138,11 @@ class WeiboLogin(AbstractLogin):
         utils.logger.info(
             f"[WeiboLogin.login_by_qrcode] Login successful then wait for {wait_redirect_seconds} seconds redirect ...")
         await asyncio.sleep(wait_redirect_seconds)  # 等待页面重定向完成
+        # 尝试等待页面加载完成，确保用户信息能够被提取
+        try:
+            await self.context_page.wait_for_load_state("domcontentloaded", timeout=5000)
+        except Exception:
+            pass
         await self.save_logged_in_cookie()
 
     async def save_logged_in_cookie(self):
@@ -152,24 +157,53 @@ class WeiboLogin(AbstractLogin):
             
             try:
                 _, cookie_dict = utils.convert_cookies(current_cookie)
-                # Weibo user id is often in 'uid' cookie
-                user_id = cookie_dict.get("uid", "unknown")
+                # 尝试从不同的 Cookie 字段中获取用户 ID
+                user_id = cookie_dict.get("uid") or \
+                          cookie_dict.get("wb_uid") or \
+                          cookie_dict.get("SUID") or \
+                          "unknown"
                 
-                # Try to get user name from UI
-                # Weibo new UI has nick name in several places
-                user_name_element = await self.context_page.query_selector(".woo-box-flex.woo-box-alignCenter.ALink_none_1_3S_") or \
-                                   await self.context_page.query_selector(".gn_name") or \
-                                   await self.context_page.query_selector(".name")
-                if user_name_element:
-                    user_name = await user_name_element.inner_text()
-                    user_name = user_name.strip()
+                # 尝试从 Cookie 中获取用户名 (unick)
+                if "un" in cookie_dict:
+                    user_name = cookie_dict.get("un")
+                
+                # 尝试从 UI 界面获取用户名
+                # 微博新旧版 UI 的选择器可能不同
+                selectors = [
+                    ".woo-box-flex.woo-box-alignCenter.ALink_none_1_3S_",  # 新版 UI 昵称
+                    ".gn_name",  # 旧版 UI 昵称
+                    ".name",
+                    "a[href*='/u/'] span",  # 个人主页链接中的昵称
+                    ".nick-name",
+                    "xpath=//div[contains(@class, 'woo-box-flex')]//span[contains(@class, 'ALink_none')]"
+                ]
+                
+                for selector in selectors:
+                    try:
+                        user_name_element = await self.context_page.query_selector(selector)
+                        if user_name_element:
+                            text = await user_name_element.inner_text()
+                            text = text.strip()
+                            if text:
+                                user_name = text
+                                break
+                    except Exception:
+                        continue
+                
+                # 如果还是没有获取到 ID，尝试从页面链接获取
+                if user_id == "unknown":
+                    profile_link = await self.context_page.query_selector("a[href*='/u/']")
+                    if profile_link:
+                        href = await profile_link.get_attribute("href")
+                        if href and "/u/" in href:
+                            user_id = href.split("/u/")[-1].split("?")[0]
             except Exception:
                 pass
             
-            # 从环境变量获取 Visualized 用户 ID
-            visualized_user_id = os.getenv("VISUALIZED_USER_ID")
+            # 从配置获取 Visualized 用户 ID
+            visualized_user_id = config.VISUALIZED_USER_ID
             save_cookie_cache("wb", user_id, user_name, cookie_str, visualized_user_id)
-            utils.logger.info(f"[WeiboLogin.save_logged_in_cookie] Saved cookie for user: {user_name} ({user_id})")
+            utils.logger.info(f"[WeiboLogin.save_logged_in_cookie] Saved cookie for system user: {visualized_user_id}, platform user: {user_name} ({user_id})")
         except Exception as e:
             utils.logger.error(f"[WeiboLogin.save_logged_in_cookie] Failed to save cookie cache: {e}")
 

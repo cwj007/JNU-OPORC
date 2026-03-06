@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/zhihu/client.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -459,7 +459,7 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
         is_end: bool = False
         offset: int = 0
         limit: int = 20
-        while not is_end:
+        while not is_end and len(all_contents) < config.CRAWLER_MAX_NOTES_COUNT:
             res = await self.get_creator_answers(creator.url_token, offset, limit)
             if not res:
                 break
@@ -467,9 +467,16 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
             paging_info = res.get("paging", {})
             is_end = paging_info.get("is_end")
             contents = self._extractor.extract_content_list_from_creator(res.get("data"))
+            
+            # 限制数量
+            remaining = config.CRAWLER_MAX_NOTES_COUNT - len(all_contents)
+            if remaining <= 0:
+                break
+            contents_to_add = contents[:remaining]
+            
             if callback:
-                await callback(contents)
-            all_contents.extend(contents)
+                await callback(contents_to_add)
+            all_contents.extend(contents_to_add)
             offset += limit
             await asyncio.sleep(crawl_interval)
         return all_contents
@@ -494,16 +501,23 @@ class ZhiHuClient(AbstractApiClient, ProxyRefreshMixin):
         is_end: bool = False
         offset: int = 0
         limit: int = 20
-        while not is_end:
+        while not is_end and len(all_contents) < config.CRAWLER_MAX_NOTES_COUNT:
             res = await self.get_creator_articles(creator.url_token, offset, limit)
             if not res:
                 break
             paging_info = res.get("paging", {})
             is_end = paging_info.get("is_end")
             contents = self._extractor.extract_content_list_from_creator(res.get("data"))
+            
+            # 限制数量
+            remaining = config.CRAWLER_MAX_NOTES_COUNT - len(all_contents)
+            if remaining <= 0:
+                break
+            contents_to_add = contents[:remaining]
+            
             if callback:
-                await callback(contents)
-            all_contents.extend(contents)
+                await callback(contents_to_add)
+            all_contents.extend(contents_to_add)
             offset += limit
             await asyncio.sleep(crawl_interval)
         return all_contents

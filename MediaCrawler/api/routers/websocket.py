@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/api/routers/websocket.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 # 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
@@ -23,7 +23,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..services import crawler_manager
 
-router = APIRouter(tags=["websocket"])
+router = APIRouter(prefix="/crawler", tags=["websocket"])
 
 
 class ConnectionManager:
@@ -31,29 +31,39 @@ class ConnectionManager:
 
     def __init__(self):
         self.active_connections: Set[WebSocket] = set()
+        self.user_connections: dict[WebSocket, Optional[str]] = {}
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket, user_id: Optional[str] = None):
         await websocket.accept()
         self.active_connections.add(websocket)
+        self.user_connections[websocket] = user_id
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.discard(websocket)
+        self.user_connections.pop(websocket, None)
 
-    async def broadcast(self, message: dict):
-        """Broadcast message to all connections"""
+    async def broadcast_filtered(self, message: dict, user_id: Optional[str] = None):
+        """Broadcast message to connections matching the user_id"""
         if not self.active_connections:
             return
 
         disconnected = []
         for connection in list(self.active_connections):
-            try:
-                await connection.send_json(message)
-            except Exception:
-                disconnected.append(connection)
+            # Only send if user_id matches or if message has no user_id (global log)
+            conn_user_id = self.user_connections.get(connection)
+            if user_id is None or conn_user_id == user_id:
+                try:
+                    await connection.send_json(message)
+                except Exception:
+                    disconnected.append(connection)
 
         # Clean up disconnected connections
         for conn in disconnected:
             self.disconnect(conn)
+
+    async def broadcast(self, message: dict):
+        """Broadcast message to all connections (legacy)"""
+        await self.broadcast_filtered(message, None)
 
 
 manager = ConnectionManager()
@@ -67,7 +77,8 @@ async def log_broadcaster():
             # Get log entry from queue
             entry = await queue.get()
             # Broadcast to all WebSocket connections
-            await manager.broadcast(entry.model_dump())
+            # Filter by user_id if provided
+            await manager.broadcast_filtered(entry.model_dump(), entry.user_id)
         except asyncio.CancelledError:
             break
         except Exception as e:
@@ -87,26 +98,29 @@ def start_broadcaster():
 
 
 @router.websocket("/ws/logs")
-async def websocket_logs(websocket: WebSocket):
+async def websocket_logs(websocket: WebSocket, visualized_user_id: Optional[str] = None):
     """WebSocket log stream"""
-    print("[WS] New connection attempt")
+    print(f"[WS] New connection attempt for user: {visualized_user_id}")
+    uid = str(visualized_user_id) if visualized_user_id else "default"
 
     try:
         # Ensure broadcast task is running
         start_broadcaster()
 
-        await manager.connect(websocket)
-        print(f"[WS] Connected, active connections: {len(manager.active_connections)}")
+        # Accept connection and track by uid (consistent with crawler_manager's internal uid)
+        await manager.connect(websocket, uid)
+        print(f"[WS] Connected, user: {visualized_user_id}, active connections: {len(manager.active_connections)}")
 
-        # Send existing logs
-        for log in crawler_manager.logs:
+        # Send existing logs for this user
+        user_logs = crawler_manager.get_user_logs(uid)
+        for log in user_logs:
             try:
                 await websocket.send_json(log.model_dump())
             except Exception as e:
                 print(f"[WS] Error sending existing log: {e}")
                 break
 
-        print(f"[WS] Sent {len(crawler_manager.logs)} existing logs, entering main loop")
+        print(f"[WS] Sent {len(user_logs)} existing logs, entering main loop")
 
         while True:
             # Keep connection alive, receive heartbeat or any message
@@ -135,14 +149,14 @@ async def websocket_logs(websocket: WebSocket):
 
 
 @router.websocket("/ws/status")
-async def websocket_status(websocket: WebSocket):
+async def websocket_status(websocket: WebSocket, visualized_user_id: Optional[str] = None):
     """WebSocket status stream"""
     await websocket.accept()
 
     try:
         while True:
-            # Send status every second
-            status = crawler_manager.get_status()
+            # Send status every second for this user
+            status = crawler_manager.get_status(visualized_user_id)
             await websocket.send_json(status)
             await asyncio.sleep(1)
     except WebSocketDisconnect:

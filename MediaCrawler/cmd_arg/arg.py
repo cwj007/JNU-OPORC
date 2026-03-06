@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/cmd_arg/arg.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -356,6 +356,14 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
                 rich_help_panel="微博配置",
             ),
         ] = config.WEIBO_SEARCH_TYPE,
+        visualized_user_id: Annotated[
+            Optional[str],
+            typer.Option(
+                "--visualized_user_id",
+                help="可视化平台关联用户 ID (用于多用户隔离)",
+                rich_help_panel="高级配置",
+            ),
+        ] = config.VISUALIZED_USER_ID,
     ) -> SimpleNamespace:
         """MediaCrawler 命令行入口"""
 
@@ -397,6 +405,7 @@ async def parse_cmd(argv: Optional[Sequence[str]] = None):
         config.KDL_USER_PWD = kdl_user_pwd
         config.CRAWLER_MAX_NOTES_COUNT = crawler_max_notes_count
         config.WEIBO_SEARCH_TYPE = weibo_search_type
+        config.VISUALIZED_USER_ID = visualized_user_id
 
         # Set platform-specific ID lists for detail/creator mode
         config.IS_CLI_SPECIFIED_ID = bool(specified_id_list)

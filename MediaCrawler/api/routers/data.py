@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/api/routers/data.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 # 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
@@ -19,10 +19,20 @@
 import os
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse
+
+# 尝试导入认证模块以支持多用户隔离
+try:
+    from Visualized.api.auth import get_current_user
+    HAS_AUTH = True
+except ImportError:
+    # 兼容独立运行模式
+    async def get_current_user():
+        return None
+    HAS_AUTH = False
 
 router = APIRouter(prefix="/data", tags=["data"])
 
@@ -59,15 +69,26 @@ def get_file_info(file_path: Path) -> dict:
 
 
 @router.get("/files")
-async def list_data_files(platform: Optional[str] = None, file_type: Optional[str] = None):
+async def list_data_files(
+    platform: Optional[str] = None, 
+    file_type: Optional[str] = None,
+    visualized_user_id: Optional[str] = None,
+    current_user: Any = Depends(get_current_user)
+):
     """Get data file list"""
-    if not DATA_DIR.exists():
+    # 优先使用登录用户的 id
+    user_id = str(current_user.id) if current_user else visualized_user_id
+    
+    # 针对多用户隔离，只在用户对应的子目录中搜索
+    search_dir = DATA_DIR / user_id if user_id else DATA_DIR
+    
+    if not search_dir.exists():
         return {"files": []}
 
     files = []
     supported_extensions = {".json", ".csv", ".xlsx", ".xls"}
 
-    for root, dirs, filenames in os.walk(DATA_DIR):
+    for root, dirs, filenames in os.walk(search_dir):
         root_path = Path(root)
         for filename in filenames:
             file_path = root_path / filename
@@ -76,7 +97,7 @@ async def list_data_files(platform: Optional[str] = None, file_type: Optional[st
 
             # Platform filter
             if platform:
-                rel_path = str(file_path.relative_to(DATA_DIR))
+                rel_path = str(file_path.relative_to(search_dir))
                 if platform.lower() not in rel_path.lower():
                     continue
 
@@ -96,11 +117,35 @@ async def list_data_files(platform: Optional[str] = None, file_type: Optional[st
 
 
 @router.get("/files/{file_path:path}")
-async def get_file_content(file_path: str, preview: bool = True, limit: int = 100):
+async def get_file_content(
+    file_path: str, 
+    preview: bool = True, 
+    limit: int = 100,
+    visualized_user_id: Optional[str] = None,
+    current_user: Any = Depends(get_current_user)
+):
     """Get file content or preview"""
-    full_path = DATA_DIR / file_path
+    # 优先使用登录用户的 username
+    user_id = current_user.username if current_user else visualized_user_id
+    
+    # 构建完整路径，确保安全性
+    if user_id:
+        # 如果是隔离模式，路径相对于用户目录
+        full_path = DATA_DIR / user_id / file_path
+    else:
+        # 否则相对于主目录
+        full_path = DATA_DIR / file_path
 
-    if not full_path.exists():
+    # 安全检查：防止路径穿越
+    try:
+        if user_id:
+            full_path.resolve().relative_to((DATA_DIR / user_id).resolve())
+        else:
+            full_path.resolve().relative_to(DATA_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if not full_path.exists() or not full_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
     if not full_path.is_file():

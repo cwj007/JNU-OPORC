@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/proxy/providers/jishu_http_proxy.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -18,7 +18,7 @@
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 # -*- coding: utf-8 -*-
-# @Author  : relakkes@gmail.com
+# @Author  : JJ_Superman
 # @Time    : 2024/4/5 09:32
 # @Desc    : Deprecated!!!!! Shut down!!! JiSu HTTP proxy IP implementation. Please use KuaiDaili implementation (proxy/providers/kuaidl_proxy.py)
 import os
@@ -72,7 +72,7 @@ class JiSuHttpProxy(ProxyProvider):
             url = self.api_path + "/fetchips" + '?' + urlencode(self.params)
             utils.logger.info(f"[JiSuHttpProxy.get_proxy] get ip proxy url:{url}")
             response = await client.get(url, headers={
-                "User-Agent": "MediaCrawler https://github.com/NanmiCoder/MediaCrawler",
+                "User-Agent": "MediaCrawler https://github.com/cwj007/JNU-OPORC",
             })
             res_dict: Dict = response.json()
             if res_dict.get("code") == 0:

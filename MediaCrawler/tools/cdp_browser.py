@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/tools/cdp_browser.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -169,9 +169,10 @@ class CDPBrowserManager:
         """
         try:
             # Simple socket connection test
+            # 使用 127.0.0.1 替代 localhost，避免 IPv6 导致的连接问题
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.settimeout(5)
-                result = s.connect_ex(("localhost", debug_port))
+                result = s.connect_ex(("127.0.0.1", debug_port))
                 if result == 0:
                     utils.logger.info(
                         f"[CDPBrowserManager] CDP port {debug_port} is accessible"
@@ -193,10 +194,11 @@ class CDPBrowserManager:
         # Set user data directory (if save login state is enabled)
         user_data_dir = None
         if config.SAVE_LOGIN_STATE:
+            user_id_suffix = f"_{config.VISUALIZED_USER_ID}" if config.VISUALIZED_USER_ID else ""
             user_data_dir = os.path.join(
                 os.getcwd(),
                 "browser_data",
-                f"cdp_{config.USER_DATA_DIR % config.PLATFORM}",
+                f"cdp_{config.USER_DATA_DIR % config.PLATFORM}{user_id_suffix}",
             )
             os.makedirs(user_data_dir, exist_ok=True)
             utils.logger.info(f"[CDPBrowserManager] User data directory: {user_data_dir}")
@@ -226,28 +228,47 @@ class CDPBrowserManager:
 
     async def _get_browser_websocket_url(self, debug_port: int) -> str:
         """
-        Get browser WebSocket connection URL
+        获取浏览器 WebSocket 连接 URL
         """
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"http://localhost:{debug_port}/json/version", timeout=10
-                )
-                if response.status_code == 200:
-                    data = response.json()
-                    ws_url = data.get("webSocketDebuggerUrl")
-                    if ws_url:
-                        utils.logger.info(
-                            f"[CDPBrowserManager] Got browser WebSocket URL: {ws_url}"
-                        )
-                        return ws_url
+        # 使用 127.0.0.1 替代 localhost，避免 IPv6 导致的连接问题
+        url = f"http://127.0.0.1:{debug_port}/json/version"
+        max_retries = 5
+        retry_delay = 1.0
+
+        # 禁用所有代理，确保 local 请求不经过系统代理
+        # 502 错误通常是因为系统设置了全局代理，而代理服务器无法处理 localhost 请求
+        # 注意：新版本 httpx 使用 proxy 参数替代 proxies，且参数类型为 httpx.Proxy 或 None
+        # 设置 trust_env=False 强制忽略系统环境变量中的代理设置
+        proxy = None
+
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(proxy=proxy, verify=False, trust_env=False) as client:
+                    response = await client.get(url, timeout=10)
+                    if response.status_code == 200:
+                        data = response.json()
+                        ws_url = data.get("webSocketDebuggerUrl")
+                        if ws_url:
+                            utils.logger.info(
+                                f"[CDPBrowserManager] Got browser WebSocket URL: {ws_url}"
+                            )
+                            return ws_url
+                        else:
+                            raise RuntimeError("webSocketDebuggerUrl not found in response")
                     else:
-                        raise RuntimeError("webSocketDebuggerUrl not found")
-                else:
-                    raise RuntimeError(f"HTTP {response.status_code}: {response.text}")
-        except Exception as e:
-            utils.logger.error(f"[CDPBrowserManager] Failed to get WebSocket URL: {e}")
-            raise
+                        error_text = response.text[:200]
+                        utils.logger.warning(
+                            f"[CDPBrowserManager] HTTP {response.status_code} when getting WebSocket URL (attempt {attempt + 1}/{max_retries}): {error_text}"
+                        )
+            except Exception as e:
+                utils.logger.warning(
+                    f"[CDPBrowserManager] Error getting WebSocket URL (attempt {attempt + 1}/{max_retries}): {e}"
+                )
+
+            if attempt < max_retries - 1:
+                await asyncio.sleep(retry_delay)
+
+        raise RuntimeError(f"Failed to get WebSocket URL after {max_retries} attempts from {url}")
 
     async def _connect_via_cdp(self, playwright: Playwright):
         """

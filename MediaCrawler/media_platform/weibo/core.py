@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/weibo/core.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -18,7 +18,7 @@
 # 使用本代码即表示您同意遵守上述原则和LICENSE中的所有条款。
 
 # -*- coding: utf-8 -*-
-# @Author  : relakkes@gmail.com
+# @Author  : JJ_Superman
 # @Time    : 2023/12/23 15:41
 # @Desc    : Weibo crawler main workflow code
 
@@ -178,8 +178,7 @@ class WeiboCrawler(AbstractCrawler):
         """
         utils.logger.info("[WeiboCrawler.search] Begin search weibo keywords")  # 记录日志：开始关键词搜索
         weibo_limit_count = 10  # 微博搜索接口每页固定的数量限制
-        if config.CRAWLER_MAX_NOTES_COUNT < weibo_limit_count:  # 如果配置的最大帖子数小于限制
-            config.CRAWLER_MAX_NOTES_COUNT = weibo_limit_count  # 将最大帖子数修正为最小限制
+        # 不再强制修改用户的配置，尊重用户设置的最大爬取量
         start_page = config.START_PAGE  # 获取配置的起始页码
 
         # 根据配置设置微博搜索类型（默认、实时、热门、视频等）
@@ -199,7 +198,9 @@ class WeiboCrawler(AbstractCrawler):
             source_keyword_var.set(keyword)  # 设置当前关键词变量
             utils.logger.info(f"[WeiboCrawler.search] Current search keyword: {keyword}")  # 记录日志：当前搜索的关键词
             page = 1  # 从第 1 页开始迭代
-            while (page - start_page + 1) * weibo_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:  # 只要还没达到最大爬取数量
+            # 记录当前关键词已爬取的数量
+            current_keyword_notes_count = 0
+            while current_keyword_notes_count < config.CRAWLER_MAX_NOTES_COUNT:  # 只要还没达到最大爬取数量
                 if page < start_page:  # 如果当前页小于起始页
                     utils.logger.info(f"[WeiboCrawler.search] Skip page: {page}")  # 记录日志：跳过页码
                     page += 1  # 页码加 1
@@ -209,7 +210,8 @@ class WeiboCrawler(AbstractCrawler):
                 note_id_list: List[str] = []  # 初始化帖子 ID 列表
                 note_list = filter_search_result_card(search_res.get("cards"))  # 过滤并提取搜索结果中的卡片数据
                 # 如果开启了全文获取，则批量获取帖子的完整正文
-                note_list = await self.batch_get_notes_full_text(note_list)  # 批量处理全文
+                remaining_count = config.CRAWLER_MAX_NOTES_COUNT - current_keyword_notes_count
+                note_list = await self.batch_get_notes_full_text(note_list, max_count=remaining_count)  # 批量处理全文
                 for note_item in note_list:  # 遍历帖子列表
                     if note_item:
                         mblog: Dict = note_item.get("mblog")  # 获取 mblog 对象（核心微博数据）
@@ -223,6 +225,15 @@ class WeiboCrawler(AbstractCrawler):
                             else:
                                 await weibo_store.update_weibo_note(note_item)  # 更新/保存微博帖子到存储
                                 await self.get_note_images(mblog)  # 获取并保存帖子中的图片
+                            
+                            current_keyword_notes_count += 1
+                            if current_keyword_notes_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                                utils.logger.info(f"[WeiboCrawler.search] Reached max notes count: {config.CRAWLER_MAX_NOTES_COUNT}")
+                                break
+
+                if current_keyword_notes_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                    await self.batch_get_notes_comments(note_id_list)
+                    break
 
                 page += 1  # 翻页
 
@@ -729,7 +740,12 @@ class WeiboCrawler(AbstractCrawler):
 
         """
         utils.logger.info("[WeiboCrawler.get_creators_and_notes] Begin get weibo creators")  # 记录日志：开始获取创作者
+        total_notes_count = 0
         for user_id in config.WEIBO_CREATOR_ID_LIST:  # 遍历配置的创作者 ID 列表
+            remaining_count = config.CRAWLER_MAX_NOTES_COUNT - total_notes_count
+            if remaining_count <= 0:
+                break
+
             try:
                 createor_info_res: Dict = await self.wb_client.get_creator_info_by_id(creator_id=user_id)  # 获取创作者详情
             except DataFetchError as e:
@@ -780,9 +796,18 @@ class WeiboCrawler(AbstractCrawler):
 
                 # 创建一个包装回调函数，在保存数据前先获取全文和图片
                 async def save_notes_with_full_text(note_list: List[Dict]):
+                    nonlocal total_notes_count
+                    # 计算剩余需要抓取的数量
+                    current_remaining = config.CRAWLER_MAX_NOTES_COUNT - total_notes_count
+                    if current_remaining <= 0:
+                        return
+
                     # 如果开启了全文抓取，则先批量处理
-                    updated_note_list = await self.batch_get_notes_full_text(note_list)
+                    updated_note_list = await self.batch_get_notes_full_text(note_list, max_count=current_remaining)
                     for note_item in updated_note_list:
+                        if total_notes_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                            break
+                        
                         mblog = note_item.get("mblog", {})
                         note_id = mblog.get("bid") or mblog.get("id")
                         
@@ -793,6 +818,7 @@ class WeiboCrawler(AbstractCrawler):
                             await weibo_store.update_weibo_note(note_item)  # 保存帖子
                             if config.ENABLE_GET_MEIDAS:
                                 await self.get_note_images(mblog)  # 保存图片
+                            total_notes_count += 1
 
                 # 获取该创作者的所有微博信息
                 try:
@@ -841,7 +867,8 @@ class WeiboCrawler(AbstractCrawler):
         """启动浏览器并创建浏览器上下文"""
         utils.logger.info("[WeiboCrawler.launch_browser] Begin create browser context ...")  # 记录日志
         if config.SAVE_LOGIN_STATE:  # 如果开启了持久化登录状态
-            user_data_dir = os.path.join(os.getcwd(), "browser_data", config.USER_DATA_DIR % config.PLATFORM)  # type: ignore  # 计算用户数据目录
+            user_id_suffix = f"_{config.VISUALIZED_USER_ID}" if config.VISUALIZED_USER_ID else ""
+            user_data_dir = os.path.join(os.getcwd(), "browser_data", (config.USER_DATA_DIR % config.PLATFORM) + user_id_suffix)  # type: ignore  # 计算用户数据目录
             browser_context = await chromium.launch_persistent_context(  # 启动持久化上下文
                 user_data_dir=user_data_dir,
                 accept_downloads=True,
@@ -931,17 +958,21 @@ class WeiboCrawler(AbstractCrawler):
 
         return note_item
 
-    async def batch_get_notes_full_text(self, note_list: List[Dict]) -> List[Dict]:
+    async def batch_get_notes_full_text(self, note_list: List[Dict], max_count: int = 999) -> List[Dict]:
         """
         批量获取微博帖子的全文内容
         :param note_list: 帖子列表
+        :param max_count: 最大获取数量
         :return: 更新后的帖子列表
         """
         if not config.ENABLE_WEIBO_FULL_TEXT:
             return note_list
 
         result = []
-        for note_item in note_list:
+        for i, note_item in enumerate(note_list):
+            if i >= max_count:
+                result.append(note_item)
+                continue
             updated_note = await self.get_note_full_text(note_item)
             result.append(updated_note)
         return result

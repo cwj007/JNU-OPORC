@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/api/services/crawler_manager.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 # 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
@@ -20,7 +20,7 @@ import asyncio
 import subprocess
 import signal
 import os
-from typing import Optional, List
+from typing import Optional, List, Dict
 from datetime import datetime
 from pathlib import Path
 
@@ -32,21 +32,58 @@ class CrawlerManager:
 
     def __init__(self):
         self._lock = asyncio.Lock()
-        self.process: Optional[subprocess.Popen] = None
-        self.status = "idle"
-        self.started_at: Optional[datetime] = None
-        self.current_config: Optional[CrawlerStartRequest] = None
+        # user_id -> {process, status, started_at, config, read_task}
+        self._user_states: Dict[str, dict] = {}
         self._log_id = 0
-        self._logs: List[LogEntry] = []
-        self._read_task: Optional[asyncio.Task] = None
+        self._logs: List[LogEntry] = []  # Keep this for backward compatibility or global logs if needed
+        self._user_logs: Dict[str, List[LogEntry]] = {} # user_id -> logs
         # Project root directory
         self._project_root = Path(__file__).parent.parent.parent
         # Log queue - for pushing to WebSocket
         self._log_queue: Optional[asyncio.Queue] = None
 
+    def _get_user_state(self, user_id: Optional[str]) -> dict:
+        """Get or initialize user state"""
+        uid = str(user_id) if user_id else "default"
+        if uid not in self._user_states:
+            self._user_states[uid] = {
+                "process": None,
+                "status": "idle",
+                "started_at": None,
+                "config": None,
+                "read_task": None
+            }
+        return self._user_states[uid]
+
+    @property
+    def process(self) -> Optional[subprocess.Popen]:
+        """Default process for backward compatibility"""
+        return self._get_user_state(None)["process"]
+
+    @property
+    def status(self) -> str:
+        """Default status for backward compatibility"""
+        return self._get_user_state(None)["status"]
+
+    @property
+    def started_at(self) -> Optional[datetime]:
+        """Default started_at for backward compatibility"""
+        return self._get_user_state(None)["started_at"]
+
+    @property
+    def current_config(self) -> Optional[CrawlerStartRequest]:
+        """Default current_config for backward compatibility"""
+        return self._get_user_state(None)["config"]
+
     @property
     def logs(self) -> List[LogEntry]:
+        """Global logs (deprecated, use get_user_logs)"""
         return self._logs
+
+    def get_user_logs(self, user_id: Optional[str]) -> List[LogEntry]:
+        """Get logs for a specific user"""
+        uid = str(user_id) if user_id else "default"
+        return self._user_logs.get(uid, [])
 
     def get_log_queue(self) -> asyncio.Queue:
         """Get or create log queue"""
@@ -54,19 +91,33 @@ class CrawlerManager:
             self._log_queue = asyncio.Queue()
         return self._log_queue
 
-    def _create_log_entry(self, message: str, level: str = "info") -> LogEntry:
+    def _create_log_entry(self, message: str, level: str = "info", user_id: str = None) -> LogEntry:
         """Create log entry"""
         self._log_id += 1
         entry = LogEntry(
             id=self._log_id,
             timestamp=datetime.now().strftime("%H:%M:%S"),
             level=level,
-            message=message
+            message=message,
+            user_id=user_id
         )
+        
+        # Add to global logs (deprecated)
         self._logs.append(entry)
-        # Keep last 500 logs
         if len(self._logs) > 500:
             self._logs = self._logs[-500:]
+
+        # Add to per-user logs
+        if user_id:
+            if user_id not in self._user_logs:
+                self._user_logs[user_id] = []
+            
+            user_logs = self._user_logs[user_id]
+            user_logs.append(entry)
+            # Keep last 500 logs per user
+            if len(user_logs) > 500:
+                self._user_logs[user_id] = user_logs[-500:]
+        
         return entry
 
     async def _push_log(self, entry: LogEntry):
@@ -93,122 +144,150 @@ class CrawlerManager:
     async def start(self, config: CrawlerStartRequest) -> bool:
         """Start crawler process"""
         async with self._lock:
-            if self.process and self.process.poll() is None:
+            user_id = config.visualized_user_id
+            state = self._get_user_state(user_id)
+            
+            if state["process"] and state["process"].returncode is None:
                 return False
 
-            # Clear old logs
-            self._logs = []
-            self._log_id = 0
+            # Clear old logs for this user
+            uid = str(user_id) if user_id else "default"
+            self._user_logs[uid] = []
 
-            # Clear pending queue (don't replace object to avoid WebSocket broadcast coroutine holding old queue reference)
+            # Ensure log queue exists
             if self._log_queue is None:
                 self._log_queue = asyncio.Queue()
-            else:
-                try:
-                    while True:
-                        self._log_queue.get_nowait()
-                except asyncio.QueueEmpty:
-                    pass
+            
+            # Note: We no longer clear the global log queue here to support multi-user isolation.
+            # Each user's logs will be filtered by the WebSocket broadcaster.
 
             # Build command line arguments
             cmd = self._build_command(config)
 
             # Log start information
-            entry = self._create_log_entry(f"Starting crawler: {' '.join(cmd)}", "info")
+            entry = self._create_log_entry(f"Starting crawler: {' '.join(cmd)}", "info", user_id=uid)
             await self._push_log(entry)
 
-            try:
-                # Start subprocess
-                env = {**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
-                if config.visualized_user_id:
-                    env["VISUALIZED_USER_ID"] = str(config.visualized_user_id)
+            # Create process with environment variables
+            env = os.environ.copy()
+            if config.visualized_user_id:
+                env["VISUALIZED_USER_ID"] = config.visualized_user_id
 
-                self.process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    encoding='utf-8',
-                    bufsize=1,
+            try:
+                state["process"] = await asyncio.create_subprocess_exec(
+                    *cmd,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.STDOUT,
                     cwd=str(self._project_root),
                     env=env
                 )
 
-                self.status = "running"
-                self.started_at = datetime.now()
-                self.current_config = config
+                state["status"] = "running"
+                state["started_at"] = datetime.now()
+                state["config"] = config.model_dump()
 
                 entry = self._create_log_entry(
                     f"Crawler started on platform: {config.platform.value}, type: {config.crawler_type.value}",
-                    "success"
+                    "success",
+                    user_id=uid
                 )
                 await self._push_log(entry)
 
                 # Start log reading task
-                self._read_task = asyncio.create_task(self._read_output())
+                state["read_task"] = asyncio.create_task(self._read_output(user_id))
 
                 return True
             except Exception as e:
-                self.status = "error"
-                entry = self._create_log_entry(f"Failed to start crawler: {str(e)}", "error")
+                state["status"] = "error"
+                entry = self._create_log_entry(f"Failed to start crawler: {str(e)}", "error", user_id=uid)
                 await self._push_log(entry)
                 return False
 
-    async def stop(self) -> bool:
+    async def stop(self, user_id: Optional[str] = None) -> bool:
         """Stop crawler process"""
         async with self._lock:
-            if not self.process or self.process.poll() is not None:
+            state = self._get_user_state(user_id)
+            uid = str(user_id) if user_id else "default"
+            
+            if not state["process"] or state["process"].returncode is not None:
                 return False
 
-            self.status = "stopping"
-            entry = self._create_log_entry("Sending SIGTERM to crawler process...", "warning")
+            state["status"] = "stopping"
+            entry = self._create_log_entry("Sending SIGTERM to crawler process...", "warning", user_id=uid)
             await self._push_log(entry)
 
             try:
-                self.process.send_signal(signal.SIGTERM)
+                # On Windows, send_signal(signal.SIGTERM) is not supported. 
+                # Use terminate() which works on both Windows and Unix.
+                state["process"].terminate()
 
                 # Wait for graceful exit (up to 15 seconds)
                 for _ in range(30):
-                    if self.process.poll() is not None:
+                    if state["process"].returncode is not None:
                         break
                     await asyncio.sleep(0.5)
 
                 # If still not exited, force kill
-                if self.process.poll() is None:
-                    entry = self._create_log_entry("Process not responding, sending SIGKILL...", "warning")
+                if state["process"].returncode is None:
+                    entry = self._create_log_entry("Process not responding, sending SIGKILL...", "warning", user_id=uid)
                     await self._push_log(entry)
-                    self.process.kill()
+                    state["process"].kill()
+                    # Wait for force kill to take effect
+                    await asyncio.sleep(0.5)
 
-                entry = self._create_log_entry("Crawler process terminated", "info")
+                entry = self._create_log_entry("Crawler process terminated", "info", user_id=uid)
                 await self._push_log(entry)
+                
+                # 彻底清理资源
+                state["status"] = "idle"
+                state["config"] = None
+                state["process"] = None
+                state["started_at"] = None
 
             except Exception as e:
-                entry = self._create_log_entry(f"Error stopping crawler: {str(e)}", "error")
+                entry = self._create_log_entry(f"Error stopping crawler: {str(e)}", "error", user_id=uid)
                 await self._push_log(entry)
+                state["status"] = "idle"
+                state["config"] = None
+                state["process"] = None
+                state["started_at"] = None
 
-            self.status = "idle"
-            self.current_config = None
-
-            # Cancel log reading task
-            if self._read_task:
-                self._read_task.cancel()
-                self._read_task = None
+            # Cancel and clear log reading task
+            if state["read_task"]:
+                state["read_task"].cancel()
+                state["read_task"] = None
 
             return True
 
-    def get_status(self) -> dict:
+    def get_status(self, user_id: Optional[str] = None) -> dict:
         """Get current status"""
+        state = self._get_user_state(user_id)
+        
+        # 兜底检查：如果状态是运行中，检查进程是否真的还在运行
+        if state["status"] in ("running", "stopping") and state["process"]:
+            # returncode 不为 None 表示进程已结束
+            if state["process"].returncode is not None:
+                state["status"] = "idle"
+                state["config"] = None
+        
+        config = state["config"]
+        
+        # Note: config is stored as a dict (via model_dump())
+        platform = config.get("platform") if config else None
+        crawler_type = config.get("crawler_type") if config else None
+        
         return {
-            "status": self.status,
-            "platform": self.current_config.platform.value if self.current_config else None,
-            "crawler_type": self.current_config.crawler_type.value if self.current_config else None,
-            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "status": state["status"],
+            "platform": platform,
+            "crawler_type": crawler_type,
+            "started_at": state["started_at"] if state["started_at"] else None,
             "error_message": None
         }
 
     def _build_command(self, config: CrawlerStartRequest) -> list:
         """Build main.py command line arguments"""
         # Use --frozen to ensure the environment matches the lockfile exactly, consistent with local manual execution
+        # According to workspace rules, 'python' is not needed when using uv run --frozen
         cmd = ["uv", "run", "--frozen", "main.py"]
 
         cmd.extend(["--platform", config.platform.value])
@@ -235,6 +314,9 @@ class CrawlerManager:
 
         cmd.extend(["--headless", "true" if config.headless else "false"])
 
+        if config.visualized_user_id:
+            cmd.extend(["--visualized_user_id", config.visualized_user_id])
+
         # New configuration parameters
         if config.enable_ip_proxy:
             cmd.extend(["--enable_ip_proxy", "true"])
@@ -258,50 +340,65 @@ class CrawlerManager:
 
         return cmd
 
-    async def _read_output(self):
+    async def _read_output(self, user_id: str = None):
         """Asynchronously read process output"""
-        loop = asyncio.get_event_loop()
+        state = self._get_user_state(user_id)
+        uid = str(user_id) if user_id else "default"
 
         try:
-            while self.process and self.process.poll() is None:
-                # Read a line in thread pool
-                line = await loop.run_in_executor(
-                    None, self.process.stdout.readline
-                )
+            # For asyncio.subprocess.Process, stdout is a StreamReader
+            while state["process"]:
+                line_bytes = await state["process"].stdout.readline()
+                if not line_bytes:
+                    break
+                
+                line = line_bytes.decode("utf-8", errors="ignore").strip()
                 if line:
-                    line = line.strip()
-                    if line:
-                        level = self._parse_log_level(line)
-                        entry = self._create_log_entry(line, level)
-                        await self._push_log(entry)
+                    level = self._parse_log_level(line)
+                    entry = self._create_log_entry(line, level, user_id=uid)
+                    await self._push_log(entry)
 
-            # Read remaining output
-            if self.process and self.process.stdout:
-                remaining = await loop.run_in_executor(
-                    None, self.process.stdout.read
-                )
-                if remaining:
-                    for line in remaining.strip().split('\n'):
-                        if line.strip():
-                            level = self._parse_log_level(line)
-                            entry = self._create_log_entry(line.strip(), level)
-                            await self._push_log(entry)
-
-            # Process ended
-            if self.status == "running":
-                exit_code = self.process.returncode if self.process else -1
-                if exit_code == 0:
-                    entry = self._create_log_entry("Crawler completed successfully", "success")
-                else:
-                    entry = self._create_log_entry(f"Crawler exited with code: {exit_code}", "warning")
-                await self._push_log(entry)
-                self.status = "idle"
+            # 等待进程完全结束并获取退出码
+            if state["process"]:
+                try:
+                    # 给一点时间让进程自然结束，避免 readline 结束后 returncode 还没更新
+                    await asyncio.wait_for(state["process"].wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    pass
+                
+                exit_code = state["process"].returncode
+                
+                # 只要进程结束了，且当前状态不是 idle，就更新为 idle
+                if state["status"] != "idle":
+                    if exit_code == 0:
+                        entry = self._create_log_entry("Crawler completed successfully", "success", user_id=uid)
+                    elif exit_code is not None:
+                        entry = self._create_log_entry(f"Crawler exited with code: {exit_code}", "warning", user_id=uid)
+                    else:
+                        entry = self._create_log_entry("Crawler process finished", "info", user_id=uid)
+                    
+                    await self._push_log(entry)
+                    
+                    # 彻底清理资源
+                    state["status"] = "idle"
+                    state["config"] = None
+                    state["process"] = None
+                    state["started_at"] = None
+                    # 读取任务在完成后会自动销毁，但也可以手动置空以防引用残留
+                    state["read_task"] = None
 
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            entry = self._create_log_entry(f"Error reading output: {str(e)}", "error")
+            entry = self._create_log_entry(f"Error reading process output: {str(e)}", "error", user_id=uid)
             await self._push_log(entry)
+            # 发生异常也尝试重置状态并清理资源
+            if state["status"] != "idle":
+                state["status"] = "idle"
+                state["config"] = None
+                state["process"] = None
+                state["started_at"] = None
+                state["read_task"] = None
 
 
 # Global singleton

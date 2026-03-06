@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/media_platform/tieba/core.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -151,8 +151,6 @@ class TieBaCrawler(AbstractCrawler):
             "[BaiduTieBaCrawler.search] Begin search baidu tieba keywords"
         )
         tieba_limit_count = 10  # tieba limit page fixed value
-        if config.CRAWLER_MAX_NOTES_COUNT < tieba_limit_count:
-            config.CRAWLER_MAX_NOTES_COUNT = tieba_limit_count
         start_page = config.START_PAGE
         for keyword in config.KEYWORDS.split(","):
             source_keyword_var.set(keyword)
@@ -160,9 +158,9 @@ class TieBaCrawler(AbstractCrawler):
                 f"[BaiduTieBaCrawler.search] Current search keyword: {keyword}"
             )
             page = 1
-            while (
-                page - start_page + 1
-            ) * tieba_limit_count <= config.CRAWLER_MAX_NOTES_COUNT:
+            # 记录当前关键词已爬取的数量
+            current_keyword_notes_count = 0
+            while current_keyword_notes_count < config.CRAWLER_MAX_NOTES_COUNT:
                 if page < start_page:
                     utils.logger.info(f"[BaiduTieBaCrawler.search] Skip page {page}")
                     page += 1
@@ -188,15 +186,27 @@ class TieBaCrawler(AbstractCrawler):
                     utils.logger.info(
                         f"[BaiduTieBaCrawler.search] Note list len: {len(notes_list)}"
                     )
+                    
+                    # 限制当前关键词爬取的数量
+                    current_page_notes = notes_list
+                    if current_keyword_notes_count + len(notes_list) > config.CRAWLER_MAX_NOTES_COUNT:
+                        needed_count = config.CRAWLER_MAX_NOTES_COUNT - current_keyword_notes_count
+                        current_page_notes = notes_list[:needed_count]
+                        utils.logger.info(f"[BaiduTieBaCrawler.search] Reach max notes count: {config.CRAWLER_MAX_NOTES_COUNT}")
+
                     await self.get_specified_notes(
-                        note_id_list=[note_detail.note_id for note_detail in notes_list]
+                        note_id_list=[note_detail.note_id for note_detail in current_page_notes]
                     )
+                    
+                    current_keyword_notes_count += len(current_page_notes)
 
                     # Sleep after page navigation
                     await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
                     utils.logger.info(f"[TieBaCrawler.search] Sleeping for {config.CRAWLER_MAX_SLEEP_SEC} seconds after page {page}")
 
                     page += 1
+                    if current_keyword_notes_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                        break
                 except Exception as ex:
                     utils.logger.error(
                         f"[BaiduTieBaCrawler.search] Search keywords error, current page: {page}, current keyword: {keyword}, err: {ex}"
@@ -210,14 +220,15 @@ class TieBaCrawler(AbstractCrawler):
 
         """
         tieba_limit_count = 50
-        if config.CRAWLER_MAX_NOTES_COUNT < tieba_limit_count:
-            config.CRAWLER_MAX_NOTES_COUNT = tieba_limit_count
+        # 不再强制修改用户的配置，尊重用户设置的最大爬取量
         for tieba_name in config.TIEBA_NAME_LIST:
             utils.logger.info(
                 f"[BaiduTieBaCrawler.get_specified_tieba_notes] Begin get tieba name: {tieba_name}"
             )
             page_number = 0
-            while page_number <= config.CRAWLER_MAX_NOTES_COUNT:
+            # 记录当前贴吧已爬取的数量
+            current_tieba_notes_count = 0
+            while current_tieba_notes_count < config.CRAWLER_MAX_NOTES_COUNT:
                 note_list: List[TiebaNote] = (
                     await self.tieba_client.get_notes_by_tieba_name(
                         tieba_name=tieba_name, page_num=page_number
@@ -232,13 +243,25 @@ class TieBaCrawler(AbstractCrawler):
                 utils.logger.info(
                     f"[BaiduTieBaCrawler.get_specified_tieba_notes] tieba name: {tieba_name} note list len: {len(note_list)}"
                 )
-                await self.get_specified_notes([note.note_id for note in note_list])
+                
+                # 限制当前贴吧爬取的数量
+                current_page_notes = note_list
+                if current_tieba_notes_count + len(note_list) > config.CRAWLER_MAX_NOTES_COUNT:
+                    needed_count = config.CRAWLER_MAX_NOTES_COUNT - current_tieba_notes_count
+                    current_page_notes = note_list[:needed_count]
+                    utils.logger.info(f"[BaiduTieBaCrawler.get_specified_tieba_notes] Reach max notes count: {config.CRAWLER_MAX_NOTES_COUNT}")
+
+                await self.get_specified_notes([note.note_id for note in current_page_notes])
+                
+                current_tieba_notes_count += len(current_page_notes)
 
                 # Sleep after processing notes
                 await asyncio.sleep(config.CRAWLER_MAX_SLEEP_SEC)
                 utils.logger.info(f"[TieBaCrawler.get_specified_tieba_notes] Sleeping for {config.CRAWLER_MAX_SLEEP_SEC} seconds after processing notes from page {page_number}")
 
                 page_number += tieba_limit_count
+                if current_tieba_notes_count >= config.CRAWLER_MAX_NOTES_COUNT:
+                    break
 
     async def get_specified_notes(
         self, note_id_list: List[str] = config.TIEBA_SPECIFIED_ID_LIST
@@ -613,8 +636,9 @@ class TieBaCrawler(AbstractCrawler):
         if config.SAVE_LOGIN_STATE:
             # feat issue #14
             # we will save login state to avoid login every time
+            user_id_suffix = f"_{config.VISUALIZED_USER_ID}" if config.VISUALIZED_USER_ID else ""
             user_data_dir = os.path.join(
-                os.getcwd(), "browser_data", config.USER_DATA_DIR % config.PLATFORM
+                os.getcwd(), "browser_data", (config.USER_DATA_DIR % config.PLATFORM) + user_id_suffix
             )  # type: ignore
             browser_context = await chromium.launch_persistent_context(
                 user_data_dir=user_data_dir,

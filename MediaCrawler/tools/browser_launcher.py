@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/tools/browser_launcher.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 
@@ -108,8 +108,9 @@ class BrowserLauncher:
         port = start_port
         while port < start_port + 100:  # Try up to 100 ports
             try:
+                # 使用 127.0.0.1 替代 localhost
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.bind(('localhost', port))
+                    s.bind(('127.0.0.1', port))
                     return port
             except OSError:
                 port += 1
@@ -125,7 +126,7 @@ class BrowserLauncher:
         args = [
             browser_path,
             f"--remote-debugging-port={debug_port}",
-            "--remote-debugging-address=0.0.0.0",  # Allow remote access
+            "--remote-debugging-address=127.0.0.1",  # 只允许本地访问，更安全且避免代理干扰
             "--no-first-run",
             "--no-default-browser-check",
             "--disable-background-timer-throttling",
@@ -197,9 +198,10 @@ class BrowserLauncher:
         start_time = time.time()
         while time.time() - start_time < timeout:
             try:
+                # 使用 127.0.0.1 替代 localhost
                 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                     s.settimeout(1)
-                    result = s.connect_ex(('localhost', debug_port))
+                    result = s.connect_ex(('127.0.0.1', debug_port))
                     if result == 0:
                         utils.logger.info(f"[BrowserLauncher] Browser is ready on port {debug_port}")
                         return True

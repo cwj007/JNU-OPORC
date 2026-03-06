@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-# Copyright (c) 2025 relakkes@gmail.com
+# Copyright (c) 2025 JJ_Superman
 #
 # This file is part of MediaCrawler project.
-# Repository: https://github.com/NanmiCoder/MediaCrawler/blob/main/tools/async_file_writer.py
-# GitHub: https://github.com/NanmiCoder
+# Repository: https://github.com/cwj007/JNU-OPORC/tree/master
+# GitHub: https://github.com/cwj007
 # Licensed under NON-COMMERCIAL LEARNING LICENSE 1.1
 #
 # 声明：本代码仅供学习和研究目的使用。使用者应遵守以下原则：
@@ -35,12 +35,15 @@ class AsyncFileWriter:
         self.wordcloud_generator = AsyncWordCloudGenerator() if config.ENABLE_GET_WORDCLOUD else None
 
     def _get_file_path(self, file_type: str, item_type: str, record_id: str = None) -> str:
+        # Use visualized_user_id for multi-user isolation if available
+        user_dir = f"data/{config.VISUALIZED_USER_ID}" if config.VISUALIZED_USER_ID else "data"
+        
         if record_id:
-            base_path = f"data/{self.platform}/json/{record_id}"
+            base_path = f"{user_dir}/{self.platform}/json/{record_id}"
             pathlib.Path(base_path).mkdir(parents=True, exist_ok=True)
             return f"{base_path}/{item_type}.{file_type}"
 
-        base_path = f"data/{self.platform}/{file_type}"
+        base_path = f"{user_dir}/{self.platform}/{file_type}"
         pathlib.Path(base_path).mkdir(parents=True, exist_ok=True)
         file_name = f"{self.crawler_type}_{item_type}_{utils.get_current_date()}.{file_type}"
         return f"{base_path}/{file_name}"
@@ -169,7 +172,9 @@ class AsyncFileWriter:
                 return
 
             # Generate wordcloud
-            words_base_path = f"data/{self.platform}/words"
+            # feat issue #14 - Use visualized_user_id for multi-user isolation if available
+            user_dir = f"data/{config.VISUALIZED_USER_ID}" if config.VISUALIZED_USER_ID else "data"
+            words_base_path = f"{user_dir}/{self.platform}/words"
             pathlib.Path(words_base_path).mkdir(parents=True, exist_ok=True)
             words_file_prefix = f"{words_base_path}/{self.crawler_type}_comments_{utils.get_current_date()}"
 
