@@ -33,7 +33,11 @@ e:\JNU-OPORC\
 │   └── trainer.py              # 模型微调相关脚本
 ├── Visualized/                 # [展示] 可视化与管理模块
 │   ├── api/                    # 后端 API 接口 (hotsearch, alerts, dashboard)
-│   ├── logos/                  # 各大平台图标资源
+│   ├── scripts/                # 数据库运维与初始化脚本
+│   │   ├── setup_admin.py      # 创建/重置管理员账户 (默认 root/123456)
+│   │   ├── update_db_schema.py # 数据库结构自动迁移与升级
+│   │   ├── inspect_db.py       # 数据库结构检查与诊断工具
+│   │   └── check_perf_indices.py # 数据库性能优化 (索引与 WAL 模式)
 │   ├── static/                 # 静态资源 (CSS, JS)
 │   ├── templates/              # Jinja2 网页模板 (Dashboard, Hotsearch)
 │   ├── app.py                  # 系统主 Web 服务入口
