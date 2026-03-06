@@ -339,5 +339,11 @@ async def users_page():
 
 if __name__ == "__main__":
     import uvicorn
-    # Use port 8080 to match MediaCrawler's default configuration
-    uvicorn.run(app, host="127.0.0.1", port=8080)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--host", type=str, default="127.0.0.1")
+    args = parser.parse_args()
+    
+    # Use specified port or default to 8080
+    uvicorn.run(app, host=args.host, port=args.port)

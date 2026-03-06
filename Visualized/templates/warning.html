@@ -1033,6 +1033,7 @@
             if (error.response && error.response.status === 401) {
                 console.error('Authentication failed, redirecting to login');
                 localStorage.removeItem('token');
+                localStorage.removeItem('user_id');
                 localStorage.removeItem('username');
                 localStorage.removeItem('role');
                 window.location.href = '/login';
@@ -1220,6 +1221,7 @@
                 const handleCommand = (command) => {
                     if (command === 'logout') {
                         localStorage.removeItem('token');
+                        localStorage.removeItem('user_id');
                         localStorage.removeItem('username');
                         localStorage.removeItem('role');
                         window.location.href = '/login';

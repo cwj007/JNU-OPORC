@@ -599,8 +599,8 @@ async def create_task(task: dict = Body(...), current_user: User = Depends(get_c
                     # 创建新规则
                     await execute_db("""
                         INSERT INTO alert_rules (name, threshold, is_crisis, notify_methods, is_active, keyword, time_window, user_id, rule_type)
-                        VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
-                    """, (rule_name, threshold, is_crisis, notify_methods, warning_keywords if warning_keywords else keywords, time_window, current_user.id, "threshold"))
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (rule_name, threshold, is_crisis, notify_methods, 1, warning_keywords if warning_keywords else keywords, time_window, current_user.id, "threshold"))
             else:
                 # 如果未开启预警，不再删除规则，而是将其设为非活跃状态
                 if existing_rule:
@@ -617,8 +617,9 @@ async def delete_task(task_id: int, current_user: User = Depends(get_current_use
     """删除监控任务"""
     try:
         # Check permission
-        existing = await query_db("SELECT id, name, user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
+        existing = await query_db("SELECT name, user_id FROM monitoring_tasks WHERE id = ?", (task_id,), one=True)
         if existing:
+            # Allow if owner or admin
             if existing['user_id'] != current_user.id and current_user.role != 'admin':
                 raise HTTPException(status_code=403, detail="Not authorized to delete this task")
                 

@@ -24,6 +24,8 @@ except ImportError:
         keywords: Optional[str] = None
         specified_ids: Optional[str] = None
 
+from api.auth import get_current_user, User
+
 # --- Models ---
 
 class ScheduleConfig(BaseModel):
@@ -192,32 +194,34 @@ class SchedulerManager:
 
         now_ts = int(time.time())
         
-        # Check if crawler is busy
-        # Note: crawler_manager.process is subprocess.Popen
-        is_busy = False
-        if crawler_manager.process and crawler_manager.process.poll() is None:
-            is_busy = True
-            
-        if is_busy:
-            # Can't run anything now
-            return
-
         # Find tasks due
-        task_to_run = None
+        tasks_to_run = []
         async with self._lock:
             for task in self.tasks:
                 if not task.schedule.enabled:
                     continue
                 
                 if task.next_run <= now_ts:
-                    task_to_run = task
-                    break # Run one at a time
+                    # Check if this owner's crawler is busy
+                    state = crawler_manager._get_user_state(task.owner)
+                    if state["process"] and state["process"].returncode is None:
+                        # This user is already running a crawler, skip this task for now
+                        continue
+                        
+                    tasks_to_run.append(task)
+                    # For simplicity, we can still run one task per loop iteration, 
+                    # but now it's per-user isolated
+                    # Break here to only run one task in this check cycle, or keep going to run multiple users' tasks
+                    # Let's try running multiple if they are different owners
         
-        if task_to_run:
-            print(f"Executing scheduled task: {task_to_run.name} ({task_to_run.id})")
+        for task_to_run in tasks_to_run:
+            print(f"Executing scheduled task: {task_to_run.name} ({task_to_run.id}) for owner: {task_to_run.owner}")
             try:
                 # Convert dict to request model
                 req_data = task_to_run.crawler_config.copy()
+                # Ensure visualized_user_id is set to task owner
+                req_data["visualized_user_id"] = task_to_run.owner
+                
                 # Ensure it matches schema
                 start_req = CrawlerStartRequest(**req_data)
                 
@@ -253,24 +257,29 @@ async def shutdown_event():
     await scheduler.stop()
 
 @router.get("/tasks")
-async def list_tasks(username: str):
-    # In a real app, username should come from auth token
-    return await scheduler.get_user_tasks(username)
+async def list_tasks(current_user: User = Depends(get_current_user)):
+    """获取当前用户的任务"""
+    return await scheduler.get_user_tasks(str(current_user.id))
 
 @router.post("/tasks")
-async def create_task(task: TaskCreateRequest):
+async def create_task(task: TaskCreateRequest, current_user: User = Depends(get_current_user)):
+    """创建任务 (强制 owner 为当前用户)"""
+    # 强制将 owner 设置为当前登录用户 ID，防止伪造
+    task.owner = str(current_user.id)
     return await scheduler.add_task(task)
 
 @router.delete("/tasks/{task_id}")
-async def delete_task(task_id: str, username: str):
-    success = await scheduler.remove_task(task_id, username)
+async def delete_task(task_id: str, current_user: User = Depends(get_current_user)):
+    """删除任务"""
+    success = await scheduler.remove_task(task_id, str(current_user.id))
     if not success:
-        raise HTTPException(status_code=404, detail="Task not found or permission denied")
+        raise HTTPException(status_code=404, detail="任务不存在或无权删除")
     return {"status": "ok"}
 
 @router.patch("/tasks/{task_id}/toggle")
-async def toggle_task(task_id: str, username: str, enabled: bool):
-    success = await scheduler.toggle_task(task_id, username, enabled)
+async def toggle_task(task_id: str, enabled: bool, current_user: User = Depends(get_current_user)):
+    """启用/禁用任务"""
+    success = await scheduler.toggle_task(task_id, str(current_user.id), enabled)
     if not success:
-        raise HTTPException(status_code=404, detail="Task not found or permission denied")
+        raise HTTPException(status_code=404, detail="任务不存在或无权操作")
     return {"status": "ok", "enabled": enabled}

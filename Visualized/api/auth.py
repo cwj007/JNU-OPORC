@@ -60,7 +60,7 @@ async def login(login_data: LoginRequest):
             pass
         raise HTTPException(status_code=500, detail=f"Failed to create session: {error_detail}")
     
-    return {"token": token, "username": user['username'], "role": user['role']}
+    return {"token": token, "id": user['id'], "username": user['username'], "role": user['role']}
 
 @router.post("/logout")
 async def logout(authorization: str = Header(None)):
@@ -68,6 +68,34 @@ async def logout(authorization: str = Header(None)):
         token = authorization.split(" ")[1]
         await execute_db("DELETE FROM sessions WHERE token = ?", (token,))
     return {"message": "Logged out"}
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    email: Optional[str] = None
+
+@router.post("/register")
+async def register(register_data: RegisterRequest):
+    # Check if user exists
+    existing = await query_db("SELECT id FROM users WHERE username = ?", (register_data.username,), one=True)
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    if not register_data.password or len(register_data.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters long")
+
+    salt = secrets.token_hex(16)
+    pwd_hash = get_password_hash(register_data.password, salt)
+    
+    try:
+        # Default role is 'user'
+        success = await execute_db("INSERT INTO users (username, password_hash, salt, role, email) VALUES (?, ?, ?, ?, ?)", 
+                         (register_data.username, pwd_hash, salt, "user", register_data.email))
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to register user")
+        return {"message": "User registered successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 async def get_current_user(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):

@@ -230,11 +230,102 @@
             height: 10px;
             border-radius: 50%;
             margin-right: 8px;
+            transition: all 0.3s ease;
         }
-        .status-idle { background-color: #808080; box-shadow: 0 0 5px #808080; }
-        .status-running { background-color: #4ec9b0; box-shadow: 0 0 8px #4ec9b0; animation: pulse 2s infinite; }
-        .status-stopping { background-color: #ce9178; box-shadow: 0 0 5px #ce9178; }
-        .status-error { background-color: #f44747; box-shadow: 0 0 5px #f44747; }
+        .status-idle { 
+            background-color: #4ec9b0; 
+            box-shadow: 0 0 8px rgba(78, 201, 176, 0.6); 
+            animation: pulse-green 2s infinite;
+        }
+        .status-running { 
+            background-color: #00f3ff; 
+            box-shadow: 0 0 12px rgba(0, 243, 255, 0.8); 
+            animation: pulse-cyan 1.5s infinite; 
+        }
+        .status-stopping { 
+            background-color: #ce9178; 
+            box-shadow: 0 0 8px rgba(206, 145, 120, 0.6); 
+            animation: pulse-orange 2s infinite;
+        }
+        .status-error { 
+            background-color: #f44747; 
+            box-shadow: 0 0 8px rgba(244, 71, 71, 0.6); 
+        }
+
+        /* Status Text Colors */
+        .status-text-idle { 
+            color: #4ec9b0 !important; 
+            text-shadow: 0 0 5px rgba(78, 201, 176, 0.3); 
+        }
+        .status-text-running { 
+            color: #00f3ff !important; 
+            text-shadow: 0 0 10px rgba(0, 243, 255, 0.5); 
+        }
+        .status-text-stopping { 
+            color: #ce9178 !important; 
+            text-shadow: 0 0 5px rgba(206, 145, 120, 0.3);
+        }
+        .status-text-error { 
+            color: #f44747 !important; 
+            text-shadow: 0 0 5px rgba(244, 71, 71, 0.3);
+        }
+
+        @keyframes pulse-green {
+            0% { box-shadow: 0 0 0 0 rgba(78, 201, 176, 0.7); }
+            70% { box-shadow: 0 0 0 6px rgba(78, 201, 176, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(78, 201, 176, 0); }
+        }
+        @keyframes pulse-cyan {
+            0% { box-shadow: 0 0 0 0 rgba(0, 243, 255, 0.7); transform: scale(1); }
+            50% { transform: scale(1.2); }
+            70% { box-shadow: 0 0 0 8px rgba(0, 243, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 243, 255, 0); transform: scale(1); }
+        }
+        @keyframes pulse-orange {
+            0% { box-shadow: 0 0 0 0 rgba(206, 145, 120, 0.7); }
+            70% { box-shadow: 0 0 0 6px rgba(206, 145, 120, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(206, 145, 120, 0); }
+        }
+
+        /* Stop Button Tech Style */
+        .stop-btn-tech {
+            background: rgba(244, 71, 71, 0.1) !important;
+            border: 1px solid rgba(244, 71, 71, 0.5) !important;
+            color: #f44747 !important;
+            font-family: 'Orbitron', sans-serif !important;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: bold !important;
+            transition: all 0.3s !important;
+            box-shadow: 0 0 10px rgba(244, 71, 71, 0.1) !important;
+            position: relative;
+            overflow: hidden;
+        }
+        .stop-btn-tech:hover {
+            background: rgba(244, 71, 71, 0.2) !important;
+            border-color: #f44747 !important;
+            box-shadow: 0 0 15px rgba(244, 71, 71, 0.3) !important;
+            color: #fff !important;
+            text-shadow: 0 0 5px #f44747;
+        }
+        .stop-btn-tech:active {
+            transform: scale(0.95);
+        }
+        .stop-btn-tech::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transform: rotate(45deg);
+            transition: 0.5s;
+            pointer-events: none;
+        }
+        .stop-btn-tech:hover::after {
+            left: 100%;
+        }
 
         .config-layout {
             display: flex;
@@ -571,6 +662,9 @@
                     <div class="config-panel">
                         <div class="panel-header">
                             <span><el-icon><setting /></el-icon> 任务配置</span>
+                            <el-button type="info" link @click="disclaimerVisible = true" style="color: #909399; font-size: 13px;">
+                                <el-icon style="margin-right: 4px;"><warning /></el-icon> 免责声明
+                            </el-button>
                         </div>
                         
                         <el-scrollbar>
@@ -794,10 +888,10 @@
 
                                             <!-- Backend Scheduled Tasks Controls -->
                                             <div style="display: flex; gap: 10px; margin-top: 10px; padding: 0 10px;">
-                                                <el-button type="success" size="small" @click="openAddTaskDialog" style="flex: 1;">
+                                                <el-button type="success" size="small" @click="openAddTaskDialog" style="flex: 1;" :disabled="!isDisclaimerAccepted">
                                                     <el-icon><calendar /></el-icon> 加入定时任务
                                                 </el-button>
-                                                <el-button type="info" size="small" @click="openTaskList" style="flex: 1;">
+                                                <el-button type="info" size="small" @click="openTaskList" style="flex: 1;" :disabled="!isDisclaimerAccepted">
                                                     <el-icon><list /></el-icon> 任务列表
                                                 </el-button>
                                             </div>
@@ -810,9 +904,16 @@
                     </div>
 
                     <!-- Action Panel -->
-                    <div class="action-panel">
-                        <el-button type="primary" @click="startCrawler" :loading="crawlerStatus === 'running'" class="start-btn">
-                            {{ crawlerStatus === 'running' ? '爬虫运行中...' : '开始爬虫' }}
+                    <div class="action-panel" style="display: flex; gap: 15px; width: 100%;">
+                        <el-button 
+                            type="primary" 
+                            @click="startCrawler" 
+                            :loading="crawlerStatus === 'running' || crawlerStatus === 'stopping'" 
+                            class="start-btn" 
+                            :disabled="!isDisclaimerAccepted || crawlerStatus !== 'idle'"
+                            style="flex: 1;"
+                        >
+                            {{ crawlerStatus === 'idle' ? '开始爬虫' : (crawlerStatus === 'running' ? '正在爬取...' : '正在停止...') }}
                         </el-button>
                     </div>
 
@@ -825,8 +926,9 @@
                             <div style="display: flex; align-items: center; font-size: 0.9rem;">
                                 状态: 
                                 <span :class="['status-indicator', 'status-' + crawlerStatus]" style="margin-left: 10px;"></span>
-                                <span style="color: var(--text-primary);">{{ formatStatus(crawlerStatus) }}</span>
-                                <el-button v-if="crawlerStatus === 'running'" type="danger" size="small" @click="stopCrawler" style="margin-left: 15px;">
+                                <span :class="['status-text-' + crawlerStatus]" style="font-weight: 500;">{{ formatStatus(crawlerStatus) }}</span>
+                                <el-button v-if="crawlerStatus !== 'idle'" type="danger" size="small" @click="stopCrawler" :loading="crawlerStatus === 'stopping'" class="stop-btn-tech" style="margin-left: 15px;">
+                                    <template #icon><el-icon><circle-close /></el-icon></template>
                                     强制停止
                                 </el-button>
                             </div>
@@ -879,7 +981,54 @@
                     <el-button type="primary" @click="confirmAddTask">确定</el-button>
                 </span>
             </template>
-        </el-dialog>
+    </el-dialog>
+
+    <!-- 免责声明弹窗 -->
+     <el-dialog v-model="disclaimerVisible" title="非商业学习使用协议 & 免责声明" width="650px" class="tech-dialog" :close-on-click-modal="false" :close-on-press-escape="false" :show-close="false">
+        <div class="dialog-tech-decor"></div>
+        <div style="padding: 20px 30px; line-height: 1.6; color: #e0e0e0; max-height: 60vh; overflow-y: auto;">
+            <div style="margin-bottom: 20px; text-align: center;">
+                <div style="font-weight: bold; color: var(--primary-color); font-size: 18px; margin-bottom: 5px;">非商业学习使用许可证 1.1</div>
+                <div style="color: #909399; font-size: 13px;">版权所有 (c) [2025] [JJ_Superman]</div>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <div style="color: var(--primary-color); font-weight: bold; margin-bottom: 5px; border-left: 3px solid var(--primary-color); padding-left: 10px;">授权范围</div>
+                <p style="font-size: 14px;">本软件免费授予接受本许可证的任何自然人或法人非独占的、不可转让的权利，在非商业学习目的下使用、复制、修改、合并本软件。</p>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <div style="color: var(--primary-color); font-weight: bold; margin-bottom: 5px; border-left: 3px solid var(--primary-color); padding-left: 10px;">使用条件</div>
+                <ul style="font-size: 14px; padding-left: 20px; margin: 0;">
+                    <li>本软件仅限用于学习和研究目的，不得用于大规模爬虫或对平台造成运营干扰的行为。</li>
+                    <li>未经版权所有者书面同意，不得将本软件用于任何商业用途或对第三方造成不当影响。</li>
+                    <li>使用者必须在软件及其副本的所有合理显著位置包含版权声明和本许可证声明。</li>
+                </ul>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <div style="color: #ff4d4f; font-weight: bold; margin-bottom: 5px; border-left: 3px solid #ff4d4f; padding-left: 10px;">免责声明</div>
+                <ul style="font-size: 14px; padding-left: 20px; margin: 0;">
+                    <li>本软件按“现状”提供，不提供任何形式的明示或暗示保证。</li>
+                    <li>在任何情况下，版权所有者均不对因使用本软件而产生的任何直接、间接、偶然、特殊或后果性损害负责（包括但不限于数据丢失或业务中断）。</li>
+                </ul>
+            </div>
+
+            <div style="margin-bottom: 15px;">
+                <div style="color: #909399; font-weight: bold; margin-bottom: 5px; border-left: 3px solid #909399; padding-left: 10px;">适用法律</div>
+                <p style="font-size: 14px;">本许可证的解释和执行应遵循当地法律法规。因本许可证引起的任何争议，应友好协商解决；协商不成时，提交至版权所有者所在地法院诉讼解决。</p>
+            </div>
+
+            <div style="background: rgba(255, 77, 79, 0.1); border-left: 4px solid #ff4d4f; padding: 12px 15px; margin-top: 20px; font-size: 13px;">
+                <strong>核心提示：</strong> 使用本工具进行数据抓取必须遵守目标网站的 Robots 协议及法律法规。因不当使用导致的法律后果由用户自行承担。
+            </div>
+        </div>
+        <template #footer>
+            <div class="dialog-footer" style="text-align: center; padding-bottom: 20px;">
+                <el-button type="primary" @click="handleAcceptDisclaimer" class="tech-btn-primary" style="padding: 10px 40px; font-size: 15px;">我已阅读并知晓</el-button>
+            </div>
+        </template>
+    </el-dialog>
 
         <!-- Task List Drawer -->
         <el-drawer v-model="taskListVisible" title="定时任务列表" size="50%" class="tech-drawer">
@@ -985,6 +1134,7 @@
             if (error.response && error.response.status === 401) {
                 console.error('Authentication failed, redirecting to login');
                 localStorage.removeItem('token');
+                localStorage.removeItem('user_id');
                 localStorage.removeItem('username');
                 localStorage.removeItem('role');
                 window.location.href = '/login';
@@ -1088,6 +1238,7 @@
                 const handleCommand = (command) => {
                     if (command === 'logout') {
                         localStorage.removeItem('token');
+                        localStorage.removeItem('user_id');
                         localStorage.removeItem('username');
                         localStorage.removeItem('role');
                         window.location.href = '/login';
@@ -1101,6 +1252,14 @@
                 const crawlerStatus = ref('idle');
                 const consoleBox = ref(null);
                 const timer = ref(null);
+                const isDisclaimerAccepted = ref(localStorage.getItem('crawler_disclaimer_accepted') === 'true');
+                const disclaimerVisible = ref(!isDisclaimerAccepted.value);
+
+                const handleAcceptDisclaimer = () => {
+                    localStorage.setItem('crawler_disclaimer_accepted', 'true');
+                    isDisclaimerAccepted.value = true;
+                    disclaimerVisible.value = false;
+                };
 
                 // Scheduled Tasks Logic
                 const addTaskDialogVisible = ref(false);
@@ -1139,6 +1298,27 @@
                         if (!raw_creator_ids.value || raw_creator_ids.value.trim() === '') {
                             ElementPlus.ElMessage.warning('创作者 ID 列表不能为空');
                             return;
+                        }
+                    }
+
+                    // --- 检查 Cookie ---
+                    if (form.value.login_type === 'cookie' && (!form.value.cookies || form.value.cookies.trim() === '')) {
+                        ElementPlus.ElMessage.warning('Cookie 字符串不能为空');
+                        return;
+                    }
+
+                    // --- 检查代理配置 ---
+                    if (form.value.enable_ip_proxy) {
+                        if (form.value.ip_proxy_provider_name === 'wandouhttp' && (!form.value.wandou_app_key || form.value.wandou_app_key.trim() === '')) {
+                            ElementPlus.ElMessage.warning('代理 App Key 不能为空');
+                            return;
+                        }
+                        if (form.value.ip_proxy_provider_name === 'kuaidaili') {
+                            if (!form.value.kdl_secret_id?.trim() || !form.value.kdl_signature?.trim() || 
+                                !form.value.kdl_user_name?.trim() || !form.value.kdl_user_pwd?.trim()) {
+                                ElementPlus.ElMessage.warning('快代理配置信息不完整');
+                                return;
+                            }
                         }
                     }
 
@@ -1190,7 +1370,7 @@
 
                 const fetchTasks = async () => {
                     try {
-                        const res = await axios.get('/api/scheduler/tasks', { params: { username: username.value } });
+                        const res = await axios.get('/api/scheduler/tasks');
                         tasks.value = res.data;
                     } catch (e) {
                         ElementPlus.ElMessage.error('获取任务列表失败');
@@ -1201,7 +1381,7 @@
                     try {
                         const payload = {
                             name: newTask.value.name,
-                            owner: username.value,
+                            owner: '', // 后端会自动设为当前用户
                             schedule: newTask.value.schedule,
                             crawler_config: newTask.value.crawler_config
                         };
@@ -1216,7 +1396,7 @@
 
                 const deleteTask = async (taskId) => {
                     try {
-                        await axios.delete(`/api/scheduler/tasks/${taskId}`, { params: { username: username.value } });
+                        await axios.delete(`/api/scheduler/tasks/${taskId}`);
                         ElementPlus.ElMessage.success('删除成功');
                         fetchTasks();
                     } catch (e) {
@@ -1229,7 +1409,6 @@
                         const newStatus = !task.schedule.enabled;
                         await axios.patch(`/api/scheduler/tasks/${task.id}/toggle`, null, { 
                             params: { 
-                                username: username.value,
                                 enabled: newStatus
                             } 
                         });
@@ -1473,9 +1652,16 @@
 
                 const fetchLogs = async () => {
                     try {
-                        const res = await axios.get('/api/crawler/logs?limit=200');
-                        if (res.data && res.data.logs) {
-                            const newLogs = res.data.logs;
+                        const params = new URLSearchParams({
+                            limit: '200'
+                        });
+                        if (form.value.visualized_user_id) {
+                            params.append('visualized_user_id', form.value.visualized_user_id);
+                        }
+                        const res = await axios.get(`/api/crawler/logs?${params.toString()}`);
+                        const newLogs = Array.isArray(res.data) ? res.data : (res.data.logs || []);
+                        
+                        if (newLogs.length > 0) {
                             let shouldUpdate = false;
                             
                             if (logs.value.length === 0 && newLogs.length > 0) {
@@ -1485,7 +1671,7 @@
                             } else if (newLogs.length > 0) {
                                 const lastOld = logs.value[logs.value.length - 1];
                                 const lastNew = newLogs[newLogs.length - 1];
-                                if (lastOld.time !== lastNew.time || lastOld.message !== lastNew.message) {
+                                if (lastOld.id !== lastNew.id || lastOld.timestamp !== lastNew.timestamp) {
                                     shouldUpdate = true;
                                 }
                             }
@@ -1524,7 +1710,11 @@
 
                 const fetchStatus = async () => {
                     try {
-                        const res = await axios.get('/api/crawler/status');
+                        const params = {};
+                        if (form.value.visualized_user_id) {
+                            params.visualized_user_id = form.value.visualized_user_id;
+                        }
+                        const res = await axios.get('/api/crawler/status', { params });
                         if (res.data && res.data.status) {
                             crawlerStatus.value = res.data.status;
                         }
@@ -1534,14 +1724,48 @@
                 };
 
                 const startCrawler = async () => {
+                    // 表单非空校验
+                    if (form.value.crawler_type === 'search' && (!form.value.keywords || !form.value.keywords.trim())) {
+                        ElementPlus.ElMessage.error('启动失败：请输入搜索关键词');
+                        return;
+                    }
+                    if (form.value.crawler_type === 'detail' && (!raw_specified_ids.value || !raw_specified_ids.value.trim())) {
+                        ElementPlus.ElMessage.error('启动失败：请输入帖子/视频 ID');
+                        return;
+                    }
+                    if (form.value.crawler_type === 'creator' && (!raw_creator_ids.value || !raw_creator_ids.value.trim())) {
+                        ElementPlus.ElMessage.error('启动失败：请输入创作者 ID');
+                        return;
+                    }
+                    if (form.value.login_type === 'cookie' && (!form.value.cookies || !form.value.cookies.trim())) {
+                        ElementPlus.ElMessage.error('启动失败：请输入 Cookie 字符串');
+                        return;
+                    }
+
+                    // 代理配置校验
+                    if (form.value.enable_ip_proxy) {
+                        if (form.value.ip_proxy_provider_name === 'wandouhttp' && (!form.value.wandou_app_key || !form.value.wandou_app_key.trim())) {
+                            ElementPlus.ElMessage.error('启动失败：请输入代理 App Key');
+                            return;
+                        }
+                        if (form.value.ip_proxy_provider_name === 'kuaidaili') {
+                            if (!form.value.kdl_secret_id?.trim() || !form.value.kdl_signature?.trim() || 
+                                !form.value.kdl_user_name?.trim() || !form.value.kdl_user_pwd?.trim()) {
+                                ElementPlus.ElMessage.error('启动失败：请填写完整的快代理配置信息');
+                                return;
+                            }
+                        }
+                    }
+
                     try {
                         const payload = { ...form.value };
-                        // Ensure enums match backend expectations if needed, 
-                        // but axios sends strings which match the Pydantic Enum values (str, Enum)
+                        // 设置为正在运行状态
+                        crawlerStatus.value = 'running';
                         await axios.post('/api/crawler/start', payload);
                         ElementPlus.ElMessage.success('爬虫任务已启动');
                         fetchStatus();
                     } catch (e) {
+                        crawlerStatus.value = 'idle';
                         const msg = e.response?.data?.detail || '启动失败';
                         ElementPlus.ElMessage.error(msg);
                     }
@@ -1549,15 +1773,63 @@
 
                 const stopCrawler = async () => {
                     try {
-                        await axios.post('/api/crawler/stop');
+                        const params = {};
+                        if (form.value.visualized_user_id) {
+                            params.visualized_user_id = form.value.visualized_user_id;
+                        }
+                        crawlerStatus.value = 'stopping';
+                        await axios.post('/api/crawler/stop', null, { params });
                         ElementPlus.ElMessage.warning('正在停止爬虫...');
+                        crawlerStatus.value = 'idle';
                         fetchStatus();
                     } catch (e) {
+                        crawlerStatus.value = 'running';
                         ElementPlus.ElMessage.error('停止失败');
                     }
                 };
 
 
+
+                const socket = ref(null);
+
+                const connectWebSocket = () => {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    const wsUrl = `${protocol}//${window.location.host}/api/crawler/ws/logs`;
+                    const params = new URLSearchParams();
+                    if (form.value.visualized_user_id) {
+                        params.append('visualized_user_id', form.value.visualized_user_id);
+                    }
+                    const finalWsUrl = params.toString() ? `${wsUrl}?${params.toString()}` : wsUrl;
+
+                    socket.value = new WebSocket(finalWsUrl);
+
+                    socket.value.onmessage = (event) => {
+                        try {
+                            const entry = JSON.parse(event.data);
+                            // Push new log entry
+                            logs.value.push(entry);
+                            // Keep last 500 logs
+                            if (logs.value.length > 500) {
+                                logs.value.shift();
+                            }
+                            // Auto scroll if enabled
+                            if (autoScroll.value) {
+                                scrollToBottom();
+                            }
+                        } catch (e) {
+                            console.error("WS parse error", e);
+                        }
+                    };
+
+                    socket.value.onclose = () => {
+                        console.log("WS closed, retrying in 5s...");
+                        setTimeout(connectWebSocket, 5000);
+                    };
+
+                    socket.value.onerror = (err) => {
+                        console.error("WS error", err);
+                    };
+                };
 
                 onMounted(async () => {
                     if (!['admin', 'root', 'user'].includes(userRole.value)) {
@@ -1567,19 +1839,20 @@
                     }
 
                     // Fetch profile to get current user ID for crawler
-                    fetchProfile();
+                    await fetchProfile();
 
                     // Initial fetch
                     fetchStatus();
                     fetchLogs();
 
+                    // Connect WebSocket for real-time logs
+                    connectWebSocket();
 
-                    // Polling
+                    // Polling status only (logs handled by WS)
                     timer.value = setInterval(() => {
                         fetchStatus();
-                        fetchLogs();
+                        // fetchLogs(); // Stop polling logs as we use WS
                     }, 2000);
-
 
 
                     // Data stream animation
@@ -1629,6 +1902,9 @@
                     profileForm,
                     saveProfile,
                     profileSaving,
+                    isDisclaimerAccepted,
+                    disclaimerVisible,
+                    handleAcceptDisclaimer,
                 };
             }
         });

@@ -186,6 +186,8 @@ def init_db():
             ("alerts", "meta_data", "TEXT"),
             ("alerts", "alerts_time", "TEXT"),
             ("alerts", "user_id", "INTEGER"),
+            ("monitoring_tasks", "user_id", "INTEGER"),
+            ("alert_rules", "user_id", "INTEGER"),
             ("alerts", "processed", "INTEGER DEFAULT 0")
         ]
         

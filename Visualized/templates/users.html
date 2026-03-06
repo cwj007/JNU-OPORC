@@ -407,6 +407,7 @@
                 const handleCommand = (command) => {
                     if (command === 'logout') {
                         localStorage.removeItem('token');
+                        localStorage.removeItem('user_id');
                         localStorage.removeItem('username');
                         localStorage.removeItem('role');
                         window.location.href = '/login';

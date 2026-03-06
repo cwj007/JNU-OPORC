@@ -285,7 +285,12 @@ async def get_unread_count(current_user: User = Depends(get_current_user)):
     """获取未读预警数量"""
     where_clause = "status = 'unread'"
     params = []
-    if current_user.role != 'admin':
+    
+    if current_user.role == 'admin':
+        # 管理员：看到系统预警 (user_id IS NULL) 和 自己的预警
+        where_clause += f" AND (user_id IS NULL OR user_id = {current_user.id})"
+    else:
+        # 普通用户：只能看到自己的预警
         where_clause += " AND user_id = ?"
         params.append(current_user.id)
         
@@ -464,7 +469,7 @@ async def get_rules(current_user: User = Depends(get_current_user)):
         has_any_rule = await query_db(check_all_sql, (current_user.id,), one=True)
         
         if not has_any_rule:
-            print(f"[Init] User rules empty, creating default CRI rule for user {current_user.username}...")
+            print(f"[Init] User rules empty, creating default CRI rule for user {current_user.id}...")
             # 尝试从全局获取模板（user_id IS NULL）
             template_sql = "SELECT * FROM alert_rules WHERE name = '全网负面内容监测' AND user_id IS NULL LIMIT 1"
             template = await query_db(template_sql, one=True)
@@ -559,15 +564,15 @@ async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: Bac
             update_task_sql = """
                 UPDATE monitoring_tasks 
                 SET name = ?, keywords = ?, warning_enabled = ?, warning_keywords = ?, notify_methods = ?, frequency = ? 
-                WHERE name = ?
+                WHERE name = ? AND user_id = ?
             """
-            await execute_db(update_task_sql, (new_task_name, rule.keyword, rule.is_active, rule.keyword, rule.notify_methods, frequency, old_task_name))
+            await execute_db(update_task_sql, (new_task_name, rule.keyword, rule.is_active, rule.keyword, rule.notify_methods, frequency, old_task_name, current_user.id))
         else:
             print(f"[Sync] Rule keyword is empty, skipping task sync for {new_task_name}")
             # 如果规则关键词为空，我们仍然允许更新规则名称，但不同步到任务关键词
             # 这里我们只更新任务名称（如果改变了）
             if new_task_name != old_task_name:
-                await execute_db("UPDATE monitoring_tasks SET name = ? WHERE name = ?", (new_task_name, old_task_name))
+                await execute_db("UPDATE monitoring_tasks SET name = ? WHERE name = ? AND user_id = ?", (new_task_name, old_task_name, current_user.id))
 
     sql = """
         UPDATE alert_rules 
@@ -599,10 +604,18 @@ async def delete_rule(rule_id: int, current_user: User = Depends(get_current_use
     if existing['name'].startswith("【监测任务】"):
         task_name = existing['name'].replace("【监测任务】", "")
         print(f"[Sync] Deleting monitoring task: {task_name}")
-        await execute_db("DELETE FROM monitoring_tasks WHERE name = ?", (task_name,))
+        await execute_db("DELETE FROM monitoring_tasks WHERE name = ? AND user_id = ?", (task_name, current_user.id))
 
-    sql = "DELETE FROM alert_rules WHERE id = ?"
-    if await execute_db(sql, (rule_id,)):
+    sql = "DELETE FROM alert_rules WHERE id = ? AND user_id = ?"
+    if current_user.role == 'admin':
+        # 管理员可以删除任何人的规则，但上面的 logic 已经确保了 permission
+        # 为了安全，如果是管理员，我们可以去掉 user_id 限制，或者直接使用 existing['user_id']
+        sql = "DELETE FROM alert_rules WHERE id = ?"
+        params = (rule_id,)
+    else:
+        params = (rule_id, current_user.id)
+        
+    if await execute_db(sql, params):
         return {"status": "success"}
     raise HTTPException(status_code=500, detail="Failed to delete rule")
 
@@ -624,7 +637,7 @@ async def get_alert_report(
     else:
         time_threshold = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
         time_condition = f"time >= '{time_threshold}'"
-
+    
     # --- 权限控制 ---
     if not current_user:
         # 未登录用户：只能看到公共预警 (user_id IS NULL)
