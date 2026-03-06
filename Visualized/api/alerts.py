@@ -175,6 +175,8 @@ async def get_alerts(
     level: Optional[str] = None,
     page: int = 1,
     page_size: int = 10,
+    sort_prop: Optional[str] = "time",
+    sort_order: Optional[str] = "descending",
     current_user: Optional[User] = Depends(get_current_user_optional)
 ):
     """
@@ -184,6 +186,8 @@ async def get_alerts(
     - level: 风险级别筛选 (high, medium, low, etc.)
     - page: 当前页码 (默认1)
     - page_size: 每页数量 (默认10)
+    - sort_prop: 排序字段 (time, alerts_time, level, type)
+    - sort_order: 排序方式 (ascending, descending)
     """
     # 每次请求列表时尝试生成新预警
     # 策略：
@@ -249,7 +253,22 @@ async def get_alerts(
 
     # 分页查询
     offset = (page - 1) * page_size
-    sql = f"SELECT * FROM alerts WHERE {where_clause} ORDER BY time DESC LIMIT {page_size} OFFSET {offset}"
+    
+    # 映射前端排序字段到后端数据库字段
+    sort_map = {
+        "alerts_time": "alerts_time",
+        "time": "time",
+        "level": "level",
+        "type": "type"
+    }
+    
+    # 获取排序字段
+    target_sort_col = sort_map.get(sort_prop, "time")
+    
+    # 映射排序方式
+    order_direction = "DESC" if sort_order == "descending" else "ASC"
+    
+    sql = f"SELECT * FROM alerts WHERE {where_clause} ORDER BY {target_sort_col} {order_direction} LIMIT {page_size} OFFSET {offset}"
     results = await query_db(sql)
     
     processed_results = []

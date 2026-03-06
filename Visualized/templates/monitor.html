@@ -18,11 +18,11 @@
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&family=Fira+Code&display=swap" rel="stylesheet">
     <!-- Vue 3 -->
-    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
     <!-- Element Plus -->
-    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/locale/zh-cn.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue/dist/index.iife.min.js"></script>
     <!-- Axios -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <!-- SortableJS -->
@@ -1186,7 +1186,7 @@
 <body>
     <div id="app">
         <!-- Sidebar -->
-        <div class="sidebar" :class="{ collapsed: isCollapse, 'mobile-active': isMobileMenuShow }">
+        <div class="sidebar" :class="{ collapsed: isCollapse, active: !isCollapse, 'mobile-active': isMobileMenuShow }">
             <div class="sidebar-logo">
                 {{ isCollapse ? 'OPORC' : 'JNU-OPORC 舆情哨兵' }}
             </div>
@@ -1554,18 +1554,12 @@
                                 </div>
                             </template>
                         </el-table-column>
-                        <el-table-column prop="author" label="作者" width="120">
-                            <template #default="scope">
-                                <el-tooltip
-                                    :content="scope.row.author"
-                                    placement="top"
-                                    :disabled="!scope.row.author || scope.row.author.length <= 8"
-                                >
-                                    <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                        {{ scope.row.author }}
-                                    </div>
-                                </el-tooltip>
-                            </template>
+                        <el-table-column 
+                            prop="author" 
+                            label="作者" 
+                            width="120" 
+                            show-overflow-tooltip
+                        >
                         </el-table-column>
                         <el-table-column 
                             prop="sentiment" 
@@ -1693,8 +1687,32 @@
                 
                 <!-- 聚合视图 -->
                 <div v-if="currentDetail.is_merged_view">
-                    <div class="section-title" style="font-weight: bold; margin-bottom: 20px; color: var(--text-primary); font-size: 18px;">
-                        话题聚合：{{ currentDetail.top_id }} ({{ currentDetail.total_items }}条)
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+                        <div class="section-title" style="font-weight: bold; margin-bottom: 0; color: var(--text-primary); font-size: 18px;">
+                            话题聚合：{{ currentDetail.top_id }} ({{ currentDetail.total_items }}条)
+                        </div>
+                        
+                        <!-- 新增：情感分布摘要 -->
+                        <div v-if="currentDetail.sentiment_analysis?.distribution" style="display: flex; align-items: center; gap: 15px; background: rgba(0, 0, 0, 0.3); padding: 8px 15px; border-radius: 4px; border: 1px solid rgba(0, 240, 255, 0.1);">
+                            <span style="font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;">板块整体情感分布:</span>
+                            <div style="display: flex; gap: 8px;">
+                                <el-tag v-if="currentDetail.sentiment_analysis.distribution['正面']" size="small" type="success" effect="dark" style="border: none;">
+                                    正面: {{ currentDetail.sentiment_analysis.distribution['正面'] }}
+                                </el-tag>
+                                <el-tag v-if="currentDetail.sentiment_analysis.distribution['中性']" size="small" type="info" effect="dark" style="border: none; background-color: #909399;">
+                                    中性: {{ currentDetail.sentiment_analysis.distribution['中性'] }}
+                                </el-tag>
+                                <el-tag v-if="currentDetail.sentiment_analysis.distribution['负面']" size="small" type="danger" effect="dark" style="border: none;">
+                                    负面: {{ currentDetail.sentiment_analysis.distribution['负面'] }}
+                                </el-tag>
+                            </div>
+                            <div style="margin-left: 10px; border-left: 1px solid rgba(255, 255, 255, 0.1); padding-left: 15px; display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 12px; color: var(--text-secondary);">主要情感:</span>
+                                <el-tag size="small" :type="currentDetail.sentiment === '正面' ? 'success' : (currentDetail.sentiment === '负面' ? 'danger' : 'info')" effect="plain" style="font-weight: bold;">
+                                    {{ currentDetail.sentiment }} ({{ currentDetail.sentiment_score }}%)
+                                </el-tag>
+                            </div>
+                        </div>
                     </div>
                     
                     <div class="merged-items-list">
@@ -2593,7 +2611,13 @@
                         profileDialogVisible.value = true;
                     }
                 };
-                const isCollapse = ref(false);
+                const isCollapse = ref(localStorage.getItem('sidebarCollapse') === 'true');
+                console.log('Monitor page sidebar collapse state:', isCollapse.value);
+                
+                watch(isCollapse, (val) => {
+                    console.log('Monitor page sidebar collapse changed to:', val);
+                    localStorage.setItem('sidebarCollapse', val ? 'true' : 'false');
+                });
                 const isMobileMenuShow = ref(false);
                 const activeMenu = ref('monitor');
                 const loading = ref(false);
@@ -3600,7 +3624,7 @@
                             id: item.is_merged ? item.original_top_id || item.top_id : (item.note_id + (item.comment_id ? '_' + item.comment_id : '')),
                             note_id: item.note_id,
                             comment_id: item.comment_id || "0",
-                            top_id: safeDecode((item.top_id && item.top_id !== 'None' && item.top_id !== 'null' && item.top_id !== 'nan') ? item.top_id : (item.title || (item.content ? item.content.substring(0, 30) + '...' : '无标题'))),
+                            top_id: safeDecode((item.top_id && item.top_id !== 'None' && item.top_id !== 'null' && item.top_id !== 'nan') ? item.top_id : (item.title || (item.content ? item.content.substring(0, 20) + '...' : '无标题'))),
                             top_name: safeDecode(item.top_name),
                             original_top_id: item.original_top_id, // 保存原始 top_id 用于查询详情
                             content: item.content,
@@ -3678,7 +3702,10 @@
                             currentDetail.value = {
                                 is_merged_view: true,
                                 top_id: row.top_id, // 显示可读名称
-                                title: items.length > 0 ? (items[0].title || (items[0].content ? items[0].content.substring(0, 30) + '...' : (row.top_id && row.top_id !== 'None' && row.top_id !== 'null' ? row.top_id : '无标题'))) : (row.top_id && row.top_id !== 'None' && row.top_id !== 'null' ? row.top_id : '无标题'), // 优先显示第一条内容的标题
+                                sentiment: row.sentiment,
+                                sentiment_score: row.sentiment_score,
+                                sentiment_analysis: row.sentiment_analysis,
+                                title: items.length > 0 ? (items[0].title || (items[0].content ? items[0].content.substring(0, 20) + '...' : (row.top_id && !['none', 'null', 'undefined'].includes(row.top_id.toLowerCase()) ? row.top_id : '无标题'))) : (row.top_id && !['none', 'null', 'undefined'].includes(row.top_id.toLowerCase()) ? row.top_id : '无标题'), // 优先显示第一条内容的标题
                                 total_items: row.merge_count || items.length, // 使用列表页的聚合数作为总数
                                 queryId: queryId, // 保存用于后续请求
                                 page: 1,
@@ -3686,7 +3713,7 @@
                                 items: items.map(item => ({
                                     ...item,
                                     id: item.note_id, // 确保唯一ID
-                                    title: (item.top_id && item.top_id !== 'None' && item.top_id !== 'null') ? item.top_id : (item.title || (item.content ? item.content.substring(0, 30) + '...' : '无标题')),
+                                    title: (item.top_id && !['none', 'null', 'undefined'].includes(item.top_id.toLowerCase())) ? item.top_id : (item.title || (item.content ? item.content.substring(0, 20) + '...' : '无标题')),
                                     sentiment_score: item.sentiment_score || 0,
                                     sentiment: item.sentiment || '中性',
                                     trained_keywords: item.trained_keywords || [],
@@ -3729,7 +3756,7 @@
                             currentDetail.value = {
                                 is_merged_view: false,
                                 ...data,
-                                title: (data.top_id && data.top_id !== 'None' && data.top_id !== 'null') ? data.top_id : (data.title || (data.content ? data.content.substring(0, 30) + '...' : '无标题')),
+                                title: (data.top_id && !['none', 'null', 'undefined'].includes(data.top_id.toLowerCase())) ? data.top_id : (data.title || (data.content ? data.content.substring(0, 20) + '...' : '无标题')),
                                 commentsPage: data.current_comments_page || 1, // 使用后端返回的当前页码
                                 loadingComments: false,
                                 showAllImages: false, // 默认收起图片
@@ -4227,7 +4254,7 @@
                     viewAlertDetail,
                     handleCommand,
                     formatTime,
-                    isCollapse, activeMenu, loading, tableData, tasks, currentTaskId,
+                    isCollapse, isMobileMenuShow, toggleSidebar, activeMenu, loading, tableData, tasks, currentTaskId,
                     filter, pagination, taskDialogVisible, taskForm, groups,
                     detailVisible, currentDetail, nestedComments, isEditingSentiment, tempSentiment,
                     switchTask, deleteTask, openTaskDialog, saveTask,

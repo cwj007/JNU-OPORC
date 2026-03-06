@@ -441,11 +441,11 @@
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&family=Fira+Code&display=swap" rel="stylesheet">
     <!-- Vue 3 -->
-    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
     <!-- Element Plus -->
-    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/locale/zh-cn.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue/dist/index.iife.min.js"></script>
     <!-- Axios -->
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <!-- ECharts -->
@@ -454,7 +454,7 @@
 <body>
     <div id="app">
         <!-- Sidebar -->
-        <div class="sidebar" :class="{ collapsed: isCollapse }">
+        <div class="sidebar" :class="{ collapsed: isCollapse, active: !isCollapse }">
             <div class="sidebar-logo">{{ isCollapse ? 'OPORC' : 'JNU-OPORC 舆情哨兵' }}</div>
             <el-menu
                 active-text-color="var(--primary-color)"
@@ -667,8 +667,9 @@
                         style="width: 100%" 
                         class="alerts-table"
                         @filter-change="handleFilterChange"
+                        @sort-change="handleSortChange"
                     >
-                        <el-table-column prop="alerts_time" label="预警时间" width="180" sortable>
+                        <el-table-column prop="alerts_time" label="预警时间" width="180" sortable="custom">
                             <template #default="scope">
                                 <span class="tech-time">{{ scope.row.alerts_time || scope.row.time }}</span>
                             </template>
@@ -686,18 +687,20 @@
                                 </div>
                             </template>
                         </el-table-column>
-                        <el-table-column prop="type" label="任务名称" min-width="150" show-overflow-tooltip align="center">
+                        <el-table-column prop="type" label="任务名称" min-width="150" show-overflow-tooltip align="center" sortable="custom">
                             <template #default="scope">
                                 <span class="tech-task-tag">{{ scope.row.type }}</span>
                             </template>
                         </el-table-column>
                         <el-table-column 
+                            prop="level"
                             label="级别" 
                             width="100" 
                             align="center"
                             :filters="levelFilters"
                             :filter-multiple="false"
                             column-key="level"
+                            sortable="custom"
                         >
                             <template #default="scope">
                                 <span :class="['tech-tag', scope.row.level === 'high' || scope.row.level === 'red' || scope.row.level === 'orange' ? 'tag-danger' : (scope.row.level === 'low' || scope.row.level === 'green' ? 'tag-success' : 'tag-warning')]">
@@ -1010,7 +1013,7 @@
     </div>
 
     <script>
-        const { createApp, ref, onMounted, nextTick } = Vue;
+        const { createApp, ref, onMounted, nextTick, watch } = Vue;
         const { ElMessage } = ElementPlus;
         // Fix: Use global variable provided by the locale script, with fallback
         const ElementPlusLocaleZhCn = window.ElementPlusLocaleZhCn || {};
@@ -1045,7 +1048,13 @@
             setup() {
                 const username = ref(localStorage.getItem('username') || '管理员');
                 const userRole = ref(localStorage.getItem('role') || 'admin');
-                const isCollapse = ref(false);
+                const isCollapse = ref(localStorage.getItem('sidebarCollapse') === 'true');
+                console.log('Warning page sidebar collapse state:', isCollapse.value);
+                
+                watch(isCollapse, (val) => {
+                    console.log('Warning page sidebar collapse changed to:', val);
+                    localStorage.setItem('sidebarCollapse', val ? 'true' : 'false');
+                });
 
                 const unreadCount = ref(0);
                 const recentAlerts = ref([]);
@@ -1245,6 +1254,8 @@
                 const currentPage = ref(1);
                 const pageSize = ref(10);
                 const totalAlerts = ref(0);
+                const sortProp = ref('time');
+                const sortOrder = ref('descending');
 
                 const alertReport = ref({
                     level_dist: [],
@@ -1320,6 +1331,8 @@
                         // Pagination
                         params.page = currentPage.value;
                         params.page_size = pageSize.value;
+                        params.sort_prop = sortProp.value;
+                        params.sort_order = sortOrder.value;
 
                         console.log('Sending request to /api/alerts/list with params:', params);
                         const res = await axios.get('/api/alerts/list', { params });
@@ -1350,6 +1363,13 @@
 
                 const handleCurrentChange = (val) => {
                     currentPage.value = val;
+                    fetchAlerts();
+                };
+
+                const handleSortChange = ({ prop, order }) => {
+                    sortProp.value = prop || 'time';
+                    sortOrder.value = order || 'descending';
+                    currentPage.value = 1; // 排序改变后回到第一页
                     fetchAlerts();
                 };
 
@@ -2006,6 +2026,7 @@
                         currentPage,
                         handleSizeChange,
                         handleCurrentChange,
+                        handleSortChange,
                         formatKeywords,
                         // Notifications & Profile
                         unreadCount,

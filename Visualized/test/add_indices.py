@@ -15,6 +15,12 @@ try:
     print("Creating index on content(top_id)...")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_content_top_id ON content(top_id)")
     
+    print("Creating index on content(title)...")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_content_title ON content(title)")
+    
+    print("Creating index on content(source)...")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_content_source ON content(source)")
+    
     print("Creating index on processed_items(top_id)...")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_processed_items_top_id ON processed_items(top_id)")
     

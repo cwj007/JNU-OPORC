@@ -48,7 +48,7 @@
         <div class="data-stream-container" id="dataStream"></div>
 
         <!-- Sidebar -->
-        <div class="sidebar" :class="{ collapsed: isCollapse }">
+        <div class="sidebar" :class="{ collapsed: isCollapse, active: !isCollapse }">
             <div class="sidebar-logo">{{ isCollapse ? 'OPORC' : 'JNU-OPORC 舆情哨兵' }}</div>
                 <el-menu
                     active-text-color="var(--primary-color)"
@@ -394,8 +394,8 @@
     <!-- Vue 3 + Axios + Element Plus -->
     <script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios@1.4.0/dist/axios.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/element-plus@2.3.8/dist/index.full.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue@2.1.0/dist/index.iife.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue/dist/index.iife.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <script>
         if (typeof Vue === 'undefined') {
@@ -434,7 +434,13 @@
                 const { ElMessage } = ElementPlus;
                 const username = ref(localStorage.getItem('username') || 'Admin');
                 const userRole = ref(localStorage.getItem('role') || 'user');
-                const isCollapse = ref(false);
+                const isCollapse = ref(localStorage.getItem('sidebarCollapse') === 'true');
+                console.log('Hotsearch page sidebar collapse state:', isCollapse.value);
+                
+                watch(isCollapse, (val) => {
+                    console.log('Hotsearch page sidebar collapse changed to:', val);
+                    localStorage.setItem('sidebarCollapse', val ? 'true' : 'false');
+                });
 
                 const handleCommand = (command) => {
                     if (command === 'logout') {

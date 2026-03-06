@@ -797,7 +797,8 @@ async def get_monitoring_list(
             
             # Use parse_keyword_expr but with "full" mode (check title, content, comment)
             # 暂时禁用 FTS5，改用 LIKE
-            w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="T", use_fts=False)
+            # 设置 check_top_name_column=True 因为 T 包含计算后的 top_name
+            w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="T", use_fts=False, check_top_name_column=True)
             if w_sql:
                 where_clauses.append(w_sql)
                 params.extend(w_params)
@@ -814,7 +815,8 @@ async def get_monitoring_list(
             else:
                 # Normal modes (Title, Content, Full)
                 # 暂时禁用 FTS5，改用 LIKE
-                k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="T", use_fts=False)
+                # 设置 check_top_name_column=True 因为 T 包含计算后的 top_name
+                k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="T", use_fts=False, check_top_name_column=True)
                 if k_sql:
                     where_clauses.append(k_sql)
                     params.extend(k_params)
@@ -839,35 +841,59 @@ async def get_monitoring_list(
             params.append(date_end)
 
         if merge_query:
-            # 合并查询：直接基于 content 表的 top_id 进行聚合
-            # 优化：不再使用 processed_items，从而自动过滤掉只有评论无文章的话题
+            # 合并查询：基于板块名称聚合
+            # 微博：top_id -> title -> content
+            # 知乎：title -> content
+            # 优化：1. 移除昂贵的 comment_sample 子查询；2. 截断 content 减少数据传输；3. 简化聚合逻辑
             base_query = f"""
-                SELECT c.top_id, 
-                       CASE 
-                           WHEN c.source IN ('知乎', 'zhihu') THEN (SELECT title FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1)
-                           ELSE IFNULL(t.top_name, (SELECT title FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1))
-                       END as top_name,
-                       COUNT(*) as merge_count, 
-                       MAX(c.{date_col}) as latest_time,
-                       'merged' as type,
-                       -- 获取最新的一条内容作为摘要
-                       (SELECT content FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as content,
-                       NULL as comment_content,
-                       (SELECT source FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as source,
-                       (SELECT author FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as author,
-                       -- 简单的情感统计：取众数或最新的
-                     (SELECT sentiment FROM content c2 WHERE c2.top_id = c.top_id ORDER BY {date_col} DESC LIMIT 1) as sentiment,
-                     NULL as matched_comment_id,
-                     -- 聚合模式下的评论采样，用于计算匹配度
-                     (SELECT group_concat(content, ' ') FROM (SELECT content FROM comments cm JOIN content ct ON cm.note_id = ct.note_id WHERE ct.top_id = c.top_id ORDER BY cm.created_at DESC LIMIT 5)) as comment_sample
-              FROM content c
-                LEFT JOIN top_topics t ON c.top_id = t.top_id
-                WHERE (c.top_id IS NOT NULL AND c.top_id != '') OR (c.source IN ('知乎', 'zhihu'))
+                SELECT 
+                    group_key as top_id,
+                    top_name,
+                    COUNT(*) as merge_count, 
+                    MAX(latest_time) as latest_time,
+                    'merged' as type,
+                    -- 仅获取前 200 个字符作为摘要，减少数据传输
+                    SUBSTR(MAX(content), 1, 200) as content,
+                    NULL as comment_content,
+                    MAX(source) as source,
+                    MAX(author) as author,
+                    MAX(sentiment) as sentiment,
+                    GROUP_CONCAT(note_id) as note_ids,
+                    NULL as matched_comment_id,
+                    NULL as comment_sample
+                FROM (
+                    SELECT 
+                        c.note_id, c.title, c.content, c.author, c.source, c.sentiment,
+                        c.top_id,
+                        c.top_id as original_top_id,
+                        c.{date_col} as latest_time,
+                        CASE 
+                            WHEN c.source IN ('知乎', 'zhihu') THEN COALESCE(CASE WHEN c.title IS NULL OR LOWER(c.title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE c.title END, c.note_id)
+                            ELSE COALESCE(
+                                CASE WHEN c.top_id IS NULL OR LOWER(c.top_id) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE c.top_id END, 
+                                CASE WHEN c.title IS NULL OR LOWER(c.title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE c.title END, 
+                                CASE WHEN LENGTH(c.content) > 20 THEN SUBSTR(c.content, 1, 20) || '...' ELSE c.content END,
+                                c.note_id
+                            )
+                        END as group_key,
+                        CASE 
+                            WHEN c.source IN ('知乎', 'zhihu') THEN COALESCE(CASE WHEN c.title IS NULL OR LOWER(c.title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE c.title END, c.note_id)
+                            ELSE IFNULL(t.top_name, COALESCE(
+                                CASE WHEN c.top_id IS NULL OR LOWER(c.top_id) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE c.top_id END, 
+                                CASE WHEN c.title IS NULL OR LOWER(c.title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE c.title END, 
+                                CASE WHEN LENGTH(c.content) > 20 THEN SUBSTR(c.content, 1, 20) || '...' ELSE c.content END,
+                                c.note_id
+                            ))
+                        END as top_name
+                    FROM content c
+                    LEFT JOIN top_topics t ON c.top_id = t.top_id
+                ) AS T_INNER
+                WHERE group_key IS NOT NULL AND group_key != ''
             """
             
             full_query = base_query
             if where_clauses:
-                # 重新构建针对 content 的 where_clauses (别名 c)
+                # 重新构建针对子查询结果的 where_clauses
                 c_where_clauses = []
                 c_params = []
 
@@ -877,11 +903,11 @@ async def get_monitoring_list(
                 if sentiment:
                     s_list = sentiment.split(',')
                     if len(s_list) == 1:
-                        c_where_clauses.append("c.sentiment = ?")
+                        c_where_clauses.append("T_INNER.sentiment = ?")
                         c_params.append(s_list[0])
                     else:
                         placeholders = ','.join(['?'] * len(s_list))
-                        c_where_clauses.append(f"c.sentiment IN ({placeholders})")
+                        c_where_clauses.append(f"T_INNER.sentiment IN ({placeholders})")
                         c_params.extend(s_list)
 
                 if platforms:
@@ -896,7 +922,7 @@ async def get_monitoring_list(
                             
                         or_group = []
                         for term in search_terms:
-                            or_group.append("c.source LIKE ?")
+                            or_group.append("T_INNER.source LIKE ?")
                             c_params.append(f"%{term}%")
                         
                         platform_clauses.append(f"({' OR '.join(or_group)})")
@@ -906,7 +932,8 @@ async def get_monitoring_list(
 
                 if warning_keywords:
                     # Warning Keywords: Strict intersection for Merged Query
-                    w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="c", use_fts=False)
+                    # 设置 check_top_name_column=True 因为 T_INNER 包含计算后的 top_name
+                    w_sql, w_params = parse_keyword_expr(warning_keywords, mode="full", table_alias="T_INNER", use_fts=False, check_top_name_column=True)
                     if w_sql:
                         c_where_clauses.append(w_sql)
                         c_params.extend(w_params)
@@ -915,10 +942,11 @@ async def get_monitoring_list(
                     if keyword_mode == "comment":
                         inner_sql, inner_params = parse_keyword_expr(keyword, mode="content", table_alias="cm", use_fts=False)
                         if inner_sql:
-                            c_where_clauses.append(f"EXISTS (SELECT 1 FROM comments cm WHERE cm.note_id = c.note_id AND {inner_sql})")
+                            c_where_clauses.append(f"EXISTS (SELECT 1 FROM comments cm WHERE cm.note_id = T_INNER.note_id AND {inner_sql})")
                             c_params.extend(inner_params)
                     else:
-                        k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="c", use_fts=False)
+                        # 设置 check_top_name_column=True 因为 T_INNER 包含计算后的 top_name
+                        k_sql, k_params = parse_keyword_expr(keyword, mode=keyword_mode, table_alias="T_INNER", use_fts=False, check_top_name_column=True)
                         if k_sql:
                             c_where_clauses.append(k_sql)
                             c_params.extend(k_params)
@@ -928,26 +956,24 @@ async def get_monitoring_list(
                     for ew in excludes:
                         if not ew.strip(): continue
                         ew_wild = f"%{ew.strip()}%"
-                        # Fix: Handle cases where top_name might not exist or be NULL
-                        # In Merge Query, top_name is defined in the SELECT clause, but for filtering 
-                        # we should use the same logic as the SELECT or filter against the joined table.
-                        c_where_clauses.append(f"NOT (c.title LIKE ? OR c.content LIKE ? OR (CASE WHEN c.source IN ('知乎', 'zhihu') THEN c.title ELSE IFNULL(t.top_name, '') END) LIKE ?)")
+                        # Handle cases where top_name might not exist or be NULL
+                        c_where_clauses.append(f"NOT (T_INNER.title LIKE ? OR T_INNER.content LIKE ? OR T_INNER.top_name LIKE ?)")
                         c_params.append(ew_wild)
                         c_params.append(ew_wild)
                         c_params.append(ew_wild)
                 if date_start:
-                    c_where_clauses.append(f"c.{date_col} >= ?")
+                    c_where_clauses.append(f"T_INNER.latest_time >= ?")
                     c_params.append(date_start)
                 if date_end:
-                    c_where_clauses.append(f"c.{date_col} <= ?")
+                    c_where_clauses.append(f"T_INNER.latest_time <= ?")
                     c_params.append(date_end)
                 
                 full_query += " AND " + " AND ".join(c_where_clauses)
                 params = c_params # 更新 params
             
-            full_query += " GROUP BY c.top_id"
+            full_query += " GROUP BY group_key"
             
-            count_query = f"SELECT COUNT(*) FROM ({full_query})"
+            count_query = f"SELECT COUNT(*) FROM ({full_query.split(' ORDER BY ')[0]}) AS T_COUNT"
             
             # 排序
             if sort_by == "time_asc":
@@ -1014,8 +1040,13 @@ async def get_monitoring_list(
                        liked_count, comments_count, shared_count, 'article' as type,
                        top_id,
                        CASE 
-                           WHEN source IN ('知乎', 'zhihu') THEN title 
-                           ELSE (SELECT top_name FROM top_topics WHERE top_id = content.top_id) 
+                           WHEN source IN ('知乎', 'zhihu') THEN COALESCE(CASE WHEN title IS NULL OR LOWER(title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE title END, note_id)
+                           ELSE IFNULL((SELECT top_name FROM top_topics WHERE top_id = content.top_id), COALESCE(
+                               CASE WHEN top_id IS NULL OR LOWER(top_id) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE top_id END, 
+                               CASE WHEN title IS NULL OR LOWER(title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE title END, 
+                               CASE WHEN LENGTH(content) > 20 THEN SUBSTR(content, 1, 20) || '...' ELSE content END,
+                               note_id
+                           ))
                        END as top_name,
                        {matched_comment_expr} as matched_comment_id,
                        {matched_comment_content_expr} as matched_comment_content,
@@ -1118,6 +1149,53 @@ async def get_monitoring_list(
                         "visual_objects": [],
                         "comment_sample": item.get("comment_sample", "")
                     }
+                    
+                    # --- 新增：聚合计算情感分布 ---
+                    note_ids_str = item.get("note_ids", "")
+                    if note_ids_str:
+                        note_id_list = list(set(note_ids_str.split(",")))
+                        try:
+                            placeholders = ",".join(["?"] * len(note_id_list))
+                            # 统计文章和评论情感分布
+                            sent_sql = f"""
+                                SELECT sentiment, SUM(count) as total_count FROM (
+                                    SELECT sentiment, COUNT(*) as count FROM content WHERE note_id IN ({placeholders}) GROUP BY sentiment
+                                    UNION ALL
+                                    SELECT sentiment, COUNT(*) as count FROM comments WHERE note_id IN ({placeholders}) GROUP BY sentiment
+                                ) GROUP BY sentiment
+                            """
+                            sent_stats = await query_db(sent_sql, tuple(note_id_list + note_id_list))
+                            
+                            counts = {}
+                            def normalize_sentiment(s):
+                                if not s or s in ["Unknown", "None", "null", "none"]: return None
+                                if s in ["愤怒", "悲伤", "恐惧", "厌恶"]: return "负面"
+                                if s in ["愉快", "喜爱", "惊讶", "兴奋"]: return "正面"
+                                if s in ["Neutral", "中性"]: return "中性"
+                                if s in ["正面", "负面"]: return s
+                                return s
+                                
+                            if sent_stats:
+                                for stat in sent_stats:
+                                    s_label = normalize_sentiment(stat["sentiment"])
+                                    if s_label:
+                                        counts[s_label] = counts.get(s_label, 0) + stat["total_count"]
+                                        
+                            total_s = sum(counts.values())
+                            if total_s > 0:
+                                max_s = max(counts.items(), key=lambda x: x[1])
+                                processed_item["sentiment"] = max_s[0]
+                                processed_item["sentiment_analysis"]["sentiment"] = max_s[0]
+                                processed_item["sentiment_analysis"]["distribution"] = counts
+                                processed_item["sentiment_score"] = int((max_s[1] / total_s) * 100)
+                            else:
+                                processed_item["sentiment"] = "中性"
+                                processed_item["sentiment_analysis"]["sentiment"] = "中性"
+                                processed_item["sentiment_analysis"]["distribution"] = {}
+                                processed_item["sentiment_score"] = 0
+                        except Exception as e:
+                            print(f"DEBUG: Merge sentiment error: {e}")
+                            processed_item["sentiment_score"] = 0
                 else:
                     # 普通结果
                     processed_item = item
@@ -1153,9 +1231,11 @@ async def get_monitoring_list(
                         )
                         counts = {}
                         def normalize_sentiment(s):
-                            if not s or s == "Unknown": return None
-                            if s in ["愤怒", "悲伤", "恐惧"]: return "负面"
-                            if s in ["愉快", "喜爱"]: return "正面"
+                            if not s or s in ["Unknown", "None", "null", "none"]: return None
+                            if s in ["愤怒", "悲伤", "恐惧", "厌恶"]: return "负面"
+                            if s in ["愉快", "喜爱", "惊讶", "兴奋"]: return "正面"
+                            if s in ["Neutral", "中性"]: return "中性"
+                            if s in ["正面", "负面"]: return s
                             return s
 
                         article_sentiment = normalize_sentiment(item.get("sentiment"))
@@ -1172,10 +1252,14 @@ async def get_monitoring_list(
                         if total_s > 0:
                             max_s = max(counts.items(), key=lambda x: x[1])
                             processed_item["sentiment"] = max_s[0]
+                            processed_item["sentiment_analysis"]["sentiment"] = max_s[0]
+                            processed_item["sentiment_analysis"]["distribution"] = counts
                             score = int((max_s[1] / total_s) * 100)
                             processed_item["sentiment_score"] = score if score > 0 else 0
                         else:
                             processed_item["sentiment"] = "中性"
+                            processed_item["sentiment_analysis"]["sentiment"] = "中性"
+                            processed_item["sentiment_analysis"]["distribution"] = {}
                             processed_item["sentiment_score"] = 0
                     except Exception as e:
                         processed_item["sentiment_score"] = 0
@@ -1246,57 +1330,48 @@ async def get_topic_detail(top_id: str, page: int = 1, size: int = 10):
         target_top_id = decoded_top_id
         offset = (page - 1) * size
         
-        # 2. 确定真实的 top_id
-        # 优先直接匹配 content 表的 top_id
-        check_query = "SELECT COUNT(*) FROM content WHERE top_id = ?"
-        count_res = await query_db(check_query, (target_top_id,), one=True)
-        count = list(count_res.values())[0] if count_res else 0
+        # 2. 确定真实的查询条件
+        # 我们现在支持多种 fallback 匹配逻辑，以匹配聚合后的结果
+        query_params = [target_top_id, target_top_id]
         
-        real_top_id = target_top_id
-        is_zhihu_title = False
+        # 检查是否是知乎的 title 或 content
+        # 或者微博的 top_id, title 或 content
+        query = """
+            SELECT * FROM content 
+            WHERE (
+                CASE 
+                 WHEN source IN ('知乎', 'zhihu') THEN COALESCE(CASE WHEN title IS NULL OR LOWER(title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE title END, note_id)
+                 ELSE COALESCE(
+                     CASE WHEN top_id IS NULL OR LOWER(top_id) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE top_id END, 
+                     CASE WHEN title IS NULL OR LOWER(title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE title END, 
+                     CASE WHEN LENGTH(content) > 20 THEN SUBSTR(content, 1, 20) || '...' ELSE content END,
+                     note_id
+                 )
+             END
+            ) = ?
+            OR top_id = ?
+        """
         
-        if count == 0:
-            # 尝试加上 # (对于微博话题)
-            if not target_top_id.startswith("#"):
-                hashed_id = f"#{target_top_id}#"
-                hashed_res = await query_db(check_query, (hashed_id,), one=True)
-                if hashed_res and list(hashed_res.values())[0] > 0:
-                    real_top_id = hashed_id
-                    count = list(hashed_res.values())[0]
+        # 特殊处理：如果是微博话题 ID 但没带 #，尝试带 # 匹配
+        if not target_top_id.startswith("#") and len(target_top_id) > 0:
+            hashed_id = f"#{target_top_id}#"
+            query += " OR top_id = ?"
+            query_params.append(hashed_id)
             
-            # 尝试查 top_topics (通过名称找 ID)
-            if count == 0:
-                top_row = await query_db("SELECT top_id FROM top_topics WHERE top_name = ?", (target_top_id,), one=True)
-                if top_row:
-                    real_top_id = top_row["top_id"]
-                    real_res = await query_db(check_query, (real_top_id,), one=True)
-                    count = list(real_res.values())[0] if real_res else 0
-            
-            # 针对知乎：如果还是没找到，尝试作为 title 匹配
-            if count == 0:
-                zhihu_check = "SELECT COUNT(*) FROM content WHERE title = ? AND source IN ('知乎', 'zhihu')"
-                zhihu_res = await query_db(zhihu_check, (target_top_id,), one=True)
-                if zhihu_res and list(zhihu_res.values())[0] > 0:
-                    count = list(zhihu_res.values())[0]
-                    is_zhihu_title = True
+        # 尝试查 top_topics (通过名称找 ID)
+        top_row = await query_db("SELECT top_id FROM top_topics WHERE top_name = ?", (target_top_id,), one=True)
+        if top_row:
+            query += " OR top_id = ?"
+            query_params.append(top_row["top_id"])
 
-        # 3. 执行分页查询
-        if is_zhihu_title:
-            query = """
-                SELECT * FROM content 
-                WHERE title = ? AND source IN ('知乎', 'zhihu')
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-            """
-        else:
-            query = """
-                SELECT * FROM content 
-                WHERE top_id = ? 
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-            """
+        # 执行分页查询
+        final_query = f"""
+            SELECT * FROM ({query}) AS T
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """
         
-        items = await query_db(query, (real_top_id, size, offset))
+        items = await query_db(final_query, (*query_params, size, offset))
         
         formatted_items = []
         if items:
@@ -1385,9 +1460,13 @@ async def get_item_detail(
         article_query = """
             SELECT c.*, 
                    CASE 
-                       WHEN c.source IN ('知乎', 'zhihu') THEN c.title
-                       ELSE IFNULL(t.top_name, c.title)
-                   END as top_name,
+                        WHEN c.source IN ('知乎', 'zhihu') THEN CASE WHEN c.title IS NULL OR LOWER(c.title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE c.title END
+                        ELSE IFNULL(t.top_name, COALESCE(
+                            CASE WHEN c.top_id IS NULL OR LOWER(c.top_id) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE c.top_id END, 
+                            CASE WHEN c.title IS NULL OR LOWER(c.title) IN ('', 'none', 'null', 'undefined') THEN NULL ELSE c.title END, 
+                            CASE WHEN LENGTH(c.content) > 20 THEN SUBSTR(c.content, 1, 20) || '...' ELSE c.content END
+                        ))
+                    END as top_name,
                    'article' as type 
             FROM content c 
             LEFT JOIN top_topics t ON c.top_id = t.top_id

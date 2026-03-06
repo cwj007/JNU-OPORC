@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
@@ -291,14 +291,18 @@ app.include_router(mc_extra_router)
 app.include_router(task_scheduler_router, prefix="/api")
 
 
-# --- 路由补丁 (修复 IDE 预览产生的 404) ---
+# --- 路由补丁 (修复 IDE 预览产生的 404 和 MIME 类型错误) ---
 @app.get("/@vite/client")
 async def vite_client():
-    return JSONResponse(content={})
+    # 返回一个空的 JavaScript 文件，并设置正确的 MIME 类型
+    return Response(content="/* vite client stub */", media_type="application/javascript")
 
 @app.get("/favicon.ico")
 async def favicon():
-    return FileResponse(str(BASE_DIR / "Visualized" / "static" / "favicon.ico")) if (BASE_DIR / "Visualized" / "static" / "favicon.ico").exists() else JSONResponse(content={})
+    icon_path = BASE_DIR / "Visualized" / "static" / "favicon.ico"
+    if icon_path.exists():
+        return FileResponse(str(icon_path))
+    return Response(status_code=204) # No Content
 
 # --- 页面路由 ---
 @app.get("/")

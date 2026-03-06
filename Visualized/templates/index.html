@@ -14,16 +14,15 @@
     <!-- Element Plus CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
     <!-- Vue 3 + Axios + ECharts + Element Plus -->
-    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts/dist/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/echarts-wordcloud/dist/echarts-wordcloud.min.js"></script>
     <!-- 中国地图数据 -->
     <script src="https://cdn.jsdelivr.net/npm/echarts/map/js/china.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue/dist/index.iife.min.js"></script>
     <link rel="stylesheet" href="/static/css/style.css">
-</head>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
 </head>
 <body>
@@ -732,7 +731,13 @@
                     return titles[activeMenu.value] || '';
                 });
 
-                const isCollapse = ref(false);
+                const isCollapse = ref(localStorage.getItem('sidebarCollapse') === 'true');
+                console.log('Index page sidebar collapse state:', isCollapse.value);
+                
+                watch(isCollapse, (val) => {
+                    console.log('Index page sidebar collapse changed to:', val);
+                    localStorage.setItem('sidebarCollapse', val ? 'true' : 'false');
+                });
                 const dateRange = ref('7');
                 const customDate = ref([]);
                 const taskId = ref(null);

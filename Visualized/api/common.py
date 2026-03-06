@@ -15,7 +15,7 @@ except ImportError:
         "xiaohongshu": "小红书"
     }
 
-def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, column_name: str = None, use_fts: bool = False) -> tuple:
+def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, column_name: str = None, use_fts: bool = False, check_top_name_column: bool = False) -> tuple:
     """
     Parses complex keyword expressions supporting '&' (AND), '|' (OR), and newline (OR group).
     Returns (sql_clause, params_list).
@@ -26,6 +26,7 @@ def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, col
         table_alias: SQL table alias (e.g. 'c')
         column_name: Used for 'simple' mode
         use_fts: If True, uses FTS5 MATCH syntax for better performance
+        check_top_name_column: If True, checks for a 'top_name' column in the table_alias directly
     """
     if not keyword_str:
         return "", []
@@ -41,6 +42,8 @@ def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, col
                 fts_query = f'title:"{term}"'
                 if table_alias:
                     # Title search with FTS + fallback for top_name
+                    if check_top_name_column:
+                        return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE {fts_query}) OR IFNULL({prefix}top_name, '') LIKE ?)", [term_wild]
                     return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE {fts_query}) OR EXISTS (SELECT 1 FROM top_topics tt WHERE tt.top_id = {prefix}top_id AND tt.top_name LIKE ?))", [term_wild]
                 return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE {fts_query}))", []
             elif mode == "content":
@@ -54,6 +57,8 @@ def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, col
                 fts_query = f'"{term}"'
                 outer_ref = f"{prefix}note_id" if table_alias else "note_id"
                 if table_alias:
+                    if check_top_name_column:
+                        return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?) OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.rowid IN (SELECT rowid FROM comments_fts WHERE comments_fts MATCH ?)) OR IFNULL({prefix}top_name, '') LIKE ?)", [fts_query, fts_query, term_wild]
                     return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?) OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.rowid IN (SELECT rowid FROM comments_fts WHERE comments_fts MATCH ?)) OR EXISTS (SELECT 1 FROM top_topics tt WHERE tt.top_id = {prefix}top_id AND tt.top_name LIKE ?))", [fts_query, fts_query, term_wild]
                 return f"({prefix}rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?) OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.rowid IN (SELECT rowid FROM comments_fts WHERE comments_fts MATCH ?)))", [fts_query, fts_query]
 
@@ -63,6 +68,11 @@ def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, col
         elif mode == "title":
             # For title mode, also check top_name if we have an alias (implies content table)
             if table_alias:
+                # If check_top_name_column is true, only match against the pre-computed top_name column
+                # This ensures the search range matches the displayed text (usually truncated to 20 chars)
+                if check_top_name_column:
+                    return f"(IFNULL({prefix}top_name, '') LIKE ?)", [term_wild]
+                # Fallback to checking title and related top_topics table
                 return f"({prefix}title LIKE ? OR EXISTS (SELECT 1 FROM top_topics tt WHERE tt.top_id = {prefix}top_id AND tt.top_name LIKE ?))", [term_wild, term_wild]
             return f"({prefix}title LIKE ?)", [term_wild]
         elif mode == "content":
@@ -75,6 +85,9 @@ def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, col
             outer_ref = f"{prefix}note_id" if table_alias else "note_id"
             # 检查 title, content, 以及评论，以及 top_name (如果可能)
             if table_alias:
+                # If check_top_name_column is true, only match against the pre-computed top_name column for the title part
+                if check_top_name_column:
+                    return f"({prefix}title LIKE ? OR {prefix}content LIKE ? OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.content LIKE ?) OR IFNULL({prefix}top_name, '') LIKE ?)", [term_wild, term_wild, term_wild, term_wild]
                 return f"({prefix}title LIKE ? OR {prefix}content LIKE ? OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.content LIKE ?) OR EXISTS (SELECT 1 FROM top_topics tt WHERE tt.top_id = {prefix}top_id AND tt.top_name LIKE ?))", [term_wild, term_wild, term_wild, term_wild]
             return f"({prefix}title LIKE ? OR {prefix}content LIKE ? OR EXISTS (SELECT 1 FROM comments cm_sub WHERE cm_sub.note_id = {outer_ref} AND cm_sub.content LIKE ?))", [term_wild, term_wild, term_wild]
 

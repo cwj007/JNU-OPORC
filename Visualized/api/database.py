@@ -452,6 +452,7 @@ async def get_db_connection(db_path: Path):
         # 开启 WAL 模式提高并发
         await conn.execute("PRAGMA journal_mode=WAL")
         await conn.execute("PRAGMA synchronous=NORMAL")
+        await conn.execute("PRAGMA group_concat_max_len = 1000000")
         _connections[db_path] = conn
     return _connections[db_path]
 

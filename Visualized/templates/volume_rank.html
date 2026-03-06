@@ -16,16 +16,16 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.3.8/dist/index.css">
     <link rel="stylesheet" href="/static/css/style.css?t={{ range(1, 10000) | random }}">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/element-plus"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue/dist/index.iife.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
 <body>
     <div id="app" v-cloak>
         <div class="data-stream-container" id="dataStream"></div>
 
-        <div class="sidebar" :class="{ collapsed: isCollapse }">
+        <div class="sidebar" :class="{ collapsed: isCollapse, active: !isCollapse }">
             <div class="sidebar-logo">{{ isCollapse ? 'OPORC' : 'JNU-OPORC 舆情哨兵' }}</div>
             <el-menu
                 active-text-color="var(--primary-color)"
@@ -195,7 +195,13 @@
             setup() {
                 const username = ref(localStorage.getItem('username') || 'Admin');
                 const userRole = ref(localStorage.getItem('role') || 'user');
-                const isCollapse = ref(false);
+                const isCollapse = ref(localStorage.getItem('sidebarCollapse') === 'true');
+                console.log('Volume Rank page sidebar collapse state:', isCollapse.value);
+                
+                watch(isCollapse, (val) => {
+                    console.log('Volume Rank page sidebar collapse changed to:', val);
+                    localStorage.setItem('sidebarCollapse', val ? 'true' : 'false');
+                });
 
                 // 个人设置相关
                 const profileDialogVisible = ref(false);
