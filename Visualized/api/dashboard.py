@@ -1,5 +1,6 @@
 import json
 import math
+from typing import Optional, Any, List, Dict, Tuple, Union
 import jieba
 import jieba.analyse
 import re
@@ -8,7 +9,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
 from .database import query_db
 from .utils import is_junk_label
-from .common import PLATFORM_MAP, parse_keyword_expr
+from .common import PLATFORM_MAP, parse_keyword_expr, build_date_filter, parse_date_string
 from .auth import get_current_user, User
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -101,6 +102,7 @@ async def build_task_filter(task_id: int, current_user: User, table_alias: str =
         
     final_sql = f"({' OR '.join(or_groups)})"
     return final_sql, all_params
+
 
 @router.get("/tasks")
 async def get_dashboard_tasks(current_user: User = Depends(get_current_user)):
@@ -213,19 +215,21 @@ async def get_dashboard_comments(limit: int = 50, task_id: int = None, current_u
         return {"comments": [], "status": "error", "message": str(e)}
 
 @router.get("/stats")
-async def get_dashboard_stats(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+async def get_dashboard_stats(
+    days: Any = 7, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None,
+    task_id: int = None, 
+    current_user: User = Depends(get_current_user)
+):
     """获取核心指标卡片数据，支持日期范围和任务筛选"""
     try:
         # 今日统计：以 sync_date 为准
         today_str = datetime.now().strftime("%Y-%m-%d")
         
         # 趋势与分布统计：以 created_at 为准
-        if days == 1:
-            start_date_dt = datetime.now() - timedelta(days=1)
-            start_date_str = start_date_dt.strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-            start_date_str = start_date + " 00:00:00"
+        where_total_art, params_total_art = await build_date_filter(days, start_date, end_date, table_alias="c")
+        where_total_cm, params_total_cm = await build_date_filter(days, start_date, end_date)
         
         # 构造任务过滤条件
         task_where_art, task_params_art = await build_task_filter(task_id, current_user, table_alias="c", mode="full")
@@ -257,16 +261,12 @@ async def get_dashboard_stats(days: int = 7, task_id: int = None, current_user: 
         today_count = (today_articles['count'] if today_articles else 0) + (today_comments['count'] if today_comments else 0)
         
         # 2. 统计周期内总数（业务关注量，使用 created_at）
-        where_total_art = ["c.created_at >= ?"]
-        params_total_art = [start_date_str]
         if task_where_art and task_where_art != "":
             where_total_art.append(task_where_art)
             params_total_art.extend(task_params_art)
             
         sql_total_art = f"SELECT COUNT(*) as count FROM content c WHERE {' AND '.join(where_total_art)}"
         
-        where_total_cm = ["created_at >= ?"]
-        params_total_cm = [start_date_str]
         if task_where_cm and task_where_cm != "":
             where_total_cm.append(task_where_cm)
             params_total_cm.extend(task_params_cm)
@@ -314,67 +314,145 @@ async def get_dashboard_stats(days: int = 7, task_id: int = None, current_user: 
         }
 
 @router.get("/trends")
-async def get_dashboard_trends(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+async def get_dashboard_trends(
+    days: Any = 7, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None,
+    task_id: int = None, 
+    current_user: User = Depends(get_current_user)
+):
     """获取过去 N 天的舆情趋势，支持任务筛选"""
     try:
+        # 预处理日期参数，支持前端传来的各种日期格式
+        start_date = parse_date_string(start_date)
+        end_date = parse_date_string(end_date)
+
+        # 处理自定义日期范围
+        if start_date and end_date:
+            if start_date == end_date:
+                days = 1
+            else:
+                # 计算天数差异
+                d1 = datetime.strptime(start_date, "%Y-%m-%d")
+                d2 = datetime.strptime(end_date, "%Y-%m-%d")
+                days = (d2 - d1).days + 1
+
         today_str = datetime.now().strftime("%Y-%m-%d")
         task_where_art, task_params_art = await build_task_filter(task_id, current_user, table_alias="c", mode="full")
         task_where_cm, task_params_cm = await build_task_filter(task_id, current_user, mode="content")
 
-        if days == 1:
-            # 24小时趋势：获取最近24小时的数据
-            start_date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-            where_art = ["c.created_at >= ?"]
-            params_art = [start_date_str]
-            where_com = ["created_at >= ?"]
-            params_com = [start_date_str]
+        # 归一化 days 参数为字符串以便判断
+        days_str = str(days) if days is not None else "7"
+        is_single_day = days_str in ["24h", "today", "yesterday", "1", "0", "-1"]
+
+        if is_single_day:
+            # 24小时趋势：获取最近24小时的数据（动态滚动窗口或指定单日）
+            if start_date:
+                # 如果指定了具体日期且是单日，则展示该日期的 00-23 时
+                start_time = datetime.strptime(start_date, "%Y-%m-%d")
+                end_time_str = start_date + " 23:59:59"
+                where_art, params_art = [f"c.created_at BETWEEN ? AND ?"], [f"{start_date} 00:00:00", end_time_str]
+                where_com, params_com = [f"created_at BETWEEN ? AND ?"], [f"{start_date} 00:00:00", end_time_str]
+            else:
+                # 使用 common.py 中的统一逻辑处理动态滚动窗口
+                where_art, params_art = await build_date_filter(days, None, None, table_alias="c")
+                where_com, params_com = await build_date_filter(days, None, None)
+                
+                # 重新计算 start_time 用于生成时间轴
+                now = datetime.now()
+                if days_str in ["today", "0"]:
+                    start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                elif days_str in ["yesterday", "-1"]:
+                    start_time = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+                else: # 24h, 1
+                    start_time = now - timedelta(hours=23)
+                    # 补全到小时开始
+                    start_time = start_time.replace(minute=0, second=0, microsecond=0)
             
-            if task_where_art and task_where_art != "":
+            # 任务过滤
+            if task_where_art:
                 where_art.append(task_where_art)
                 params_art.extend(task_params_art)
-            if task_where_cm and task_where_cm != "":
+            if task_where_cm:
                 where_com.append(task_where_cm)
                 params_com.extend(task_params_cm)
             
-            # 统计情感分布
-            sql_art = f"SELECT substr(c.created_at, 12, 2) as hour, sentiment, COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)} GROUP BY hour, sentiment"
-            sql_com = f"SELECT substr(created_at, 12, 2) as hour, sentiment, COUNT(*) as count FROM comments WHERE {' AND '.join(where_com)} GROUP BY hour, sentiment"
+            # 按 YYYY-MM-DD HH 聚合，确保跨天时小时不会重叠
+            sql_art = f"SELECT substr(c.created_at, 1, 13) as hour_key, sentiment, COUNT(*) as count FROM content c WHERE {' AND '.join(where_art)} GROUP BY hour_key, sentiment"
+            sql_com = f"SELECT substr(created_at, 1, 13) as hour_key, sentiment, COUNT(*) as count FROM comments WHERE {' AND '.join(where_com)} GROUP BY hour_key, sentiment"
             
             art_res = await query_db(sql_art, tuple(params_art))
             com_res = await query_db(sql_com, tuple(params_com))
             
-            # 初始化 24 小时数据
-            data_map = {f"{i:02d}": {"total": 0, "正面": 0, "中性": 0, "负面": 0} for i in range(24)}
+            # 生成 24 小时的时间轴序列
+            hour_list = [(start_time + timedelta(hours=i)).strftime("%Y-%m-%d %H") for i in range(24)]
+            data_map = {h: {"total": 0, "正面": 0, "中性": 0, "负面": 0} for h in hour_list}
             
             def process_res(res):
                 for row in res:
-                    hour = row['hour']
-                    if hour in data_map:
+                    hour_key = row['hour_key']
+                    if hour_key in data_map:
                         sentiment = row['sentiment'] or "中性"
                         if sentiment not in ["正面", "中性", "负面"]:
                             sentiment = "中性"
-                        data_map[hour][sentiment] += row['count']
-                        data_map[hour]["total"] += row['count']
+                        data_map[hour_key][sentiment] += row['count']
+                        data_map[hour_key]["total"] += row['count']
 
             if art_res: process_res(art_res)
             if com_res: process_res(com_res)
             
             results = []
-            for i in range(24):
-                hour_str = f"{i:02d}"
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+            
+            for h_key in hour_list:
+                date_part = h_key[:10]
+                hour_part = h_key[11:13]
+                
+                # 优化 X 轴展示逻辑
+                if date_part == today_str:
+                    display_date = f"{hour_part}时"
+                elif date_part == yesterday_str:
+                    display_date = f"昨日 {hour_part}时"
+                else:
+                    display_date = f"{date_part[5:]} {hour_part}时" # MM-DD HH时
+                
                 results.append({
-                    "date": f"{hour_str}:00",
-                    **data_map[hour_str]
+                    "date": display_date,
+                    **data_map[h_key]
                 })
             
             return results
         else:
             # 多日趋势：按日期分布
-            start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-            where_art = ["c.created_at >= ?"]
-            params_art = [start_date + " 00:00:00"]
-            where_com = ["created_at >= ?"]
-            params_com = [start_date + " 00:00:00"]
+            # 确保 days 为整数以进行数学运算
+            try:
+                if isinstance(days, str) and days.endswith('d'):
+                    days_int = int(days[:-1])
+                else:
+                    days_int = int(days)
+            except (ValueError, TypeError):
+                days_int = 7
+
+            if start_date and end_date:
+                query_start = start_date + " 00:00:00"
+                query_end = end_date + " 23:59:59"
+                where_art = ["c.created_at BETWEEN ? AND ?"]
+                params_art = [query_start, query_end]
+                where_com = ["created_at BETWEEN ? AND ?"]
+                params_com = [query_start, query_end]
+                
+                # 重新计算实际天数
+                d1 = datetime.strptime(start_date, "%Y-%m-%d")
+                d2 = datetime.strptime(end_date, "%Y-%m-%d")
+                days_int = (d2 - d1).days + 1
+            else:
+                start_date_obj = (datetime.now() - timedelta(days=days_int-1))
+                query_start = start_date_obj.strftime("%Y-%m-%d") + " 00:00:00"
+                where_art = ["c.created_at >= ?"]
+                params_art = [query_start]
+                where_com = ["created_at >= ?"]
+                params_com = [query_start]
             
             if task_where_art and task_where_art != "":
                 where_art.append(task_where_art)
@@ -390,8 +468,12 @@ async def get_dashboard_trends(days: int = 7, task_id: int = None, current_user:
             com_res = await query_db(sql_com, tuple(params_com))
             
             # 生成日期序列
-            date_list = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
-            date_list.reverse()
+            if start_date and end_date:
+                d1 = datetime.strptime(start_date, "%Y-%m-%d")
+                date_list = [(d1 + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days_int)]
+            else:
+                date_list = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days_int)]
+                date_list.reverse()
             
             data_map = {d: {"total": 0, "正面": 0, "中性": 0, "负面": 0} for d in date_list}
             
@@ -421,26 +503,28 @@ async def get_dashboard_trends(days: int = 7, task_id: int = None, current_user:
         return []
 
 @router.get("/map")
-async def get_dashboard_map(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+async def get_dashboard_map(
+    days: Any = 7, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None,
+    task_id: int = None, 
+    current_user: User = Depends(get_current_user)
+):
     """获取地域分布数据（基于 content 和 comments 的 ip_location 字段）"""
     try:
-        if days == 1:
-            start_date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-            start_date_str = start_date + " 00:00:00"
+        where_art, params_art = await build_date_filter(days, start_date, end_date, table_alias="c")
+        where_cm, params_cm = await build_date_filter(days, start_date, end_date)
+        
+        where_art.extend(["c.ip_location IS NOT NULL", "c.ip_location != ''"])
+        where_cm.extend(["ip_location IS NOT NULL", "ip_location != ''"])
 
         task_where_art, task_params_art = await build_task_filter(task_id, current_user, table_alias="c", mode="full")
         task_where_cm, task_params_cm = await build_task_filter(task_id, current_user, mode="content")
         
-        where_art = ["c.created_at >= ?", "c.ip_location IS NOT NULL", "c.ip_location != ''"]
-        params_art = [start_date_str]
         if task_where_art and task_where_art != "":
             where_art.append(task_where_art)
             params_art.extend(task_params_art)
             
-        where_cm = ["created_at >= ?", "ip_location IS NOT NULL", "ip_location != ''"]
-        params_cm = [start_date_str]
         if task_where_cm and task_where_cm != "":
             where_cm.append(task_where_cm)
             params_cm.extend(task_params_cm)
@@ -467,26 +551,28 @@ async def get_dashboard_map(days: int = 7, task_id: int = None, current_user: Us
         return []
 
 @router.get("/sentiment_fine")
-async def get_dashboard_sentiment_fine(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+async def get_dashboard_sentiment_fine(
+    days: Any = 7, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None,
+    task_id: int = None, 
+    current_user: User = Depends(get_current_user)
+):
     """细粒度情感分布"""
     try:
-        if days == 1:
-            start_date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-            start_date_str = start_date + " 00:00:00"
+        where_art, params_art = await build_date_filter(days, start_date, end_date, table_alias="c")
+        where_cm, params_cm = await build_date_filter(days, start_date, end_date)
+        
+        where_art.append("c.fine_grained_sentiment IS NOT NULL")
+        where_cm.append("fine_grained_sentiment IS NOT NULL")
 
         task_where_art, task_params_art = await build_task_filter(task_id, current_user, table_alias="c", mode="full")
         task_where_cm, task_params_cm = await build_task_filter(task_id, current_user, mode="content")
         
-        where_art = ["c.created_at >= ?", "c.fine_grained_sentiment IS NOT NULL"]
-        params_art = [start_date_str]
         if task_where_art and task_where_art != "":
             where_art.append(task_where_art)
             params_art.extend(task_params_art)
             
-        where_cm = ["created_at >= ?", "fine_grained_sentiment IS NOT NULL"]
-        params_cm = [start_date_str]
         if task_where_cm and task_where_cm != "":
             where_cm.append(task_where_cm)
             params_cm.extend(task_params_cm)
@@ -510,26 +596,28 @@ async def get_dashboard_sentiment_fine(days: int = 7, task_id: int = None, curre
         return []
 
 @router.get("/intent")
-async def get_dashboard_intent(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+async def get_dashboard_intent(
+    days: Any = 7, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None,
+    task_id: int = None, 
+    current_user: User = Depends(get_current_user)
+):
     """意图分布"""
     try:
-        if days == 1:
-            start_date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-            start_date_str = start_date + " 00:00:00"
+        where_art, params_art = await build_date_filter(days, start_date, end_date, table_alias="c")
+        where_cm, params_cm = await build_date_filter(days, start_date, end_date)
+        
+        where_art.append("c.intent IS NOT NULL")
+        where_cm.append("intent IS NOT NULL")
 
         task_where_art, task_params_art = await build_task_filter(task_id, current_user, table_alias="c", mode="full")
         task_where_cm, task_params_cm = await build_task_filter(task_id, current_user, mode="content")
         
-        where_art = ["c.created_at >= ?", "c.intent IS NOT NULL"]
-        params_art = [start_date_str]
         if task_where_art and task_where_art != "":
             where_art.append(task_where_art)
             params_art.extend(task_params_art)
             
-        where_cm = ["created_at >= ?", "intent IS NOT NULL"]
-        params_cm = [start_date_str]
         if task_where_cm and task_where_cm != "":
             where_cm.append(task_where_cm)
             params_cm.extend(task_params_cm)
@@ -553,26 +641,28 @@ async def get_dashboard_intent(days: int = 7, task_id: int = None, current_user:
         return []
 
 @router.get("/wordcloud")
-async def get_dashboard_wordcloud(days: int = 7, task_id: int = None, current_user: User = Depends(get_current_user)):
+async def get_dashboard_wordcloud(
+    days: Any = 7, 
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None,
+    task_id: int = None, 
+    current_user: User = Depends(get_current_user)
+):
     """关键词云（基于 content 和 comments 的 keywords 字段）"""
     try:
-        if days == 1:
-            start_date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            start_date = (datetime.now() - timedelta(days=days-1)).strftime("%Y-%m-%d")
-            start_date_str = start_date + " 00:00:00"
+        where_art, params_art = await build_date_filter(days, start_date, end_date, table_alias="c")
+        where_cm, params_cm = await build_date_filter(days, start_date, end_date)
+        
+        where_art.extend(["c.keywords IS NOT NULL", "c.keywords != ''", "c.keywords != '[]'"])
+        where_cm.extend(["keywords IS NOT NULL", "keywords != ''", "keywords != '[]'"])
 
         task_where_art, task_params_art = await build_task_filter(task_id, current_user, table_alias="c", mode="full")
         task_where_cm, task_params_cm = await build_task_filter(task_id, current_user, mode="content")
         
-        where_art = ["c.created_at >= ?", "c.keywords IS NOT NULL", "c.keywords != ''", "c.keywords != '[]'"]
-        params_art = [start_date_str]
         if task_where_art and task_where_art != "":
             where_art.append(task_where_art)
             params_art.extend(task_params_art)
             
-        where_cm = ["created_at >= ?", "keywords IS NOT NULL", "keywords != ''", "keywords != '[]'"]
-        params_cm = [start_date_str]
         if task_where_cm and task_where_cm != "":
             where_cm.append(task_where_cm)
             params_cm.extend(task_params_cm)

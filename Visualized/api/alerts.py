@@ -3,7 +3,8 @@ from .database import query_db, execute_db, HOTSEARCH_DB_PATH
 from .alert_engine import AlertEngine
 from .auth import get_current_user, get_current_user_optional, User
 from pydantic import BaseModel
-from typing import Optional, List
+from .common import build_date_filter
+from typing import Optional, List, Any
 import json
 import sqlite3
 from datetime import datetime, timedelta
@@ -169,7 +170,7 @@ async def generate_auto_alerts(override_days: int = None, force: bool = False):
 
 @router.get("/list")
 async def get_alerts(
-    days: Optional[int] = 1, 
+    days: Optional[Any] = 1, 
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None,
     level: Optional[str] = None,
@@ -209,46 +210,39 @@ async def get_alerts(
     # 注意：自动生成预警时不区分用户，而是检查所有规则
     await generate_auto_alerts(override_days=None) 
     
-    # 构建时间查询条件
-    if start_date and end_date:
-        # 自定义范围
-        # 补全时间，start_date 00:00:00 到 end_date 23:59:59
-        where_clause = f"time BETWEEN '{start_date} 00:00:00' AND '{end_date} 23:59:59'"
-    elif days:
-        # 预设天数
-        time_threshold = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        where_clause = f"time >= '{time_threshold}'"
-    else:
-        # 默认 24h
-        time_threshold = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        where_clause = f"time >= '{time_threshold}'"
-
+    # 构建查询条件
+    where_clauses, params = await build_date_filter(days or 1, start_date, end_date, column_name="time")
+    
     # 添加风险等级筛选
     if level and level != 'all':
         if level == 'high':
-            where_clause += " AND (level = 'high' OR level = 'red')"
+            where_clauses.append("(level = 'high' OR level = 'red')")
         elif level == 'medium':
-            where_clause += " AND (level = 'medium' OR level = 'yellow')"
+            where_clauses.append("(level = 'medium' OR level = 'yellow')")
         elif level == 'low':
-            where_clause += " AND (level = 'low' OR level = 'green')"
+            where_clauses.append("(level = 'low' OR level = 'green')")
         else:
-            where_clause += f" AND level = '{level}'"
+            where_clauses.append("level = ?")
+            params.append(level)
 
     # --- 权限控制 ---
     if not current_user:
         # 未登录用户：只能看到公共预警 (user_id IS NULL)
-        where_clause += " AND user_id IS NULL"
+        where_clauses.append("user_id IS NULL")
     elif current_user.role == 'admin':
         # 管理员：看到系统预警 (user_id IS NULL) 和 自己的预警
-        # 过滤掉其他普通用户的重复预警
-        where_clause += f" AND (user_id IS NULL OR user_id = {current_user.id})"
+        where_clauses.append(f"(user_id IS NULL OR user_id = ?)")
+        params.append(current_user.id)
     else:
         # 普通用户：只能看到自己的预警
-        where_clause += f" AND user_id = {current_user.id}"
+        where_clauses.append("user_id = ?")
+        params.append(current_user.id)
+
+    where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
 
     # 计算总数
     count_sql = f"SELECT COUNT(*) as total FROM alerts WHERE {where_clause}"
-    total_res = await query_db(count_sql, one=True)
+    total_res = await query_db(count_sql, tuple(params), one=True)
     total = total_res['total'] if total_res else 0
 
     # 分页查询
@@ -268,8 +262,9 @@ async def get_alerts(
     # 映射排序方式
     order_direction = "DESC" if sort_order == "descending" else "ASC"
     
-    sql = f"SELECT * FROM alerts WHERE {where_clause} ORDER BY {target_sort_col} {order_direction} LIMIT {page_size} OFFSET {offset}"
-    results = await query_db(sql)
+    sql = f"SELECT * FROM alerts WHERE {where_clause} ORDER BY {target_sort_col} {order_direction} LIMIT ? OFFSET ?"
+    query_params = params + [page_size, offset]
+    results = await query_db(sql, tuple(query_params))
     
     processed_results = []
     if results:
@@ -640,7 +635,7 @@ async def delete_rule(rule_id: int, current_user: User = Depends(get_current_use
 
 @router.get("/report")
 async def get_alert_report(
-    days: Optional[int] = 7, 
+    days: Optional[Any] = 7, 
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None,
     current_user: User = Depends(get_current_user)
@@ -648,43 +643,100 @@ async def get_alert_report(
     """获取预警统计报告 (可视化支持)"""
     
     # 构建时间查询条件
-    if start_date and end_date:
-        time_condition = f"time BETWEEN '{start_date} 00:00:00' AND '{end_date} 23:59:59'"
-    elif days:
-        time_threshold = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
-        time_condition = f"time >= '{time_threshold}'"
-    else:
-        time_threshold = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
-        time_condition = f"time >= '{time_threshold}'"
+    where_clauses, params = await build_date_filter(days, start_date, end_date, column_name="time")
     
     # --- 权限控制 ---
     if not current_user:
         # 未登录用户：只能看到公共预警 (user_id IS NULL)
-        time_condition += " AND user_id IS NULL"
+        where_clauses.append("user_id IS NULL")
     elif current_user.role != 'admin':
         # 普通用户：只能看到自己的预警
-        time_condition += f" AND user_id = {current_user.id}"
+        where_clauses.append("user_id = ?")
+        params.append(current_user.id)
 
+    where_clause = " AND ".join(where_clauses) if where_clauses else "1=1"
+    
     # 1. 按级别统计
-    level_sql = f"SELECT level, COUNT(*) as count FROM alerts WHERE {time_condition} GROUP BY level"
-    levels = await query_db(level_sql)
+    level_sql = f"SELECT level, COUNT(*) as count FROM alerts WHERE {where_clause} GROUP BY level"
+    levels = await query_db(level_sql, tuple(params))
     
     # 2. 预警趋势
+    # 始终按小时聚合以支持精确到小时的趋势展示
     trend_sql = f"""
-        SELECT strftime('%Y-%m-%d %H:%M', time) as date, COUNT(*) as count 
+        SELECT strftime('%Y-%m-%d %H:00', time) as date_key, COUNT(*) as count 
         FROM alerts 
-        WHERE {time_condition}
-        GROUP BY strftime('%Y-%m-%d %H:%M', time)
-        ORDER BY date ASC
+        WHERE {where_clause}
+        GROUP BY date_key
+        ORDER BY date_key ASC
     """
-    trends = await query_db(trend_sql)
+    db_trends = await query_db(trend_sql, tuple(params))
+    
+    # --- 补全时间区间逻辑 ---
+    # 计算实际的起始和结束时间
+    now = datetime.now()
+    from Visualized.api.common import parse_date_string
+    s_date = parse_date_string(start_date)
+    e_date = parse_date_string(end_date)
+    
+    if s_date:
+        start_dt = datetime.strptime(s_date, "%Y-%m-%d")
+        if e_date:
+            end_dt = datetime.strptime(e_date, "%Y-%m-%d").replace(hour=23)
+        else:
+            end_dt = now
+    else:
+        days_val = str(days) if days is not None else "7"
+        if days_val in ["24h", "1"]:
+            start_dt = now - timedelta(hours=23)
+            end_dt = now
+        elif days_val in ["today", "0"]:
+            start_dt = now.replace(hour=0)
+            end_dt = now
+        elif days_val in ["yesterday", "-1"]:
+            start_dt = (now - timedelta(days=1)).replace(hour=0)
+            end_dt = (now - timedelta(days=1)).replace(hour=23)
+        else:
+            try:
+                if isinstance(days_val, str) and days_val.endswith('d'):
+                    d_int = int(days_val[:-1])
+                else:
+                    d_int = int(days_val)
+                start_dt = (now - timedelta(days=d_int-1)).replace(hour=0)
+                end_dt = now
+            except:
+                start_dt = now - timedelta(hours=23)
+                end_dt = now
+    
+    # 统一整点化
+    start_dt = start_dt.replace(minute=0, second=0, microsecond=0)
+    end_dt = end_dt.replace(minute=0, second=0, microsecond=0)
+    
+    # 构建完整的时间轴字典
+    full_trend_map = {}
+    curr = start_dt
+    while curr <= end_dt:
+        full_trend_map[curr.strftime("%Y-%m-%d %H:00")] = 0
+        curr += timedelta(hours=1)
+    
+    # 将数据库查询结果填充到字典
+    if db_trends:
+        for row in db_trends:
+            full_trend_map[row['date_key']] = row['count']
+            
+    # 转换为有序列表
+    trends = []
+    for date_key in sorted(full_trend_map.keys()):
+        trends.append({
+            "date": date_key,
+            "count": full_trend_map[date_key]
+        })
     
     # 3. 触发最频繁的规则类型
-    type_sql = f"SELECT type, COUNT(*) as count FROM alerts WHERE {time_condition} GROUP BY type"
-    types = await query_db(type_sql)
+    type_sql = f"SELECT type, COUNT(*) as count FROM alerts WHERE {where_clause} GROUP BY type"
+    types = await query_db(type_sql, tuple(params))
     
     return {
-        "level_dist": [dict(r) for r in levels] if levels else [],
-        "trend": [dict(r) for r in trends] if trends else [],
-        "type_dist": [dict(r) for r in types] if types else []
+        "level_dist": levels,
+        "trend": trends,
+        "type_dist": types
     }

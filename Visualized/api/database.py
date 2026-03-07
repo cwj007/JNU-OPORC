@@ -435,9 +435,21 @@ def init_db():
     except Exception as e:
         print(f"Auth database init error: {e}")
 
-    # 2. 确保 Transformers 数据库存在（如果不存在则初始化，但通常由 Transformers 模块处理）
-    # 这里我们只负责在 Visualized 启动时确保它能读取
-    if not TRANSFORMERS_DB_PATH.exists():
+    # 2. 确保 Transformers 数据库存在并初始化索引
+    if TRANSFORMERS_DB_PATH.exists():
+        try:
+            conn = sqlite3.connect(TRANSFORMERS_DB_PATH, timeout=30)
+            cur = conn.cursor()
+            # 为 content 和 comments 表的 created_at 字段创建索引以提高查询性能
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_content_created_at ON content(created_at)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_comments_created_at ON comments(created_at)")
+            # 同时为 note_id 创建索引（如果尚未存在）以提高关联查询性能
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_comments_note_id ON comments(note_id)")
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Transformers database index optimization error: {e}")
+    else:
         print(f"Warning: Transformers database not found at {TRANSFORMERS_DB_PATH}")
 
 # 数据库连接缓存

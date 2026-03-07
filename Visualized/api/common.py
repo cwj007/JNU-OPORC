@@ -1,5 +1,8 @@
 import re
 
+from datetime import datetime, timedelta
+from typing import List, Dict, Any, Optional, Tuple, Union
+
 # Try to import PLATFORM_MAP from Transformers.config
 try:
     from Transformers.config import PLATFORM_MAP
@@ -140,3 +143,139 @@ def parse_keyword_expr(keyword_str: str, mode: str, table_alias: str = None, col
         
     final_sql = "(" + " OR ".join(group_clauses) + ")"
     return final_sql, all_params
+
+def parse_date_string(date_str: Optional[str]) -> Optional[str]:
+    """
+    Robustly parse date strings from frontend.
+    Supports YYYY-MM-DD and JS Date.toString() format.
+    Returns YYYY-MM-DD format.
+    """
+    if not date_str:
+        return None
+    
+    # Try YYYY-MM-DD
+    if re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+        return date_str
+    
+    # Try YYYY-MM-DD HH:MM:SS
+    if re.match(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$', date_str):
+        return date_str[:10]
+        
+    # Try JS Date string: 'Sun Mar 01 2026 00:00:00 GMT+0800 (中国标准时间)'
+    # We can use a simpler approach: if it contains a year and month, try to extract it.
+    # Or just use dateutil if available, but let's stick to standard library.
+    try:
+        # Format like: Sun Mar 01 2026 ...
+        # We can try parsing it with common JS formats
+        # Removing timezone info in parentheses to help strptime
+        clean_date = re.sub(r'\s*\(.*?\)', '', date_str)
+        # JS dates often look like 'Sun Mar 01 2026 00:00:00 GMT+0800'
+        # Let's try to extract YYYY-MM-DD using datetime.strptime
+        # Many JS date strings match this:
+        formats = [
+            "%a %b %d %Y %H:%M:%S GMT%z",
+            "%a %b %d %Y %H:%M:%S",
+            "%Y-%m-%dT%H:%M:%S.%fZ", # ISO format
+            "%Y-%m-%d %H:%M:%S"
+        ]
+        
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(clean_date, fmt)
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+                
+        # Last resort: extract YYYY-MM-DD using regex if it's hidden in there
+        match = re.search(r'(\d{4})-(\d{2})-(\d{2})', date_str)
+        if match:
+            return match.group(0)
+            
+        # If it looks like 'Mar 01 2026', we can try to extract year, month, day
+        # This is getting complex, but let's handle the most common JS toString() output
+        # 'Sun Mar 01 2026 00:00:00 GMT+0800'
+        parts = date_str.split()
+        if len(parts) >= 4:
+            # Mon, Month, Day, Year
+            month_map = {
+                'Jan': '01', 'Feb': '02', 'Mar': '03', 'Apr': '04',
+                'May': '05', 'Jun': '06', 'Jul': '07', 'Aug': '08',
+                'Sep': '09', 'Oct': '10', 'Nov': '11', 'Dec': '12'
+            }
+            if parts[1] in month_map and parts[3].isdigit() and len(parts[3]) == 4:
+                year = parts[3]
+                month = month_map[parts[1]]
+                day = parts[2].zfill(2)
+                return f"{year}-{month}-{day}"
+    except Exception:
+        pass
+        
+    return date_str # Fallback
+
+async def build_date_filter(days: Any, start_date: Optional[str], end_date: Optional[str], table_alias: str = None, column_name: str = "created_at"):
+    """根据 days 或 start_date/end_date 构造 SQL 时间过滤条件"""
+    start_date = parse_date_string(start_date)
+    end_date = parse_date_string(end_date)
+    
+    alias = f"{table_alias}." if table_alias else ""
+    full_col = f"{alias}{column_name}"
+    where_clauses = []
+    params = []
+    
+    if start_date:
+        if end_date:
+            if start_date == end_date:
+                # 单日查询：00:00:00 到 23:59:59
+                where_clauses.append(f"{full_col} BETWEEN ? AND ?")
+                params.extend([f"{start_date} 00:00:00", f"{start_date} 23:59:59"])
+            else:
+                # 范围查询
+                where_clauses.append(f"{full_col} BETWEEN ? AND ?")
+                params.extend([f"{start_date} 00:00:00", f"{end_date} 23:59:59"])
+        else:
+            # 仅有 start_date: 从该时间开始到现在
+            where_clauses.append(f"{full_col} >= ?")
+            params.append(start_date)
+    else:
+        # 统一处理 days 参数，支持字符串和数字
+        days_val = str(days) if days is not None else "1"
+        
+        now = datetime.now()
+        if days_val in ["24h", "1"]:
+            # 24小时动态窗口：从当前小时往前推 23 小时（补齐到整点）
+            start_time = now - timedelta(hours=23)
+            start_time_str = start_time.strftime("%Y-%m-%d %H:00:00")
+            where_clauses.append(f"{full_col} >= ?")
+            params.append(start_time_str)
+        elif days_val in ["today", "0"]:
+            # 今天：从今天 00:00:00 开始
+            start_time_str = now.strftime("%Y-%m-%d 00:00:00")
+            where_clauses.append(f"{full_col} >= ?")
+            params.append(start_time_str)
+        elif days_val in ["yesterday", "-1"]:
+            # 昨天：昨天 00:00:00 到 昨天 23:59:59
+            yesterday = now - timedelta(days=1)
+            yesterday_str = yesterday.strftime("%Y-%m-%d")
+            where_clauses.append(f"{full_col} BETWEEN ? AND ?")
+            params.extend([f"{yesterday_str} 00:00:00", f"{yesterday_str} 23:59:59"])
+        else:
+            # 多日：3, 7, 15, 30 等
+            try:
+                # 兼容 "3d", "7d" 等格式
+                if isinstance(days_val, str) and days_val.endswith('d'):
+                    d_int = int(days_val[:-1])
+                else:
+                    d_int = int(days_val)
+                
+                # 从 N-1 天前的 00:00:00 开始
+                start_date_str = (now - timedelta(days=d_int-1)).strftime("%Y-%m-%d") + " 00:00:00"
+                where_clauses.append(f"{full_col} >= ?")
+                params.append(start_date_str)
+            except ValueError:
+                # 默认回退到 24h
+                start_time = now - timedelta(hours=23)
+                start_time_str = start_time.strftime("%Y-%m-%d %H:00:00")
+                where_clauses.append(f"{full_col} >= ?")
+                params.append(start_time_str)
+            
+    return where_clauses, params

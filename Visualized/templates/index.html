@@ -186,10 +186,13 @@
                                     ></el-option>
                                 </el-select>
                                 <el-radio-group v-model="dateRange" @change="handleDateRangeChange" size="small" class="tech-radio-group">
-                                    <el-radio-button label="1">24小时</el-radio-button>
-                                    <el-radio-button label="3">3天</el-radio-button>
-                                    <el-radio-button label="7">7天</el-radio-button>
-                                    <el-radio-button label="31">31天</el-radio-button>
+                                    <el-radio-button label="24h">24小时</el-radio-button>
+                                    <el-radio-button label="today">今天</el-radio-button>
+                                    <el-radio-button label="yesterday">昨天</el-radio-button>
+                                    <el-radio-button label="3d">3天</el-radio-button>
+                                    <el-radio-button label="7d">7天</el-radio-button>
+                                    <el-radio-button label="15d">15天</el-radio-button>
+                                    <el-radio-button label="30d">30天</el-radio-button>
                                     <el-radio-button label="custom">自定义</el-radio-button>
                                 </el-radio-group>
                                 <el-date-picker
@@ -738,18 +741,23 @@
                     console.log('Index page sidebar collapse changed to:', val);
                     localStorage.setItem('sidebarCollapse', val ? 'true' : 'false');
                 });
-                const dateRange = ref('7');
+                const dateRange = ref('7d');
                 const customDate = ref([]);
                 const taskId = ref(null);
                 const tasks = ref([]);
 
                 const trendTitleRange = computed(() => {
-                    if (dateRange.value === '1') return '24小时';
-                    if (dateRange.value === '3') return '3天';
-                    if (dateRange.value === '7') return '7天';
-                    if (dateRange.value === '31') return '31天';
-                    if (dateRange.value === 'custom') return '自定义';
-                    return dateRange.value + '天';
+                    const labelMap = {
+                        '24h': '24小时',
+                        'today': '今天',
+                        'yesterday': '昨天',
+                        '3d': '3天',
+                        '7d': '7天',
+                        '15d': '15天',
+                        '30d': '30天',
+                        'custom': '自定义'
+                    };
+                    return labelMap[dateRange.value] || (dateRange.value + '天');
                 });
 
                 const stats = ref({
@@ -915,7 +923,7 @@
 
                 const fetchDashboardData = async () => {
                     try {
-                        const days = dateRange.value === 'custom' ? calculateDays(customDate.value) : parseInt(dateRange.value);
+                        const days = dateRange.value === 'custom' ? calculateDays(customDate.value) : dateRange.value;
                         const tId = taskId.value ? `&task_id=${taskId.value}` : '';
                         
                         // Helper to catch individual API errors without failing Promise.all
@@ -1173,12 +1181,15 @@
                                 axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.4)' } },
                                 axisLabel: {
                                     color: '#b0b8c6',
-                                    interval: 0, 
-                                    rotate: data.length > 15 ? 45 : 0,
+                                    interval: data.length >= 15 ? 'auto' : 0, 
+                                    rotate: data.length >= 15 ? 45 : 0,
                                     formatter: (value) => {
                                         if (value.includes('时')) return value;
-                                        if (value.length > 10 && value.includes('-')) {
-                                            return value.split('-').slice(1).join('-');
+                                        if (value.includes('-')) {
+                                            const parts = value.split('-');
+                                            if (parts.length >= 3) {
+                                                return parts.slice(1).join('-');
+                                            }
                                         }
                                         return value;
                                     }

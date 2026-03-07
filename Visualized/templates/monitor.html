@@ -1410,8 +1410,10 @@
                                 <el-radio-group v-model="filter.timeRange" size="small" @change="handleFilterChange" class="cyber-radio-group">
                                     <el-radio-button label="24h">24小时</el-radio-button>
                                     <el-radio-button label="today">今天</el-radio-button>
+                                    <el-radio-button label="yesterday">昨天</el-radio-button>
                                     <el-radio-button label="3d">3天</el-radio-button>
                                     <el-radio-button label="7d">7天</el-radio-button>
+                                    <el-radio-button label="15d">15天</el-radio-button>
                                     <el-radio-button label="30d">30天</el-radio-button>
                                     <el-radio-button label="custom">自定义</el-radio-button>
                                 </el-radio-group>
@@ -3561,26 +3563,11 @@
                         // Calculate Date Range
                         let dateStart = '';
                         let dateEnd = '';
-                        const now = new Date();
+                        let daysParam = filter.timeRange;
                         
                         if (filter.timeRange === 'custom' && filter.customTime && filter.customTime.length === 2) {
                             dateStart = formatDate(filter.customTime[0]);
                             dateEnd = formatDate(filter.customTime[1]);
-                        } else {
-                            let startTime = new Date();
-                            if (filter.timeRange === '24h') startTime.setHours(startTime.getHours() - 24);
-                            else if (filter.timeRange === 'today') startTime.setHours(0, 0, 0, 0);
-                            else if (filter.timeRange === 'yesterday') {
-                                startTime.setDate(startTime.getDate() - 1);
-                                startTime.setHours(0, 0, 0, 0);
-                                dateEnd = formatDate(new Date(new Date().setHours(0,0,0,0))); // End of yesterday is start of today
-                            }
-                            else if (filter.timeRange === '3d') startTime.setDate(startTime.getDate() - 3);
-                            else if (filter.timeRange === '7d') startTime.setDate(startTime.getDate() - 7);
-                            else if (filter.timeRange === '15d') startTime.setDate(startTime.getDate() - 15);
-                            else if (filter.timeRange === '30d') startTime.setDate(startTime.getDate() - 30);
-                            
-                            dateStart = formatDate(startTime);
                         }
 
                         // Use full keyword string to support complex logic (&, |)
@@ -3605,6 +3592,7 @@
                         const params = {
                             page: pagination.page,
                             size: pagination.size,
+                            days: daysParam,
                             keyword: mainKeyword,
                             warning_keywords: warningParam,
                             platforms: platformParam,

@@ -647,7 +647,8 @@ async def get_hotsearch_data(platform_id: str):
 
 @router.get("/favorites")
 async def get_favorites(user: User = Depends(get_current_user)):
-    rows = await query_db("SELECT platform_id FROM user_platform_follows WHERE user_id = ?", (user.id,))
+    # 按关注时间正序排列，新关注的排在后面
+    rows = await query_db("SELECT platform_id FROM user_platform_follows WHERE user_id = ? ORDER BY created_at ASC", (user.id,))
     if not rows:
         return []
     return [row['platform_id'] for row in rows]

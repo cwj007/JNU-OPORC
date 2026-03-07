@@ -6,13 +6,52 @@
     <title>平台热榜 - JNU-OPORC</title>
     <script>
         // Auth Check
-        const token = localStorage.getItem('token');
-        if (!token) {
-            window.location.href = '/login';
-        }
+        (function() {
+            const token = localStorage.getItem('token');
+            if (!token && window.location.pathname !== '/login') {
+                window.location.href = '/login';
+            }
+        })();
+
+        // 修复内置浏览器环境下的 JS 冲突
+        (function() {
+            // 保留原始环境，以防万一
+            window._original_env = {
+                module: typeof module !== 'undefined' ? module : undefined,
+                exports: typeof exports !== 'undefined' ? exports : undefined,
+                require: typeof require !== 'undefined' ? require : undefined,
+                define: typeof define !== 'undefined' ? define : undefined,
+                process: typeof process !== 'undefined' ? process : undefined
+            };
+
+            // 强制浏览器环境检测：将 module/exports/define/process 设置为 undefined
+            // 使用 Object.defineProperty 确保这些属性在脚本加载期间不会被轻易覆盖
+            ['module', 'exports', 'define', 'process'].forEach(prop => {
+                try {
+                    Object.defineProperty(window, prop, {
+                        get: function() { return undefined; },
+                        set: function(v) { /* ignore */ },
+                        configurable: true
+                    });
+                } catch (e) {
+                    window[prop] = undefined;
+                }
+            });
+
+            // 特别处理 require：内置浏览器可能将其定义为非函数对象，导致 "is not a function" 错误
+            try {
+                Object.defineProperty(window, 'require', {
+                    get: function() { return undefined; },
+                    set: function(v) { /* ignore */ },
+                    configurable: true
+                });
+            } catch (e) {
+                window.require = undefined;
+            }
+        })();
     </script>
-    <!-- Element Plus CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.3.8/dist/index.css">
+    <!-- Element Plus CSS (使用固定稳定版本) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus@2.6.1/dist/index.css">
     <link rel="stylesheet" href="/static/css/style.css?t={{ range(1, 10000) | random }}">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
     <style>
@@ -391,12 +430,12 @@
     </el-dialog>
 </div>
 
-    <!-- Vue 3 + Axios + Element Plus -->
-    <script src="https://cdn.jsdelivr.net/npm/vue@3.3.4/dist/vue.global.prod.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/axios@1.4.0/dist/axios.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue/dist/index.iife.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+    <!-- Vue 3 + Axios + Element Plus (使用固定稳定版本) -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.6.7/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/element-plus@2.6.1/dist/index.full.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue@2.3.1/dist/index.iife.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
     <script>
         if (typeof Vue === 'undefined') {
             document.body.innerHTML = '<div style="color:white;text-align:center;padding:50px;"><h1>无法加载 Vue.js</h1><p>请检查网络连接或 CDN 是否可用。</p></div>';
@@ -549,13 +588,18 @@
                 const viewMode = ref('grid'); // 'grid', 'list'
                 const activeCat = ref('all');
                 const platformSearchQuery = ref('');
-                const customOrder = ref([]); // 存储自定义排序
+                const hotCustomOrder = ref([]); // 存储热榜模式自定义排序
+                const favCustomOrder = ref([]); // 存储关注模式自定义排序
 
                 // 初始化自定义排序
                 try {
-                    const storedOrder = localStorage.getItem('hot_custom_order');
-                    if (storedOrder) {
-                        customOrder.value = JSON.parse(storedOrder);
+                    const storedHotOrder = localStorage.getItem('hot_custom_order');
+                    if (storedHotOrder) {
+                        hotCustomOrder.value = JSON.parse(storedHotOrder);
+                    }
+                    const storedFavOrder = localStorage.getItem('fav_custom_order');
+                    if (storedFavOrder) {
+                        favCustomOrder.value = JSON.parse(storedFavOrder);
                     }
                 } catch(e) {
                     console.error('Failed to load custom order', e);
@@ -626,29 +670,35 @@
                 const filteredResults = computed(() => {
                     if (!Array.isArray(hotResults.value)) return [];
                     let res = [];
+                    let currentCustomOrder = [];
+                    
                     if (activeMode.value === 'fav') {
-                        // 关注模式：仅显示已关注的平台
+                        // 关注模式：按关注顺序（由后端返回的 favorites 顺序决定）排序
                         const favIds = favorites.value;
                         res = hotResults.value.filter(p => favIds.includes(p.id));
+                        // 默认按照 favorites 数组中的顺序排列，新关注的排在最后
+                        res.sort((a, b) => favIds.indexOf(a.id) - favIds.indexOf(b.id));
+                        currentCustomOrder = favCustomOrder.value;
                     } else if (activeMode.value === 'hot') {
                         // 热榜模式：仅显示默认的 8 个平台
                         res = hotResults.value.filter(p => defaultPlatformIds.includes(p.id));
+                        currentCustomOrder = hotCustomOrder.value;
                     } else {
                         res = hotResults.value;
                     }
 
-                    // 应用自定义排序
-                    if (customOrder.value.length > 0) {
+                    // 应用自定义排序（拖拽排序的结果）
+                    if (currentCustomOrder && currentCustomOrder.length > 0) {
                         res.sort((a, b) => {
-                            const indexA = customOrder.value.indexOf(a.id);
-                            const indexB = customOrder.value.indexOf(b.id);
+                            const indexA = currentCustomOrder.indexOf(a.id);
+                            const indexB = currentCustomOrder.indexOf(b.id);
                             // 如果都在自定义顺序中，按顺序排
                             if (indexA !== -1 && indexB !== -1) return indexA - indexB;
                             // 如果只有 A 在，A 排前面
                             if (indexA !== -1) return -1;
                             // 如果只有 B 在，B 排前面
                             if (indexB !== -1) return 1;
-                            // 都不在，保持原样 (或者按其他规则)
+                            // 都不在，保持原样
                             return 0;
                         });
                     }
@@ -696,6 +746,17 @@
                     
                     if (isAdd) {
                         favorites.value.push(id);
+                        
+                        // 仅在“关注”模式的自定义排序中，确保新关注的平台排在最后
+                        if (favCustomOrder.value && favCustomOrder.value.length > 0) {
+                            const coIdx = favCustomOrder.value.indexOf(id);
+                            if (coIdx !== -1) {
+                                favCustomOrder.value.splice(coIdx, 1);
+                            }
+                            favCustomOrder.value.push(id);
+                            localStorage.setItem('fav_custom_order', JSON.stringify(favCustomOrder.value));
+                        }
+
                         if (!hotResults.value.some(p => p.id === id)) {
                             console.log(`New favorite ${id} not found in results, fetching...`);
                             const platInfo = allAvailablePlatforms.value.find(p => p.id === id);
@@ -1053,14 +1114,18 @@
                                 const oldIndex = evt.oldIndex;
                                 
                                 // 由于 filteredResults 是计算属性，我们不能直接修改它
-                                // 我们需要根据 DOM 的新顺序来更新 customOrder
+                                // 我们需要根据 DOM 的新顺序来更新对应的自定义排序
                                 const newOrderIds = Array.from(el.children).map(child => child.getAttribute('data-id')).filter(id => id);
                                 
-                                // 更新 customOrder
-                                customOrder.value = newOrderIds;
-                                localStorage.setItem('hot_custom_order', JSON.stringify(newOrderIds));
+                                if (activeMode.value === 'fav') {
+                                    favCustomOrder.value = newOrderIds;
+                                    localStorage.setItem('fav_custom_order', JSON.stringify(newOrderIds));
+                                } else if (activeMode.value === 'hot') {
+                                    hotCustomOrder.value = newOrderIds;
+                                    localStorage.setItem('hot_custom_order', JSON.stringify(newOrderIds));
+                                }
                                 
-                                console.log('New order saved:', newOrderIds);
+                                console.log(`New order for ${activeMode.value} saved:`, newOrderIds);
                             }
                         });
                     }

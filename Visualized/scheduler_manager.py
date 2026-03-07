@@ -39,7 +39,7 @@ class ScheduleConfig(BaseModel):
 class ScheduledTask(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
-    owner: str  # username
+    owner: str  # user ID (as string)
     created_at: int = Field(default_factory=lambda: int(time.time()))
     schedule: ScheduleConfig
     crawler_config: Dict[str, Any]  # Stores the CrawlerStartRequest data

@@ -632,10 +632,13 @@
                                     </el-button>
                                     <div class="radio-wrapper" style="display: inline-block;">
                                         <el-radio-group v-model="timeRange" size="small" @change="handleTimeRangeChange" class="cyber-radio-group">
-                                            <el-radio-button label="1">24小时</el-radio-button>
-                                            <el-radio-button label="3">3天</el-radio-button>
-                                            <el-radio-button label="7">7天</el-radio-button>
-                                            <el-radio-button label="15">15天</el-radio-button>
+                                            <el-radio-button label="24h">24小时</el-radio-button>
+                                            <el-radio-button label="today">今天</el-radio-button>
+                                            <el-radio-button label="yesterday">昨天</el-radio-button>
+                                            <el-radio-button label="3d">3天</el-radio-button>
+                                            <el-radio-button label="7d">7天</el-radio-button>
+                                            <el-radio-button label="15d">15天</el-radio-button>
+                                            <el-radio-button label="30d">30天</el-radio-button>
                                             <el-radio-button label="custom">自定义</el-radio-button>
                                         </el-radio-group>
                                     </div>
@@ -1247,7 +1250,7 @@
                 
                 const allAlerts = ref([]);
                 const alertRules = ref([]);
-                const timeRange = ref('1'); // Default 24h
+                const timeRange = ref('7d'); // Default 7d
                 const customDateRange = ref([]);
                 
                 // Pagination
@@ -1530,12 +1533,16 @@
                     const trendDom = document.getElementById('alertTrendChart');
                     if (trendDom) {
                         const trendChart = echarts.init(trendDom);
-                        const dates = alertReport.value.trend.map(item => item.date);
-                        const counts = alertReport.value.trend.map(item => item.count);
+                        
+                        // 预处理数据：如果没有趋势数据，显示空数组而不是 NaN
+                        const trendData = (alertReport.value && alertReport.value.trend) ? alertReport.value.trend : [];
+                        const dates = trendData.map(item => item.date || '');
+                        const counts = trendData.map(item => item.count || 0);
+
                         trendChart.setOption({
                             backgroundColor: 'transparent',
                             title: { 
-                                text: '预警趋势', 
+                                text: trendData.length === 0 ? '暂无预警趋势数据' : '预警趋势', 
                                 left: 'center', 
                                 top: 10,
                                 textStyle: { 
@@ -1572,16 +1579,16 @@
                             dataZoom: [
                                 {
                                     type: 'inside',
-                                    start: 80,
+                                    start: 0,
                                     end: 100
                                 },
                                 {
                                     show: true,
                                     type: 'slider',
                                     bottom: '5%',
-                                    left: '8%',  // Align with grid to prevent label cutoff
-                                    right: '8%', // Align with grid to prevent label cutoff
-                                    start: 80,
+                                    left: '8%',
+                                    right: '8%',
+                                    start: 0,
                                     end: 100,
                                     height: 20,
                                     borderColor: 'transparent',
@@ -1595,17 +1602,20 @@
                                         shadowOffsetY: 2
                                     },
                                     textStyle: {
-                                        color: '#00f0ff', // Brighter color for visibility
+                                        color: '#00f0ff',
                                         fontFamily: 'Fira Code'
                                     },
                                     labelFormatter: function (value) {
-                                        // Ensure we show the full date-time or a readable format
-                                        // value is the index for category axis
                                         const dateStr = dates[value];
                                         if (dateStr && typeof dateStr === 'string' && dateStr.length >= 10) {
-                                            return dateStr.substring(5, 10);
+                                            // 底部导航条左右侧仅显示 MM-DD 以防溢出
+                                            const datePart = dateStr.split(' ')[0];
+                                            const parts = datePart.split('-');
+                                            if (parts.length >= 3) {
+                                                return parts[1] + '-' + parts[2];
+                                            }
                                         }
-                                        return dateStr || value;
+                                        return dateStr || '';
                                     }
                                 }
                             ],
@@ -1617,20 +1627,57 @@
                                     color: '#94a3b8', 
                                     fontFamily: 'Fira Code',
                                     margin: 15,
-                                    formatter: function (value) {
-                                        // Break date and time into two lines for better fit
-                                        if (value.indexOf(' ') > -1) {
-                                            return value.replace(' ', '\n');
+                                    // 更加智能且激进的标签抽稀逻辑
+                                    interval: function (index, value) {
+                                        const total = dates.length;
+                                        if (!value) return false;
+                                        
+                                        // 始终显示第一个和最后一个
+                                        if (index === 0 || index === total - 1) return true;
+                                        
+                                        // 根据总数据量决定显示频率
+                                        if (total <= 24) {
+                                            // 24小时内：每 4 小时显示一个
+                                            return index % 4 === 0;
+                                        } else if (total <= 72) {
+                                            // 3天内：每 12 小时显示一个 (00:00, 12:00)
+                                            return value.endsWith('00:00') || value.endsWith('12:00');
+                                        } else if (total <= 168) {
+                                            // 7天内：仅显示每天的 00:00
+                                            return value.endsWith('00:00');
+                                        } else if (total <= 360) {
+                                            // 15天内：每 3 天显示一个 00:00
+                                            if (!value.endsWith('00:00')) return false;
+                                            const day = parseInt(value.split(' ')[0].split('-')[2]);
+                                            return day % 3 === 0;
+                                        } else {
+                                            // 30天或更多：每 5 天显示一个 00:00
+                                            if (!value.endsWith('00:00')) return false;
+                                            const day = parseInt(value.split(' ')[0].split('-')[2]);
+                                            return day % 5 === 0;
                                         }
-                                        return value;
-                                    }
+                                    },
+                                    rotate: 0, // 标签变稀疏后，不再需要旋转，保持水平可读性更好
+                                    formatter: function (value) {
+                                        if (!value) return '';
+                                        const parts = value.split(' ');
+                                        const datePart = parts[0]; // YYYY-MM-DD
+                                        const timePart = parts[1]; // HH:00
+                                        
+                                        const mmdd = datePart.substring(5);
+                                        
+                                        // 如果是 00:00，显示日期；否则显示小时
+                                        return timePart === '00:00' ? mmdd : timePart;
+                                    },
+                                    // 移除 rich 样式定义以保持视觉一致性
+                                    rich: {}
                                 },
                                 axisLine: {
                                     lineStyle: {
                                         color: '#1e293b'
                                     }
                                 },
-                                axisTick: { show: false }
+                                axisTick: { show: true }
                             },
                             yAxis: { 
                                 type: 'value', 

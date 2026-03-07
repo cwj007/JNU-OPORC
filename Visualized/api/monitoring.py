@@ -5,10 +5,10 @@ from collections import Counter
 import jieba
 import jieba.analyse
 from fastapi import APIRouter, HTTPException, Body, Depends
-from typing import Optional
+from typing import Optional, Any
 from .database import query_db, execute_db
 from .auth import get_current_user, User
-from .common import PLATFORM_MAP, parse_keyword_expr
+from .common import PLATFORM_MAP, parse_keyword_expr, build_date_filter
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
@@ -727,6 +727,7 @@ def calculate_tfidf_relevance(item, query_tokens, comment_text="", mode="full"):
 async def get_monitoring_list(
     page: int = 1, 
     size: int = 20, 
+    days: Any = 7,
     sentiment: str = None, 
     keyword: str = None,
     warning_keywords: str = None,
@@ -832,13 +833,11 @@ async def get_monitoring_list(
                 params.append(ew_wild)
                 params.append(ew_wild)
 
-        if date_start:
-            where_clauses.append(f"{date_col} >= ?")
-            params.append(date_start)
-        
-        if date_end:
-            where_clauses.append(f"{date_col} <= ?")
-            params.append(date_end)
+        # 日期过滤
+        date_where, date_params = await build_date_filter(days, date_start, date_end, table_alias=None, column_name=date_col)
+        if date_where:
+            where_clauses.extend(date_where)
+            params.extend(date_params)
 
         if merge_query:
             # 合并查询：基于板块名称聚合
@@ -961,14 +960,14 @@ async def get_monitoring_list(
                         c_params.append(ew_wild)
                         c_params.append(ew_wild)
                         c_params.append(ew_wild)
-                if date_start:
-                    c_where_clauses.append(f"T_INNER.latest_time >= ?")
-                    c_params.append(date_start)
-                if date_end:
-                    c_where_clauses.append(f"T_INNER.latest_time <= ?")
-                    c_params.append(date_end)
+                # 日期过滤
+                date_where, date_params = await build_date_filter(days, date_start, date_end, table_alias="T_INNER", column_name="latest_time")
+                if date_where:
+                    c_where_clauses.extend(date_where)
+                    c_params.extend(date_params)
                 
-                full_query += " AND " + " AND ".join(c_where_clauses)
+                if c_where_clauses:
+                    full_query += " AND " + " AND ".join(c_where_clauses)
                 params = c_params # 更新 params
             
             full_query += " GROUP BY group_key"
