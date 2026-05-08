@@ -288,12 +288,13 @@ class AlertEngine:
                 stats_info = f" [评论激增: 总{total_comments}/负{neg_count}]"
                 content = article_snippet + stats_info
                 
-                # Use cached CRI if available (with default config weights)
-                cri_cache_key = f"{note_id}_{json.dumps({}, sort_keys=True)}"
+                # Use cached CRI if available (with custom config if provided)
+                config_str = json.dumps(config, sort_keys=True)
+                cri_cache_key = f"{note_id}_{config_str}"
                 if cri_cache_key in self._cri_cache:
                     cri, details_cri = self._cri_cache[cri_cache_key]
                 else:
-                    cri, details_cri = calculate_cri(article_dict, comments_list)
+                    cri, details_cri = calculate_cri(article_dict, comments_list, config)
                     self._cri_cache[cri_cache_key] = (cri, details_cri)
                 
                 # Prepare details for frontend
@@ -380,8 +381,14 @@ class AlertEngine:
             
             # 3. Calculate CRI (cached by note_id and weights)
             weights = config.get('weights', {})
+            custom_keywords = config.get('sensitive_words', {})
+            custom_thresholds = config.get('risk_thresholds', {})
+            
             weights_str = json.dumps(weights, sort_keys=True)
-            cri_cache_key = f"{note_id}_{weights_str}"
+            # 缓存键也需要包含敏感词和阈值的变化，为了简单起见，如果配置变了就清空缓存
+            # 或者将整个 config 序列化作为缓存键的一部分
+            config_str = json.dumps(config, sort_keys=True)
+            cri_cache_key = f"{note_id}_{config_str}"
             
             if cri_cache_key in self._cri_cache:
                 cri, details_cri = self._cri_cache[cri_cache_key]
@@ -418,7 +425,7 @@ class AlertEngine:
             details['top_negative_comments'] = neg_comments_list[:50]
             
             # 4. Check Veto Rules (Highest Priority)
-            veto_triggered, veto_reason, veto_level = check_veto_rules(article_dict, comments_list, details)
+            veto_triggered, veto_reason, veto_level = check_veto_rules(article_dict, comments_list, details, custom_keywords=custom_keywords)
             
             if veto_triggered:
                 title = f"【严重风险预警】{article_dict.get('title', '')[:20]}..."
@@ -448,7 +455,7 @@ class AlertEngine:
             # 6. Dynamic Threshold Check
             # Get baseline stats (using default for now as we don't have historical stats DB yet)
             mu, sigma = get_dynamic_threshold() 
-            level_color, level_desc = determine_level(cri, mu, sigma)
+            level_color, level_desc = determine_level(cri, mu, sigma, custom_thresholds=custom_thresholds)
             
             # Only alert if risk is significant (Yellow/Orange/Red)
             # Green (Normal) is ignored to reduce noise
@@ -482,6 +489,9 @@ class AlertEngine:
 
     async def _check_threshold_rule(self, rule: dict):
         """检查单条规则是否触发 (Legacy Threshold Logic)"""
+        config = json.loads(rule.get('config', '{}')) if rule.get('config') else {}
+        custom_keywords = config.get('sensitive_words', {})
+        
         time_window = rule['time_window']
         threshold = rule['threshold']
         keyword = rule['keyword']
@@ -521,7 +531,12 @@ class AlertEngine:
         # 2. 危机识别触发 (如果是危机规则)
         if is_crisis:
             # 搜索所有危机关键词
-            all_crisis_kws = [kw for sub in CRISIS_KEYWORDS.values() for kw in sub]
+            # 使用自定义关键词或默认关键词
+            active_keywords = {}
+            for category in ["politics", "law", "ethics"]:
+                active_keywords[category] = custom_keywords.get(category, CRISIS_KEYWORDS[category])
+            
+            all_crisis_kws = [kw for sub in active_keywords.values() for kw in sub]
             crisis_found = False
             found_kws = []
             
@@ -622,10 +637,10 @@ class AlertEngine:
                     comments_list = [dict(c) for c in cms] if cms else []
 
                     # Calculate CRI for this article
-                    cri, details_cri = calculate_cri(art, comments_list)
+                    cri, details_cri = calculate_cri(art, comments_list, config)
                     
                     # Check Veto Rules (Highest Priority)
-                    veto_triggered, veto_reason, veto_level = check_veto_rules(art, comments_list)
+                    veto_triggered, veto_reason, veto_level = check_veto_rules(art, comments_list, custom_keywords=custom_keywords)
                     
                     if veto_triggered:
                         alert_level = veto_level

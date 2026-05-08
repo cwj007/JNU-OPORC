@@ -1,4 +1,5 @@
 import torch
+import os
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 from qwen_vl_utils import process_vision_info
 from typing import List, Dict, Any, Optional
@@ -48,13 +49,18 @@ class VLMHandler:
             load_params.update({
                 "quantization_config": bnb_config,
                 "device_map": "auto",
-                "torch_dtype": torch.float16
+                "dtype": torch.float16
             })
         else:
             load_params.update({
                 "device_map": DEVICE,
-                "torch_dtype": torch.float32 if DEVICE == "cpu" else torch.float16
+                "dtype": torch.float32 if DEVICE == "cpu" else torch.float16
             })
+
+        # 针对 Windows "页面文件太小" (OS Error 1455) 的优化
+        offload_folder = str(MODEL_WEIGHTS_DIR / "offload")
+        os.makedirs(offload_folder, exist_ok=True)
+        load_params["offload_folder"] = offload_folder
 
         try:
             # 尝试加载
@@ -64,13 +70,13 @@ class VLMHandler:
                 cache_dir=str(MODEL_WEIGHTS_DIR),
                 min_pixels=MIN_PIXELS,
                 max_pixels=MAX_PIXELS,
-                local_files_only=True
+                local_files_only=True,
+                fix_mistral_regex=True
             )
         except Exception as e:
             if "local_files_only" in str(e) or "not found" in str(e).lower():
                 utils.logger.info("\n[VLMHandler._ensure_loaded] [提示] 本地未检测到模型文件，正在尝试联网下载（请确保网络可访问 hf-mirror.com）...")
                 # 禁用离线模式进行下载
-                import os
                 old_tf_offline = os.environ.get("TRANSFORMERS_OFFLINE")
                 old_hf_offline = os.environ.get("HF_HUB_OFFLINE")
                 os.environ["TRANSFORMERS_OFFLINE"] = "0"
@@ -83,7 +89,8 @@ class VLMHandler:
                     cache_dir=str(MODEL_WEIGHTS_DIR),
                     min_pixels=MIN_PIXELS,
                     max_pixels=MAX_PIXELS,
-                    local_files_only=False
+                    local_files_only=False,
+                    fix_mistral_regex=True
                 )
                 
                 # 恢复离线模式
@@ -130,11 +137,8 @@ class VLMHandler:
                     "max_pixels": MAX_PIXELS,
                 })
             
-            # 优化：如果是纯文本，直接拼接 prompt，减少嵌套层级
-            if not image_paths:
-                content.append({"type": "text", "text": f"{prompt_base}\n\n内容文本: {text}"})
-            else:
-                content.append({"type": "text", "text": f"{prompt_base}\n\n内容文本: {text}"})
+            # 修正：直接拼接，不再添加多余的 [待分析目标内容] 标签，因为 MultimodalAnalyzer 已经处理好了格式
+            content.append({"type": "text", "text": f"{prompt_base}\n\n{text}"})
             
             batch_messages.append([{"role": "user", "content": content}])
 
@@ -192,9 +196,9 @@ class VLMHandler:
                 with autocast_ctx:
                     generated_ids = self.model.generate(
                         **inputs,
-                        max_new_tokens=320, # 缩短生成长度，直接提升 GPU 速度
+                        max_new_tokens=512, # 增加生成长度，确保能够完整输出推理过程和 JSON
                         do_sample=False, 
-                        repetition_penalty=1.2, # 强力惩罚重复，彻底杜绝关键词死循环
+                        repetition_penalty=1.1, # 降低惩罚，避免破坏自然语言逻辑
                         use_cache=True
                     )
             

@@ -19,17 +19,12 @@ project_root = os.path.abspath(os.path.join(current_dir, ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from Transformers.models.model import MultimodalVLMModel
-from Transformers.models.dataset import MultimodalVLMDataset
 from Transformers.config import TRANSFORMERS_OUTPUT_DIR, LABELED_DATA_FILE
-from Transformers import utils
-
-print(">>> [Trainer] All internal modules loaded. Initializing training...")
 
 def train_vlm(
     jsonl_path: str,
-    output_dir: str = str(TRANSFORMERS_OUTPUT_DIR / "vlm_lora"),
-    epochs: int = 50, # 暴力增加轮数，直到 loss 跌破 1.0
+    output_dir: str = None,
+    epochs: int = 3, # 降低轮数，防止训练时间过长
     batch_size: int = 1,
     lr: float = 5e-4, # 暴力提高学习率，强行冲破基础模型偏见
     force_cpu: bool = False, 
@@ -37,6 +32,14 @@ def train_vlm(
     """
     Train VLM using LoRA.
     """
+    if output_dir is None:
+        output_dir = str(TRANSFORMERS_OUTPUT_DIR / "vlm_lora")
+        
+    print(">>> [Trainer] Initializing components...")
+    from Transformers.models.model import MultimodalVLMModel
+    from Transformers.models.dataset import MultimodalVLMDataset
+    from Transformers import utils
+    
     # 1. Initialize Model
     model_wrapper = MultimodalVLMModel(force_cpu=force_cpu)
     model = model_wrapper.model
@@ -49,7 +52,7 @@ def train_vlm(
     training_args = TrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=batch_size,
-        gradient_accumulation_steps=16, # 从 4 增加到 16，极大幅度降低单次显存峰值
+        gradient_accumulation_steps=4, # 从 16 降低到 4，加快梯度更新频率
         learning_rate=lr,
         num_train_epochs=epochs,
         logging_steps=5, 
@@ -62,7 +65,7 @@ def train_vlm(
         remove_unused_columns=False,
         gradient_checkpointing=True, 
         gradient_checkpointing_kwargs={"use_reentrant": False},
-        dataloader_num_workers=0, 
+        dataloader_num_workers=4, # 增加数据加载线程
         report_to="none"
     )
     

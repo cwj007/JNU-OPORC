@@ -30,7 +30,7 @@ def get_sentiment_score(sentiment_val):
     if s == '中性': return 0.5
     return 0.5
 
-def check_veto_rules(article, comments, details=None):
+def check_veto_rules(article, comments, details=None, custom_keywords=None):
     """
     一票否决规则 (兜底逻辑)
     此规则独立于上述 CRI计算，拥有最高优先级。一旦触发，直接定为红色预警。
@@ -42,8 +42,11 @@ def check_veto_rules(article, comments, details=None):
     """
     text = (article.get('title', '') + " " + article.get('content', '')).lower()
     
+    # 使用自定义关键词或默认关键词
+    severe_keywords = custom_keywords.get("severe", CRISIS_KEYWORDS["severe"]) if custom_keywords else CRISIS_KEYWORDS["severe"]
+    
     # 1. 严重违规内容检测
-    for word in CRISIS_KEYWORDS["severe"]:
+    for word in severe_keywords:
         if word in text:
             return True, f"触发一票否决：检测到严重违规关键词 '{word}'", "red"
             
@@ -123,11 +126,17 @@ def calculate_cri(article, comments, config=None):
     text = (article.get('title', '') + " " + article.get('content', '')).lower()
     k_score = 0
     
-    for word in CRISIS_KEYWORDS["politics"]:
+    # 使用自定义关键词或默认关键词
+    custom_keywords = config.get('sensitive_words', {}) if config else {}
+    politics_keywords = custom_keywords.get("politics", CRISIS_KEYWORDS["politics"])
+    law_keywords = custom_keywords.get("law", CRISIS_KEYWORDS["law"])
+    ethics_keywords = custom_keywords.get("ethics", CRISIS_KEYWORDS["ethics"])
+    
+    for word in politics_keywords:
         if word in text: k_score += 0.5
-    for word in CRISIS_KEYWORDS["law"]:
+    for word in law_keywords:
         if word in text: k_score += 0.3
-    for word in CRISIS_KEYWORDS["ethics"]:
+    for word in ethics_keywords:
         if word in text: k_score += 0.2
         
     k_hit = min(k_score, 1.0) # Cap at 1.0
@@ -199,7 +208,7 @@ def get_dynamic_threshold(article_group_stats=None):
         
     return mu, sigma
 
-def determine_level(cri, mu, sigma):
+def determine_level(cri, mu, sigma, custom_thresholds=None):
     """
     Determine alert level based on CRI and thresholds.
     Adjusted Logic (More lenient):
@@ -210,11 +219,18 @@ def determine_level(cri, mu, sigma):
     """
     # Using fixed thresholds as requested by user feedback "all high risk"
     
-    if cri >= 0.75:
+    # 使用自定义阈值或默认阈值
+    thresholds = custom_thresholds or {
+        "medium": 0.45,
+        "orange": 0.60,
+        "high": 0.75
+    }
+    
+    if cri >= thresholds.get("high", 0.75):
         return "high", "高危"  # Map 'red' to 'high' (Critical)
-    elif cri >= 0.60:
+    elif cri >= thresholds.get("orange", 0.60):
         return "orange", "高风险" # (High Risk)
-    elif cri >= 0.45:
+    elif cri >= thresholds.get("medium", 0.45):
         return "medium", "风险显著" # (Medium Risk / Attention)
     else:
         return "low", "正常波动" # (Low Risk / Normal)

@@ -285,11 +285,14 @@ class MultimodalAnalyzer:
             if not text: return ""
             # 去除超长重复字符，防止干扰 LLM
             text = re.sub(r'(.)\1{20,}', r'\1\1\1...', text)
-            # 去除换行符和多余空格
-            text = " ".join(text.split())
-            if len(text) > 800:
-                # 保留头部 400 字和尾部 400 字，中间用省略号代替
-                return f"{text[:400]}\n...[中间内容已略过]...\n{text[-400:]}"
+            # 优化：保留换行符，仅合并多余空格，有助于模型理解段落结构
+            text = re.sub(r'[ \t]+', ' ', text) # 合并空格/制表符
+            text = re.sub(r'\n\s*\n+', '\n\n', text) # 合并连续换行
+            text = text.strip()
+            
+            if len(text) > 1000:
+                # 保留头部 500 字和尾部 500 字，中间用省略号代替
+                return f"{text[:500]}\n\n...[此处省略 {len(text)-1000} 字]...\n\n{text[-500:]}"
             return text
 
         # 定义内部处理逻辑
@@ -422,27 +425,30 @@ class MultimodalAnalyzer:
                                 if p_objects: extra_info.append(f"视觉:{','.join(p_objects[:5])}")
                                 if p_ocr: extra_info.append(f"OCR:{p_ocr[:50]}...")
                                 
-                                context_parts.append(f"[原贴内容/上下文 ({' '.join(extra_info)})]: {p_text[:200]}")
+                                context_parts.append(f"### 上下文背景 (Context - {' '.join(extra_info)}):\n{p_text[:300]}")
                             else:
                                 # 降级：仅使用文本
-                                truncated_p = p_text[:150] + "..." if len(p_text) > 150 else p_text
-                                context_parts.append(f"[原贴内容/上下文]: {truncated_p}")
+                                truncated_p = p_text[:200] + "..." if len(p_text) > 200 else p_text
+                                context_parts.append(f"### 上下文背景 (Context - 原贴内容):\n{truncated_p}")
                         
                         if reply_to_content:
-                            # 对话链上下文：子评论回复的对象内容，保留前 100 字
+                            # 对话链上下文：子评论回复的对象内容，保留前 150 字
                             r_text = _preprocess_text(reply_to_content)
-                            truncated_r = r_text[:100] + "..." if len(r_text) > 100 else r_text
-                            context_parts.append(f"[上级评论]: {truncated_r}")
+                            truncated_r = r_text[:150] + "..." if len(r_text) > 150 else r_text
+                            context_parts.append(f"### 上级评论 (Context - Parent Comment):\n{truncated_r}")
                         
                         if context_parts:
-                            context_str = "\n".join(context_parts)
-                            full_prompt_text = f"{context_str}\n\n[待分析目标 - {item_type}内容]:\n{text}"
+                            context_str = "\n\n".join(context_parts)
+                            full_prompt_text = f"{context_str}\n\n### 待分析目标 (Target - {item_type}内容):\n{text}"
                         else:
-                            full_prompt_text = f"[待分析目标 - {item_type}内容]:\n{text}"
+                            full_prompt_text = f"### 待分析目标 (Target - {item_type}内容):\n{text}"
                         
-                        # 优化 3：针对纯图片数据的特殊 Prompt 引导
-                        if text in ["[图片内容]", "[图片评论]"] and my_images:
-                            full_prompt_text = f"{full_prompt_text}\n\n(系统提示: 该内容为纯图片/表情包，请重点通过视觉信息分析其表达的情感极性、意图及是否包含讽刺。)"
+                        # 优化 3：针对图文数据的 Prompt 引导
+                        if my_images:
+                            image_hint = f"\n\n(系统提示: 检测到 {len(my_images)} 张图片。在 'reasoning' 字段中，必须包含对图片内容的视觉分析，并说明图文结合后表达的深层含义。)"
+                            if text in ["[图片内容]", "[图片评论]"]:
+                                image_hint = f"\n\n(系统提示: 该内容为纯图片/表情包，请重点通过视觉信息分析其表达的情感极性、意图及是否包含讽刺，'reasoning' 必须详细描述画面内容。)"
+                            full_prompt_text = f"{full_prompt_text}{image_hint}"
                         
                         if known_visual_info:
                             full_prompt_text = f"{full_prompt_text}\n\n(系统提示: 检测到已知图片，参考视觉信息: {' | '.join(known_visual_info)})"
@@ -640,9 +646,9 @@ class MultimodalAnalyzer:
         full_prompt_text = text
         if item.get("parent_content"):
             # 明确标注上下文与目标，引导模型正确分配权重
-            full_prompt_text = f"上下文 (Context - 原贴内容):\n{item['parent_content']}\n\n目标 (Target - {item_type}内容):\n{text}"
+            full_prompt_text = f"### 上下文背景 (Context - 原贴内容):\n{item['parent_content']}\n\n### 待分析目标 (Target - {item_type}内容):\n{text}"
         else:
-            full_prompt_text = f"目标 (Target - {item_type}内容):\n{text}"
+            full_prompt_text = f"### 待分析目标 (Target - {item_type}内容):\n{text}"
         
         # 仅使用自己的图片
         my_images = item.get("images", [])
@@ -650,7 +656,7 @@ class MultimodalAnalyzer:
         
         image_description = ""
         if all_relevant_images:
-            image_description = f"目标 (Target) 附带了 {len(all_relevant_images)} 张图片。\n"
+            image_description = f"### 视觉提示 (Visual Hint):\n目标 (Target) 附带了 {len(all_relevant_images)} 张图片。在分析时，你必须在 'reasoning' 字段中明确描述图片中的视觉信息，并结合文本进行综合判断。\n"
         else:
             image_description = "目标 (Target) 没有附带图片。\n"
         
@@ -932,8 +938,15 @@ class MultimodalAnalyzer:
                     "sentiment": self._regex_extract(output, r'sentiment["\s:]+([^"\s,}\]]+)'),
                     "fine_grained_sentiment": self._regex_extract(output, r'fine_grained_sentiment["\s:]+([^"\s,}\]]+)'),
                     "intent": self._regex_extract(output, r'intent["\s:]+([^"\s,}\]]+)'),
-                    "reasoning": self._regex_extract(output, r'reasoning["\s:]+["\']([^"\']+)["\']'),
+                    "reasoning": self._regex_extract(output, r'reasoning["\s:]+["\']?([^"\']+)["\']?'),
                 }
+                # 如果正则也没提到 reasoning，尝试提取 JSON 块之外的文字作为理由
+                if not result.get("reasoning") or result["reasoning"] == "No reasoning provided":
+                     # 匹配非 JSON 部分
+                     non_json = re.sub(r'\{.*\}', '', output, flags=re.DOTALL).strip()
+                     if len(non_json) > 10:
+                         result["reasoning"] = non_json[:200]
+
                 # 如果还是空的，说明真的没输出
                 if not any(result.values()):
                     raise ValueError("No JSON or valid fields found in output")
@@ -954,20 +967,28 @@ class MultimodalAnalyzer:
                     result[key] = val
 
             # --- 核心修复：强制字段类型，解决 unhashable type: 'dict' 错误 ---
-            for field in ["sentiment", "fine_grained_sentiment", "intent"]:
-                # 如果是字典，尝试提取 True 的键或第一个键
+            for field in ["sentiment", "fine_grained_sentiment", "intent", "reasoning"]:
+                # 如果是字典，尝试将其转为 JSON 字符串或提取关键信息
                 if isinstance(result[field], dict):
-                    true_keys = [str(k) for k, v in result[field].items() if v is True]
-                    result[field] = true_keys[0] if true_keys else next(iter(result[field].keys()), "Unknown")
-                # 如果是列表，取第一个
+                    if field == "reasoning":
+                        # 对于推理字段，如果是字典，将其转为格式化的字符串
+                        result[field] = json.dumps(result[field], ensure_ascii=False)
+                    else:
+                        true_keys = [str(k) for k, v in result[field].items() if v is True]
+                        result[field] = true_keys[0] if true_keys else next(iter(result[field].keys()), "Unknown")
+                # 如果是列表，取第一个或合并
                 elif isinstance(result[field], list):
-                    result[field] = str(result[field][0]) if result[field] else "Unknown"
+                    if field == "reasoning":
+                         result[field] = " ".join([str(x) for x in result[field]])
+                    else:
+                         result[field] = str(result[field][0]) if result[field] else "Unknown"
                 
                 # 确保最终是清理过的字符串
                 if not isinstance(result[field], str):
                     result[field] = str(result[field])
                 
-                result[field] = re.sub(r'[^\w\u4e00-\u9fa5/]', '', result[field]).strip()
+                if field != "reasoning":
+                    result[field] = re.sub(r'[^\w\u4e00-\u9fa5/]', '', result[field]).strip()
 
             # 5. 归一化处理
             # 列表类字段归一化 (去重、过滤、截断)

@@ -21,7 +21,7 @@ class AlertRuleSchema(BaseModel):
     notify_methods: str = "system"
     is_active: int = 1
     rule_type: Optional[str] = "threshold"
-    config: Optional[str] = "{}"
+    config: Optional[Any] = None # Support both string and dict
 
 # 全局变量记录上次检查时间
 LAST_CHECK_TIME = None
@@ -520,12 +520,20 @@ WINDOW_TO_FREQUENCY = {
 @router.post("/rules")
 async def create_rule(rule: AlertRuleSchema, background_tasks: BackgroundTasks, current_user: User = Depends(get_current_user)):
     """创建预警规则 (双向同步支持)"""
+    # 处理 config 字段
+    config_str = "{}"
+    if rule.config:
+        if isinstance(rule.config, dict):
+            config_str = json.dumps(rule.config)
+        else:
+            config_str = str(rule.config)
+
     # 1. 创建预警规则
     sql = """
         INSERT INTO alert_rules (name, keyword, threshold, time_window, sentiment, is_crisis, notify_methods, is_active, rule_type, config, user_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
-    if await execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, current_user.id)):
+    if await execute_db(sql, (rule.name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, config_str, current_user.id)):
         
         # 2. 同步到舆情监测任务 (如果不是由任务同步过来的规则，且关键词不为空)
         if not rule.name.startswith("【监测任务】") and rule.keyword:
@@ -588,12 +596,20 @@ async def update_rule(rule_id: int, rule: AlertRuleSchema, background_tasks: Bac
             if new_task_name != old_task_name:
                 await execute_db("UPDATE monitoring_tasks SET name = ? WHERE name = ? AND user_id = ?", (new_task_name, old_task_name, current_user.id))
 
+    # 处理 config 字段
+    config_str = "{}"
+    if rule.config:
+        if isinstance(rule.config, dict):
+            config_str = json.dumps(rule.config)
+        else:
+            config_str = str(rule.config)
+
     sql = """
         UPDATE alert_rules 
         SET name=?, keyword=?, threshold=?, time_window=?, sentiment=?, is_crisis=?, notify_methods=?, is_active=?, rule_type=?, config=?
         WHERE id=?
     """
-    if await execute_db(sql, (target_rule_name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, rule.config, rule_id)):
+    if await execute_db(sql, (target_rule_name, rule.keyword, rule.threshold, rule.time_window, rule.sentiment, rule.is_crisis, rule.notify_methods, rule.is_active, rule.rule_type, config_str, rule_id)):
         # Trigger immediate check in background
         print(f"[Manual Update] Triggering immediate check for updated rule {rule.name}")
         background_tasks.add_task(generate_auto_alerts, force=True)

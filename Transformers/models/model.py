@@ -28,7 +28,8 @@ class MultimodalVLMModel:
             model_to_load,
             cache_dir=str(MODEL_WEIGHTS_DIR),
             trust_remote_code=True,
-            local_files_only=True
+            local_files_only=True,
+            fix_mistral_regex=True
         )
         self.tokenizer = self.processor.tokenizer
 
@@ -41,7 +42,7 @@ class MultimodalVLMModel:
             self.model = Qwen2VLForConditionalGeneration.from_pretrained(
                 model_to_load,
                 device_map={"": "cpu"},
-                torch_dtype=torch.float32, # CPU 训练建议使用 float32 保证稳定
+                dtype=torch.float32, # CPU 训练建议使用 float32 保证稳定
                 attn_implementation="eager", # CPU 模式使用基础实现
                 cache_dir=str(MODEL_WEIGHTS_DIR),
                 trust_remote_code=True,
@@ -59,17 +60,22 @@ class MultimodalVLMModel:
                 bnb_4bit_compute_dtype=compute_dtype
             )
 
+            # 针对 Windows "页面文件太小" (OS Error 1455) 的优化
+            offload_folder = os.path.join(MODEL_WEIGHTS_DIR, "offload")
+            os.makedirs(offload_folder, exist_ok=True)
+
             self.model = Qwen2VLForConditionalGeneration.from_pretrained(
                 model_to_load,
                 quantization_config=bnb_config,
                 device_map="auto",
-                torch_dtype=compute_dtype,
+                dtype=compute_dtype,
                 attn_implementation="sdpa",
                 cache_dir=str(MODEL_WEIGHTS_DIR),
                 trust_remote_code=True,
                 local_files_only=True,
                 low_cpu_mem_usage=True,
-                max_memory={0: max_vram, "cpu": "16GiB"} 
+                offload_folder=offload_folder, # 允许权重卸载到磁盘
+                max_memory={0: max_vram, "cpu": "8GiB"} # 降低 CPU RAM 预留，缓解 Windows 虚拟内存压力
             )
 
         # 3. Handle LoRA

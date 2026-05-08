@@ -1,4 +1,5 @@
 import json
+import re
 import os
 import csv
 import sqlite3
@@ -740,16 +741,51 @@ class Exporter:
         irony_detected = analysis.get("irony_detected", False)
         reasoning = analysis.get("reasoning", "")
         
-        # 确保 reasoning 是字符串，防止 AttributeError
+        # 确保 reasoning 是字符串，并处理可能的 dict 格式 (同 MultimodalAnalyzer 逻辑)
         if isinstance(reasoning, dict):
-             reasoning = json.dumps(reasoning, ensure_ascii=False)
+             priority_keys = ["分析目标内容", "综合分析", "情感一致性", "目标情绪", "分析背景", "reasoning", "reason", "content"]
+             extracted_reason = ""
+             for r_key in priority_keys:
+                 if r_key in reasoning and reasoning[r_key]:
+                     val = reasoning[r_key]
+                     extracted_reason = str(val) if not isinstance(val, (list, dict)) else " ".join(map(str, val)) if isinstance(val, list) else json.dumps(val, ensure_ascii=False)
+                     break
+             
+             if not extracted_reason and reasoning:
+                 for k, v in reasoning.items():
+                     if v and not any(x in k for x in ["关键", "keywords", "类型", "type", "情绪", "意图"]):
+                         extracted_reason = str(v)
+                         break
+             reasoning = extracted_reason or "模型未提供有效理由"
+             
+             # 同样尝试提取关键词 (兜底逻辑)
+             if not entry.get("keywords") or (isinstance(entry["keywords"], list) and len(entry["keywords"]) == 0):
+                 for k_key in ["关键词", "关键字", "keywords", "分析目标关键词", "分析目标关键字"]:
+                     if k_key in reasoning: # reasoning 此时还是 dict
+                         k_val = reasoning[k_key]
+                         if isinstance(k_val, list):
+                             entry["keywords"] = k_val
+                         elif isinstance(k_val, str):
+                             entry["keywords"] = [k_val]
+                         break
+        elif isinstance(reasoning, list):
+             reasoning = " ".join([str(x) for x in reasoning])
         elif not isinstance(reasoning, str):
              reasoning = str(reasoning)
 
         if not irony_detected:
-            # 如果没有反讽，清理推理过程中的反讽相关词汇，或者保持简洁
-            reasoning = reasoning.split("，没有")[0].split(", no")[0]
+            # 如果没有反讽，仅移除末尾常见的“且不包含反讽”等冗余尾缀，不再强行截断
+            reasoning = re.sub(r'[，,]?\s*(并没有|没有|不包含|不属于|无)\s*(明显|发现)?\s*(的反讽|反讽|讽刺|irony).*$', '', reasoning)
         
+        # 优化推理主体描述：文章使用“文章作者”，评论保留“评论者”
+        is_post = str(item.get("comment_id", "0")) == "0"
+        if is_post:
+            # 如果是文章，将“评论者”替换为“文章作者”
+            reasoning = reasoning.replace("评论者", "文章作者")
+        else:
+            # 如果是评论，确保不出现“该文章作者”等误导词汇（可选，根据模型习惯）
+            pass
+
         # 基础字段构建
         entry = {
             "top_id": item.get("top_id"),
