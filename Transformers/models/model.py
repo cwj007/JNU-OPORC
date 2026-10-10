@@ -54,10 +54,10 @@ class MultimodalVLMModel:
             compute_dtype = torch.bfloat16 if has_bf16 else torch.float16
             
             bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=compute_dtype
+                load_in_4bit=True, # 核心：启用 4-bit 加载
+                bnb_4bit_use_double_quant=True, # 双重量化，进一步节省显存
+                bnb_4bit_quant_type="nf4", # 使用更适合正态分布权重的 NF4 格式
+                bnb_4bit_compute_dtype=compute_dtype # 计算精度（通常为 float16 或 bfloat16）
             )
 
             # 针对 Windows "页面文件太小" (OS Error 1455) 的优化
@@ -97,11 +97,11 @@ class MultimodalVLMModel:
             
             lora_config = LoraConfig(
                 r=4, # 极致压缩：Rank 降至 4
-                lora_alpha=8,
+                lora_alpha=8, # 通常设置为 r 的 2 倍。它控制 LoRA 权重对原始模型输出的影响程度。
                 target_modules=["q_proj", "v_proj"], # 仅训练最核心的 Q/V 投影
-                lora_dropout=0.05,
-                bias="none",
-                task_type="CAUSAL_LM"
+                lora_dropout=0.05, # 用于防止过拟合，随机将 5% 的神经元设为 0。
+                bias="none", # Bias (偏置): 设置为 "none" 表示不训练任何偏置参数，进一步节省资源。
+                task_type="CAUSAL_LM" # 任务类型: 指明这是一个“因果语言模型”任务（即根据上文预测下文）。
             )
             
             self.model = get_peft_model(self.model, lora_config)

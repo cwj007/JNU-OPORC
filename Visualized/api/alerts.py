@@ -231,7 +231,7 @@ async def get_alerts(
         where_clauses.append("user_id IS NULL")
     elif current_user.role == 'admin':
         # 管理员：看到系统预警 (user_id IS NULL) 和 自己的预警
-        where_clauses.append(f"(user_id IS NULL OR user_id = ?)")
+        where_clauses.append("(user_id IS NULL OR user_id = ?)")
         params.append(current_user.id)
     else:
         # 普通用户：只能看到自己的预警
@@ -302,7 +302,8 @@ async def get_unread_count(current_user: User = Depends(get_current_user)):
     
     if current_user.role == 'admin':
         # 管理员：看到系统预警 (user_id IS NULL) 和 自己的预警
-        where_clause += f" AND (user_id IS NULL OR user_id = {current_user.id})"
+        where_clause += f" AND (user_id IS NULL OR user_id = ?)"
+        params.append(current_user.id)
     else:
         # 普通用户：只能看到自己的预警
         where_clause += " AND user_id = ?"
@@ -472,8 +473,9 @@ async def get_alert_details(reference_id: str):
 async def get_rules(current_user: User = Depends(get_current_user)):
     """获取预警规则列表 (支持用户特定规则隔离)"""
     if current_user.role == 'admin':
-        sql = "SELECT * FROM alert_rules ORDER BY created_at DESC"
-        results = await query_db(sql)
+        # 管理员：看到系统规则 (user_id IS NULL) 和 自己的规则
+        sql = "SELECT * FROM alert_rules WHERE (user_id IS NULL OR user_id = ?) ORDER BY created_at DESC"
+        results = await query_db(sql, (current_user.id,))
     else:
         # 1. 检查该用户是否已经有过任何预警规则
         # 如果用户已经有过规则（哪怕被删除了，但只要表里有属于该用户的其他记录，或者我们只在表为空时初始化）
@@ -665,7 +667,11 @@ async def get_alert_report(
     if not current_user:
         # 未登录用户：只能看到公共预警 (user_id IS NULL)
         where_clauses.append("user_id IS NULL")
-    elif current_user.role != 'admin':
+    elif current_user.role == 'admin':
+        # 管理员：仅统计系统预警和自己的预警
+        where_clauses.append("(user_id IS NULL OR user_id = ?)")
+        params.append(current_user.id)
+    else:
         # 普通用户：只能看到自己的预警
         where_clauses.append("user_id = ?")
         params.append(current_user.id)

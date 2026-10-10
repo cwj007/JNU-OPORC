@@ -1,0 +1,153 @@
+# === Python & Development ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.manifest
+*.spec
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+cython_debug/
+.pytest_cache/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+cover/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# === IDE & Editors ===
+.idea/
+*.xml
+*.iml
+.vscode/
+.spyderproject
+.spyproject
+.ropeproject
+.DS_Store
+*/.DS_Store
+Thumbs.db
+
+# === Media & Assets ===
+temp_image/
+browser_data/
+MediaCrawler/browser_data/
+MediaCrawler/data/
+MediaCrawler/data/weibo/csv/
+/data/
+agent_zone/
+debug_tools/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.mp4
+*.webm
+
+# === Databases & Cache ===
+*.db
+*.sqlite
+*.sqlite3
+db.sqlite3
+db.sqlite3-journal
+database/*.db
+docs/.vitepress/cache
+.webassets-cache
+.scrapy
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# === Output & Models ===
+model_weights/
+output/
+Transformers/output/
+Trendradar/output/
+/site
+
+# === Browser Caches & Specifics ===
+**/Cache/
+**/Cache_Data/
+**/Code Cache/
+**/Local Storage/
+**/Session Storage/
+**/Service Worker/
+**/IndexedDB/
+**/History*
+**/Cookies
+**/Preferences
+**/Favicons
+**/Top Sites
+**/Visited Links
+**/LOG
+**/LOG.old
+**/*.pma
+**/*.ldb
+**/MANIFEST-*
+**/todelete_*
+**/GPUCache/
+**/ShaderCache/
+**/Dawn*/
+**/GrShaderCache/
+**/Safe Browsing/
+**/Variations
+**/first_party_sets.db
+**/segmentation_platform/
+**/shared_proto_db/
+**/Extension State/
+**/DIPS
+**/Network Action Predictor
+**/TransportSecurity
+**/WebStorage/
+**/SyncData/
+**/Site Characteristics Database/
+**/component_crx_cache/
+
+# === Logs & Misc ===
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.backup
+.refer
+
+# 忽略所有 cache 文件夹
+**/cache/
+
+# 忽略所有 browser_data 文件
+**/browser_data

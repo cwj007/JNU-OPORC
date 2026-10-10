@@ -41,10 +41,10 @@ class VLMHandler:
         if DEVICE == "cuda" and USE_4BIT:
             from transformers import BitsAndBytesConfig
             bnb_config = BitsAndBytesConfig(
-                load_in_4bit=True,
-                bnb_4bit_use_double_quant=True,
-                bnb_4bit_quant_type="nf4",
-                bnb_4bit_compute_dtype=torch.float16
+                load_in_4bit=True, # 开启 4-bit 量化加载
+                bnb_4bit_use_double_quant=True, # 开启双重量化，进一步压缩量化参数的显存占用
+                bnb_4bit_quant_type="nf4",  # 使用 NF4 格式，比常规 FP4 更适合权重分布
+                bnb_4bit_compute_dtype=torch.float16 # 推理时使用半精度计算以加速
             )
             load_params.update({
                 "quantization_config": bnb_config,

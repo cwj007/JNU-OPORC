@@ -23,7 +23,7 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 if torch.cuda.is_available():
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
-    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.benchmark = True  # 开启 cudnn 模式，自动选择最优的算法
 
 # 解决国内网络连接 hf-mirror.com 不稳定的问题
 # 默认开启离线模式，如果本地没有模型权重，请先手动下载或临时关闭此开关
